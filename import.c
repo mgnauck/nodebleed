@@ -6,6 +6,7 @@
 
 #include "gltf.h"
 #include "import.h"
+#include "mat4.h"
 #include "scene.h"
 #include "util.h"
 
@@ -146,6 +147,58 @@ void import_mtl(struct mtl *m, struct gltfmtl *gm)
 	}
 }
 
+void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
+{
+#define STACK_SIZE 64
+	unsigned int gnids[STACK_SIZE];
+	unsigned int snids[STACK_SIZE];
+	
+	gnids[0] = rootid;
+	snids[0] = scene_acquiresnode(s);
+
+	unsigned int spos = 1;
+
+	while (spos > 0) {
+		// Pop next gltf and scene node
+		unsigned int gnid = gnids[--spos];
+		unsigned int snid = snids[spos];
+
+		struct gltfnode *n = &nodes[gnid];
+
+		// Obj reference and flags
+		assert((n->camid < 0) ^ (n->meshid < 0));
+		int objid = n->camid < 0 ? n->meshid : n->camid;
+		unsigned int flags = n->camid < 0 ?
+		  (n->meshid < 0 ? 0 : DF_MESH) : DF_CAM;
+
+		// If any children, acquire and push to stack in reverse order
+		// Direct descendants will be next to each other in mem
+		unsigned int snofs = s->snodecnt;
+		for (int i = 0; i < n->ccnt; i++) {
+			if (scene_acquiresnode(s) < 0)
+				eprintf("failed to acquire snode: %s", n->name);
+			assert(spos < STACK_SIZE);
+			unsigned int child = n->ccnt - i - 1;
+			gnids[spos] = n->children[child];
+			snids[spos++] = snofs + child; 
+		}
+
+		// Calc local node transform
+		float loc[16], scale[16], rot[16], trans[16];
+		mat4_scale(scale, (struct vec3){
+		  n->scale[0], n->scale[1], n->scale[2]});
+		mat4_fromquat(rot, n->rot[0], n->rot[1], n->rot[2], n->rot[3]);
+		mat4_trans(trans, (struct vec3){
+		  n->trans[0], n->trans[1], n->trans[2]});
+		mat4_mul(loc, rot, scale);
+		mat4_mul(loc, trans, loc);
+
+		// Set all data of scene node
+		scene_initsnode(s, snid, n->name, objid, flags,
+		  loc, n->ccnt > 0 ? snofs : 0, n->ccnt);
+	}
+}
+
 int import_data(struct scene *s,
                 const char *gltfbuf, const unsigned char *binbuf)
 {
@@ -173,7 +226,8 @@ int import_data(struct scene *s,
 		import_mtl(
 		  scene_getmtl(s, scene_acquiremtl(s)), &g.mtls[i]);
 
-	// TODO Create nodes
+	for (unsigned int i = 0; i < s->rnodecnt; i++)
+		import_nodes(s, g.nodes, s->rnodes[i]);
 
 	gltf_release(&g);
 

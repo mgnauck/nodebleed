@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -185,7 +186,7 @@ void scene_initsnode(struct scene *s, unsigned int snodeid,
 	s->snodes[snodeid] =
 	  (struct snode){.id = snodeid, .cofs = cofs, .ccnt = ccnt};
 
-	memcpy(&s->nodenames[snodeid * NAME_MAX_LEN], name, strlen(name));
+	memcpy(&s->nodenames[snodeid * NAME_MAX_LEN], name, strlen(name) + 1);
 
 	s->objdata[snodeid] = (struct objdata){.objid = objid, .flags = flags};
 
@@ -212,4 +213,10 @@ struct objdata *scene_getobjdata(struct scene *s, unsigned int snodeid)
 struct transform *scene_gettransform(struct scene *s, unsigned int snodeid)
 {
 	return snodeid < s->snodecnt ? &s->transforms[snodeid] : NULL;
+}
+
+const char *scene_getnodename(struct scene *s, unsigned int snodeid)
+{
+	return snodeid < s->snodecnt ?
+	  &s->nodenames[snodeid * NAME_MAX_LEN] : NULL;
 }

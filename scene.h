@@ -4,10 +4,10 @@
 #include "vec3.h"
 
 // TODO
-// mesh primitive generation
-// mesh subdivision
-// scene animation data/handling
-// scene convert scene data to device data
+// primitive generation
+// subdivision
+// animation data/handling
+// convert host data to device data
 
 #define NAME_MAX_LEN  128
 
@@ -52,7 +52,7 @@ struct cam {
 };
 
 struct mtlinf {
-	unsigned int  mtlid; // Material id
+	unsigned int  mtlid;
 	unsigned int  triofs; // Triangle offset this mtl becomes active
 	unsigned int  tricnt; // Triangle count this mtl is used
 };
@@ -70,7 +70,7 @@ struct mesh {
 };
 
 struct snode {
-	unsigned int  id; // Index into transforms/objdata/nodenames
+	unsigned int  id; // TODO Remove id to self? 
 	unsigned int  cofs; // Child ofs
 	unsigned int  ccnt; // Child cnt
 };
@@ -152,5 +152,6 @@ void              scene_initsnode(struct scene *s, unsigned int snodeid,
 int               scene_findsnode(struct scene *s, const char *name);
 struct objdata    *scene_getobjdata(struct scene *s, unsigned int snodeid);
 struct transform  *scene_gettransform(struct scene *s, unsigned int snodeid);
+const char        *scene_getnodename(struct scene *s, unsigned int snodeid);
 
 #endif
