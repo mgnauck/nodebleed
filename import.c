@@ -10,7 +10,7 @@
 #include "scene.h"
 #include "util.h"
 
-void import_mesh(struct mesh *m, struct gltfmesh *gm, struct gltf *g,
+void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
                  const unsigned char *bin)
 {
 	// Sum number of indices and vertices of each primitive
@@ -27,7 +27,8 @@ void import_mesh(struct mesh *m, struct gltfmesh *gm, struct gltf *g,
 		vcnt += a->cnt;
 	}
 
-	mesh_init(m, vcnt, icnt, gm->primcnt);
+	struct mesh *m = scene_initmesh(s, scene_acquiremesh(s),
+	  vcnt, icnt, gm->primcnt);
 
 	unsigned int mtlofs = 0;
 	for (unsigned int j = 0; j < gm->primcnt; j++) {
@@ -127,14 +128,15 @@ void import_mesh(struct mesh *m, struct gltfmesh *gm, struct gltf *g,
 	}
 }
 
-void import_cam(struct cam *c, struct gltfcam *gc)
+void import_cam(struct scene *s, struct gltfcam *gc)
 {
-	cam_init(c, gc->name, gc->vertfov * 180.0f / PI, 10.0f, 0.0f);
+	scene_initcam(s, scene_acquirecam(s), gc->name,
+	  gc->vertfov * 180.0f / PI, 10.0f, 0.0f);
 }
 
-void import_mtl(struct mtl *m, struct gltfmtl *gm)
+void import_mtl(struct scene *s, struct gltfmtl *gm)
 {
-	mtl_init(m, gm->name,
+	struct mtl *m = scene_initmtl(s, scene_acquiremtl(s), gm->name,
 	  (struct vec3){gm->col[0], gm->col[1], gm->col[2]});
 	m->metallic = gm->metallic;
 	m->roughness = gm->roughness;
@@ -154,7 +156,7 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 	unsigned int snids[STACK_SIZE];
 	
 	gnids[0] = rootid;
-	snids[0] = scene_acquiresnode(s);
+	snids[0] = scene_acquirenode(s, true);
 
 	unsigned int spos = 1;
 
@@ -173,10 +175,10 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 
 		// If any children, acquire and push to stack in reverse order
 		// Direct descendants will be next to each other in mem
-		unsigned int snofs = s->snodecnt;
+		unsigned int snofs = s->nodecnt;
 		for (int i = 0; i < n->ccnt; i++) {
-			if (scene_acquiresnode(s) < 0)
-				eprintf("failed to acquire snode: %s", n->name);
+			if (scene_acquirenode(s, false) < 0)
+				eprintf("failed to acquire node: %s", n->name);
 			assert(spos < STACK_SIZE);
 			unsigned int child = n->ccnt - i - 1;
 			gnids[spos] = n->children[child];
@@ -194,7 +196,7 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 		mat4_mul(loc, trans, loc);
 
 		// Set all data of scene node
-		scene_initsnode(s, snid, n->name, objid, flags,
+		scene_initnode(s, snid, n->name, objid, flags,
 		  loc, n->ccnt > 0 ? snofs : 0, n->ccnt);
 	}
 }
@@ -210,24 +212,17 @@ int import_data(struct scene *s,
 
 	scene_init(s, g.meshcnt, g.mtlcnt, g.camcnt, g.rootcnt, g.nodecnt);
 
-	for (unsigned int i = 0; i < g.rootcnt; i++)
-		scene_initrnode(s, g.roots[i]);
-
 	for (unsigned int i = 0; i < g.meshcnt; i++)
-		import_mesh(
-		  scene_getmesh(s, scene_acquiremesh(s)),
-		  &g.meshes[i], &g, binbuf);
+		import_mesh(s, &g.meshes[i], &g, binbuf);
 
 	for (unsigned int i = 0; i < g.camcnt; i++)
-		import_cam(
-		  scene_getcam(s, scene_acquirecam(s)), &g.cams[i]);
+		import_cam(s, &g.cams[i]);
 
 	for (unsigned int i = 0; i < g.mtlcnt; i++)
-		import_mtl(
-		  scene_getmtl(s, scene_acquiremtl(s)), &g.mtls[i]);
+		import_mtl(s, &g.mtls[i]);
 
-	for (unsigned int i = 0; i < s->rnodecnt; i++)
-		import_nodes(s, g.nodes, s->rnodes[i]);
+	for (unsigned int i = 0; i < g.rootcnt; i++)
+		import_nodes(s, g.nodes, g.roots[i]);
 
 	gltf_release(&g);
 

@@ -1,6 +1,7 @@
 #ifndef SCENE_H
 #define SCENE_H
 
+#include <stdbool.h>
 #include "vec3.h"
 
 // TODO
@@ -40,7 +41,6 @@ struct mtl {
 	float         roughness; // Perfect reflection to completely diffuse diffuse (0 - 1)
 	float         ior; // Index of refraction
 	unsigned int  flags; // As per mtlflags
-	char          name[NAME_MAX_LEN];
 };
 
 struct cam {
@@ -48,7 +48,6 @@ struct cam {
 	float         focdist;
 	float         focangle;
 	unsigned int  nodeid;
-	char          name[NAME_MAX_LEN];
 };
 
 struct mtlinf {
@@ -69,7 +68,7 @@ struct mesh {
 	struct mtlinf  *mtls;
 };
 
-struct snode {
+struct node {
 	unsigned int  id; // TODO Remove id to self? 
 	unsigned int  cofs; // Child ofs
 	unsigned int  ccnt; // Child cnt
@@ -98,16 +97,17 @@ struct scene {
 	unsigned int      camcnt;
 	struct cam        *cams;
 	
-	unsigned int      rnodemax;
-	unsigned int      rnodecnt;
-	unsigned int      *rnodes;
+	unsigned int      rootmax;
+	unsigned int      rootcnt;
+	unsigned int      *roots;
 	
-	unsigned int      snodemax;
-	unsigned int      snodecnt;
-	struct snode      *snodes;
+	unsigned int      nodemax;
+	unsigned int      nodecnt;
+	struct node       *nodes;
 	struct transform  *transforms;
 	struct objdata    *objdata;
-	char              *nodenames;
+
+	char              *names;
 
 	unsigned int      currcam;
 
@@ -116,42 +116,38 @@ struct scene {
 	unsigned int      dirty;
 };
 
-void              mtl_init(struct mtl *m, const char *name, struct vec3 col);
-
-void              cam_init(struct cam *c, const char *name, float vertfov,
-                           float focdist, float focangle);
-              
-void              mesh_init(struct mesh *m,
-                            unsigned int vcnt, unsigned int icnt,
-                            unsigned int mcnt);
-void              mesh_release(struct mesh *m);
-
 void              scene_init(struct scene *s, unsigned int maxmeshes,
                              unsigned int maxmtls, unsigned int maxcams,
                              unsigned int maxrnodes, unsigned int maxsnodes);
 void              scene_release(struct scene *s);
 
-int               scene_acquiremesh(struct scene *s);
-struct mesh       *scene_getmesh(struct scene *s, unsigned int id);
-
 int               scene_acquiremtl(struct scene *s);
+struct mtl        *scene_initmtl(struct scene *s, unsigned int id,
+                                 const char *name, struct vec3 col);
 struct mtl        *scene_getmtl(struct scene *s, unsigned int id);
-struct mtl        *scene_findmtl(struct scene *s, const char *name);
+int               scene_findmtl(struct scene *s, const char *name);
 
 int               scene_acquirecam(struct scene *s);
+struct cam        *scene_initcam(struct scene *s, unsigned int id,
+                                const char *name, float vertfov, float focdist,
+                                float focangle);
 struct cam        *scene_getcam(struct scene *s, unsigned int id);
-struct cam        *scene_findcam(struct scene *s, const char *name);
+int               scene_findcam(struct scene *s, const char *name);
 
-int               scene_initrnode(struct scene *s, unsigned int snodeid);
+int               scene_acquiremesh(struct scene *s);
+struct mesh       *scene_initmesh(struct scene *s, unsigned int id,
+                                 unsigned int vcnt, unsigned int icnt,
+                                 unsigned int mcnt);
+struct mesh       *scene_getmesh(struct scene *s, unsigned int id);
 
-int               scene_acquiresnode(struct scene *s);
-void              scene_initsnode(struct scene *s, unsigned int snodeid, 
+int               scene_acquirenode(struct scene *s, bool isroot);
+void              scene_initnode(struct scene *s, unsigned int id,
                                   const char *name, int objid,
                                   unsigned int flags, float local[16],
                                   unsigned int cofs, unsigned int ccnt);
-int               scene_findsnode(struct scene *s, const char *name);
-struct objdata    *scene_getobjdata(struct scene *s, unsigned int snodeid);
-struct transform  *scene_gettransform(struct scene *s, unsigned int snodeid);
-const char        *scene_getnodename(struct scene *s, unsigned int snodeid);
+int               scene_findnode(struct scene *s, const char *name);
+struct objdata    *scene_getobjdata(struct scene *s, unsigned int id);
+struct transform  *scene_gettransform(struct scene *s, unsigned int id);
+const char        *scene_getnodename(struct scene *s, unsigned int id);
 
 #endif

@@ -23,8 +23,8 @@ int main(int argc, char *argv[])
 	if (import_gltf(&s, "../data/test.gltf", "../data/test.bin") != 0)
 		printf("Failed to import gltf\n");
 
-	printf("imported scene with %d meshes, %d mtls, %d cams, %d rnodes, %d snodes\n",
-	  s.meshcnt, s.mtlcnt, s.camcnt, s.rnodecnt, s.snodecnt);
+	printf("imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
+	  s.meshcnt, s.mtlcnt, s.camcnt, s.rootcnt, s.nodecnt);
 
 	scene_release(&s);
 
