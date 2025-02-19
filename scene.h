@@ -12,27 +12,19 @@
 
 #define NAME_MAX_LEN  128
 
-enum dflags {
-	DF_MESH = 0x1,
-	DF_CAM  = 0x2,
-	DF_MTL  = 0x4,
-};
+enum flags {
+	// Types
+	MESH         = 0x0001,
+	CAM          = 0x0002,
+	MTL          = 0x0004,
 
-enum mtlflags {
-	MF_REFRACTIVE = 0x1,
-	MF_EMISSIVE   = 0x2,
-};
-
-enum nflags {
-	// Obj types
-	SN_MESH       = 0x01,
-	SN_CAM        = 0x02,
-	// States
-	SN_DISABLED   = 0x0f,
-	SN_STATIC     = 0x1f,
-	SN_INVISIBLE  = 0x2f,
-	SN_NO_SHADOW  = 0x3f,
-	SN_EMISSIVE   = 0x4f,
+	// State/behaviour
+	DISABLED    = 0x0100,
+	DYNAMIC     = 0x0200,
+	INVISIBLE   = 0x0400,
+	NOSHADOW    = 0x0800,
+	EMISSIVE    = 0x1000,
+	REFRACTIVE  = 0x2000,
 };
 
 struct mtl {
@@ -40,7 +32,7 @@ struct mtl {
 	float         metallic; // Appearance range from dielectric to conductor (0 - 1)
 	float         roughness; // Perfect reflection to completely diffuse diffuse (0 - 1)
 	float         ior; // Index of refraction
-	unsigned int  flags; // As per mtlflags
+	unsigned int  flags;
 };
 
 struct cam {
@@ -66,6 +58,8 @@ struct mesh {
 
 	unsigned int   mcnt;
 	struct mtlinf  *mtls;
+
+	unsigned int   flags;
 };
 
 struct node {

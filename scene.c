@@ -56,7 +56,7 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 
 	s->bgcol = (struct vec3){ 0.0f, 0.0f, 0.0f };
 
-	s->dirty = DF_MESH | DF_MTL | DF_CAM;
+	s->dirty = MESH | MTL | CAM;
 }
 
 void scene_release(struct scene *s)
@@ -106,7 +106,7 @@ struct mtl *scene_initmtl(struct scene *s, unsigned int id,
 	  .metallic = 0.0f,
 	  .roughness = 0.5f,
 	  .ior = 1.5f,
-	  .flags = 0x0};
+	  .flags = 0};
 
 	setname(s, name, 0);
 
@@ -176,6 +176,8 @@ struct mesh *scene_initmesh(struct scene *s, unsigned int id,
 	m->vcnt = 0; // Nothing added yet
 	m->icnt = 0;
 	m->mcnt = 0;
+
+	m->flags = 0;
 
 	return m;
 }
