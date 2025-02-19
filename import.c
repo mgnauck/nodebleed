@@ -36,7 +36,7 @@ void import_mtl(struct mtl *m, struct gltfmtl *gm)
 		  gm->emission[0], gm->emission[1], gm->emission[2]};
 }
 
-void import_mesh(struct mesh *m, struct gltfmesh *gm, struct gltf *g,
+void import_mesh(struct mesh *m, struct mtl *mtls, struct gltfmesh *gm, struct gltf *g,
                  const unsigned char *bin)
 {
 	// Sum number of indices and vertices of each primitive
@@ -147,8 +147,8 @@ void import_mesh(struct mesh *m, struct gltfmesh *gm, struct gltf *g,
 			np++;
 		}
 
-		// Track mtl flags at mesh
-		setflags(&m->flags, getmtlflags(&g->mtls[p->mtlid]));
+		// Track consolidated mtl flags at mesh
+		setflags(&m->flags, mtls[p->mtlid].flags); 
 
 		// Primitive's material
 		m->mtls[j] = (struct mtlinf){p->mtlid, mtlofs, iacc->cnt / 3};
@@ -175,10 +175,15 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 		struct gltfnode *n = &nodes[gnid];
 
 		// Obj reference and flags
-		assert((n->camid < 0) ^ (n->meshid < 0));
 		int objid = n->camid < 0 ? n->meshid : n->camid;
-		unsigned int flags = n->camid < 0 ?
-		  (n->meshid < 0 ? 0 : MESH) : CAM;
+
+		unsigned int flags = 0;
+		setflags(&flags, n->camid < 0 ? 0 : CAM);
+		if (n->meshid >= 0) {
+			setflags(&flags, MESH);
+			// Track mesh flags at mesh node
+			setflags(&flags, s->meshes[n->meshid].flags);
+		}
 
 		// If any children, acquire and push to stack in reverse order
 		// Direct descendants will be next to each other in mem
@@ -219,14 +224,6 @@ int import_data(struct scene *s,
 
 	scene_init(s, g.meshcnt, g.mtlcnt, g.camcnt, g.rootcnt, g.nodecnt);
 
-	for (unsigned int i = 0; i < g.rootcnt; i++)
-		scene_initrnode(s, g.roots[i]);
-
-	for (unsigned int i = 0; i < g.meshcnt; i++)
-		import_mesh(
-		  scene_getmesh(s, scene_acquiremesh(s)),
-		  &g.meshes[i], &g, binbuf);
-
 	for (unsigned int i = 0; i < g.camcnt; i++)
 		import_cam(
 		  scene_getcam(s, scene_acquirecam(s)), &g.cams[i]);
@@ -234,6 +231,14 @@ int import_data(struct scene *s,
 	for (unsigned int i = 0; i < g.mtlcnt; i++)
 		import_mtl(
 		  scene_getmtl(s, scene_acquiremtl(s)), &g.mtls[i]);
+
+	for (unsigned int i = 0; i < g.meshcnt; i++)
+		import_mesh(
+		  scene_getmesh(s, scene_acquiremesh(s)),
+		  s->mtls, &g.meshes[i], &g, binbuf);
+
+	for (unsigned int i = 0; i < g.rootcnt; i++)
+		scene_initrnode(s, g.roots[i]);
 
 	for (unsigned int i = 0; i < s->rnodecnt; i++)
 		import_nodes(s, g.nodes, s->rnodes[i]);
