@@ -10,6 +10,32 @@
 #include "scene.h"
 #include "util.h"
 
+void import_cam(struct cam *c, struct gltfcam *gc)
+{
+	cam_init(c, gc->name, gc->vertfov * 180.0f / PI, 10.0f, 0.0f);
+}
+
+unsigned int getmtlflags(struct gltfmtl *gm)
+{
+	unsigned int flags = 0;
+	setflags(&flags, gm->refractive ? REFRACTIVE : 0);
+	setflags(&flags,
+	  gm->emission[0] + gm->emission[1] + gm->emission[2] > 0.0f ? EMISSIVE : 0);
+	return flags;
+}
+
+void import_mtl(struct mtl *m, struct gltfmtl *gm)
+{
+	mtl_init(m, gm->name,
+	  (struct vec3){gm->col[0], gm->col[1], gm->col[2]});
+	m->metallic = gm->metallic;
+	m->roughness = gm->roughness;
+	m->flags = getmtlflags(gm);
+	if (hasflags(m->flags, EMISSIVE))
+		m->col = (struct vec3){
+		  gm->emission[0], gm->emission[1], gm->emission[2]};
+}
+
 void import_mesh(struct mesh *m, struct gltfmesh *gm, struct gltf *g,
                  const unsigned char *bin)
 {
@@ -121,29 +147,12 @@ void import_mesh(struct mesh *m, struct gltfmesh *gm, struct gltf *g,
 			np++;
 		}
 
+		// Track mtl flags at mesh
+		setflags(&m->flags, getmtlflags(&g->mtls[p->mtlid]));
+
 		// Primitive's material
 		m->mtls[j] = (struct mtlinf){p->mtlid, mtlofs, iacc->cnt / 3};
 		mtlofs += iacc->cnt / 3;
-	}
-}
-
-void import_cam(struct cam *c, struct gltfcam *gc)
-{
-	cam_init(c, gc->name, gc->vertfov * 180.0f / PI, 10.0f, 0.0f);
-}
-
-void import_mtl(struct mtl *m, struct gltfmtl *gm)
-{
-	mtl_init(m, gm->name,
-	  (struct vec3){gm->col[0], gm->col[1], gm->col[2]});
-	m->metallic = gm->metallic;
-	m->roughness = gm->roughness;
-	if (gm->refractive > 0.99f)
-		setflags(&m->flags, MF_REFRACTIVE);
-	if (gm->emission[0] + gm->emission[1] + gm->emission[2] > 0.0f) {
-		m->col = (struct vec3){
-		  gm->emission[0], gm->emission[1], gm->emission[2]};
-		setflags(&m->flags, MF_EMISSIVE);
 	}
 }
 
@@ -169,7 +178,7 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 		assert((n->camid < 0) ^ (n->meshid < 0));
 		int objid = n->camid < 0 ? n->meshid : n->camid;
 		unsigned int flags = n->camid < 0 ?
-		  (n->meshid < 0 ? 0 : DF_MESH) : DF_CAM;
+		  (n->meshid < 0 ? 0 : MESH) : CAM;
 
 		// If any children, acquire and push to stack in reverse order
 		// Direct descendants will be next to each other in mem

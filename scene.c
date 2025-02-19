@@ -85,7 +85,7 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 
 	s->bgcol = (struct vec3){ 0.0f, 0.0f, 0.0f };
 
-	s->dirty = DF_MESH | DF_MTL | DF_CAM;
+	s->dirty = MESH | MTL | CAM;
 }
 
 void scene_release(struct scene *s)

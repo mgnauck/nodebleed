@@ -114,7 +114,7 @@ void clrflags(unsigned int *state, unsigned int flags)
 	*state &= ~flags;
 }
 
-bool hasflags(unsigned int *state, unsigned int flags)
+bool hasflags(unsigned int state, unsigned int flags)
 {
-	return (*state & flags) == flags;
+	return (state & flags) == flags;
 }

@@ -27,6 +27,6 @@ float     pcg_randfrng(float start, float end);
 
 void      setflags(unsigned int *state, unsigned int flags);
 void      clrflags(unsigned int *state, unsigned int flags);
-bool      hasflags(unsigned int *state, unsigned int flags);
+bool      hasflags(unsigned int state, unsigned int flags);
 
 #endif
