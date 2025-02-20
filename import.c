@@ -15,7 +15,8 @@ unsigned int getmtlflags(struct gltfmtl *gm)
 	unsigned int flags = 0;
 	setflags(&flags, gm->refractive ? REFRACTIVE : 0);
 	setflags(&flags,
-	  gm->emission[0] + gm->emission[1] + gm->emission[2] > 0.0f ? EMISSIVE : 0);
+	  gm->emission[0] + gm->emission[1] + gm->emission[2] > 0.0f ?
+	  EMISSIVE : 0);
 	return flags;
 }
 
@@ -166,6 +167,9 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 	
 	gnids[0] = rootid;
 	snids[0] = scene_acquirenode(s, true);
+	
+	if (snids[0] < 0)
+		eprintf("failed to acquire node: %s", nodes[rootid].name);
 
 	unsigned int spos = 1;
 
@@ -190,7 +194,7 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 		// If any children, acquire and push to stack in reverse order
 		// Direct descendants will be next to each other in mem
 		unsigned int snofs = s->nodecnt;
-		for (int i = 0; i < n->ccnt; i++) {
+		for (unsigned int i = 0; i < n->ccnt; i++) {
 			if (scene_acquirenode(s, false) < 0)
 				eprintf("failed to acquire node: %s", n->name);
 			assert(spos < STACK_SIZE);

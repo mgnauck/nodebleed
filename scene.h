@@ -123,22 +123,23 @@ int               scene_findmtl(struct scene *s, const char *name);
 
 int               scene_acquirecam(struct scene *s);
 struct cam        *scene_initcam(struct scene *s, unsigned int id,
-                                const char *name, float vertfov, float focdist,
-                                float focangle);
+                                 const char *name, float vertfov, float focdist,
+                                 float focangle);
 struct cam        *scene_getcam(struct scene *s, unsigned int id);
 int               scene_findcam(struct scene *s, const char *name);
 
 int               scene_acquiremesh(struct scene *s);
 struct mesh       *scene_initmesh(struct scene *s, unsigned int id,
-                                 unsigned int vcnt, unsigned int icnt,
-                                 unsigned int mcnt);
+                                  unsigned int vcnt, unsigned int icnt,
+                                  unsigned int mcnt);
 struct mesh       *scene_getmesh(struct scene *s, unsigned int id);
 
 int               scene_acquirenode(struct scene *s, bool isroot);
 void              scene_initnode(struct scene *s, unsigned int id,
-                                  const char *name, int objid,
-                                  unsigned int flags, float local[16],
-                                  unsigned int cofs, unsigned int ccnt);
+                                 const char *name, int objid,
+                                 unsigned int flags, float local[16],
+                                 unsigned int cofs, unsigned int ccnt);
+struct node       *scene_getnode(struct scene *s, unsigned int id);
 int               scene_findnode(struct scene *s, const char *name);
 struct objdata    *scene_getobjdata(struct scene *s, unsigned int id);
 struct transform  *scene_gettransform(struct scene *s, unsigned int id);

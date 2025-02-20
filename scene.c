@@ -49,8 +49,8 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 	s->objdata = emalloc(maxnodes * sizeof(*s->objdata));
 	s->transforms = emalloc(maxnodes * sizeof(*s->transforms));
 
-	unsigned int maxnames = maxmtls + maxcams + maxnodes; 
-	s->names = emalloc(maxnames * NAME_MAX_LEN * sizeof(*s->names));
+	s->names = emalloc((maxmtls + maxcams + maxnodes) *
+	                   NAME_MAX_LEN * sizeof(*s->names));
 	
 	s->currcam = 0;
 
@@ -97,18 +97,19 @@ int scene_acquiremtl(struct scene *s)
 struct mtl *scene_initmtl(struct scene *s, unsigned int id,
                   const char *name, struct vec3 col)
 {
-	assert(id < s->mtlcnt);
 	assert(strlen(name) < NAME_MAX_LEN);
 
-	struct mtl *m = &s->mtls[id];
-	*m = (struct mtl){
-	  .col = col,
-	  .metallic = 0.0f,
-	  .roughness = 0.5f,
-	  .ior = 1.5f,
-	  .flags = 0};
+	struct mtl *m = scene_getmtl(s, id);
+	if (m) {
+		*m = (struct mtl){
+		  .col = col,
+		  .metallic = 0.0f,
+	 	 .roughness = 0.5f,
+	 	 .ior = 1.5f,
+		 .flags = 0};
 
-	setname(s, name, 0);
+		setname(s, name, 0);
+	}
 
 	return m;
 }
@@ -132,16 +133,17 @@ struct cam *scene_initcam(struct scene *s, unsigned int id,
                   const char *name, float vertfov,
                   float focdist, float focangle)
 {
-	assert(id < s->camcnt);
 	assert(strlen(name) < NAME_MAX_LEN);
 
-	struct cam *c = &s->cams[id];
-	*c = (struct cam){
-	  .vertfov = vertfov,
-	  .focdist = focdist,
-	  .focangle = focangle};
+	struct cam *c = scene_getcam(s, id);
+	if (c) {
+		*c = (struct cam){
+		  .vertfov = vertfov,
+		  .focdist = focdist,
+		  .focangle = focangle};
 
-	setname(s, name, s->mtlmax);
+		setname(s, name, s->mtlmax);
+	}
 
 	return c;
 }
@@ -164,20 +166,19 @@ int scene_acquiremesh(struct scene *s)
 struct mesh *scene_initmesh(struct scene *s, unsigned int id,
                    unsigned int vcnt, unsigned int icnt, unsigned int mcnt)
 {
-	assert(id < s->meshcnt);
+	struct mesh *m = scene_getmesh(s, id);
+	if (m) {
+		m->vrts = emalloc(vcnt * sizeof(*m->vrts));
+		m->nrms = emalloc(vcnt * sizeof(*m->nrms));
+		m->inds = emalloc(icnt * sizeof(*m->inds));
+		m->mtls = emalloc(mcnt * sizeof(*m->mtls));
 
-	struct mesh *m = &s->meshes[id];
+		m->vcnt = 0; // Nothing added yet
+		m->icnt = 0;
+		m->mcnt = 0;
 
-	m->vrts = emalloc(vcnt * sizeof(*m->vrts));
-	m->nrms = emalloc(vcnt * sizeof(*m->nrms));
-	m->inds = emalloc(icnt * sizeof(*m->inds));
-	m->mtls = emalloc(mcnt * sizeof(*m->mtls));
-
-	m->vcnt = 0; // Nothing added yet
-	m->icnt = 0;
-	m->mcnt = 0;
-
-	m->flags = 0;
+		m->flags = 0;
+	}
 
 	return m;
 }
@@ -205,19 +206,26 @@ void scene_initnode(struct scene *s, unsigned int id,
                     unsigned int flags, float local[16],
                     unsigned int cofs, unsigned int ccnt)
 {
-	assert(id < s->nodecnt);
 	assert(strlen(name) < NAME_MAX_LEN);
 
-	s->nodes[id] = (struct node){
-	  .id = id, .cofs = cofs, .ccnt = ccnt};
+	struct node *n = scene_getnode(s, id);
+	if (n) {
+		*n = (struct node){.id = id, .cofs = cofs, .ccnt = ccnt};
+		setname(s, name, s->mtlmax + s->cammax);
+	}
 
-	s->objdata[id] = (struct objdata){
-	  .objid = objid, .flags = flags};
+	struct objdata *o = scene_getobjdata(s, id);
+	if (o)
+		*o = (struct objdata){.objid = objid, .flags = flags};
 
-	struct transform *t = &s->transforms[id];
-	memcpy(t->loc, local, sizeof(t->loc));
+	struct transform *t = scene_gettransform(s, id);
+	if (t)
+		memcpy(t->loc, local, sizeof(t->loc));
+}
 
-	setname(s, name, s->mtlmax + s->cammax);
+struct node *scene_getnode(struct scene *s, unsigned int id)
+{
+	return id < s->nodecnt ? &s->nodes[id] : NULL;
 }
 
 int scene_findnode(struct scene *s, const char *name)
@@ -238,6 +246,5 @@ struct transform *scene_gettransform(struct scene *s, unsigned int id)
 const char *scene_getnodename(struct scene *s, unsigned int id)
 {
 	return id < s->nodecnt ?
-	  &s->names[(s->mtlmax + s->cammax + id) * NAME_MAX_LEN] :
-	  NULL;
+	  &s->names[(s->mtlmax + s->cammax + id) * NAME_MAX_LEN] : NULL;
 }
