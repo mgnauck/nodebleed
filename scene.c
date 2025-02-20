@@ -201,7 +201,7 @@ int scene_acquirenode(struct scene *s, bool isroot)
 	return id;
 }
 
-void scene_initnode(struct scene *s, unsigned int id,
+struct node *scene_initnode(struct scene *s, unsigned int id,
                     const char *name, int objid,
                     unsigned int flags, float local[16],
                     unsigned int cofs, unsigned int ccnt)
@@ -211,16 +211,17 @@ void scene_initnode(struct scene *s, unsigned int id,
 	struct node *n = scene_getnode(s, id);
 	if (n) {
 		*n = (struct node){.id = id, .cofs = cofs, .ccnt = ccnt};
-		setname(s, name, s->mtlmax + s->cammax);
-	}
 
-	struct objdata *o = scene_getobjdata(s, id);
-	if (o)
+		struct objdata *o = scene_getobjdata(s, id);
 		*o = (struct objdata){.objid = objid, .flags = flags};
 
-	struct transform *t = scene_gettransform(s, id);
-	if (t)
+		struct transform *t = scene_gettransform(s, id);
 		memcpy(t->loc, local, sizeof(t->loc));
+
+		setname(s, name, s->mtlmax + s->cammax + id);
+	}
+
+	return n;
 }
 
 struct node *scene_getnode(struct scene *s, unsigned int id)

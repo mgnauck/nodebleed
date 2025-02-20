@@ -135,7 +135,7 @@ struct mesh       *scene_initmesh(struct scene *s, unsigned int id,
 struct mesh       *scene_getmesh(struct scene *s, unsigned int id);
 
 int               scene_acquirenode(struct scene *s, bool isroot);
-void              scene_initnode(struct scene *s, unsigned int id,
+struct node       *scene_initnode(struct scene *s, unsigned int id,
                                  const char *name, int objid,
                                  unsigned int flags, float local[16],
                                  unsigned int cofs, unsigned int ccnt);
