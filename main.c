@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "import.h"
+#include "rend.h"
 #include "scene.h"
 #include "util.h"
 
@@ -25,6 +26,10 @@ int main(int argc, char *argv[])
 
 	printf("imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
 	  s.meshcnt, s.mtlcnt, s.camcnt, s.rootcnt, s.nodecnt);
+
+	struct rdata *rd = rend_init(&s);
+
+	rend_release(rd);
 
 	scene_release(&s);
 

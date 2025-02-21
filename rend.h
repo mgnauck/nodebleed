@@ -1,5 +1,5 @@
-#ifndef RDATA_H
-#define RDATA_H
+#ifndef REND_H
+#define REND_H
 
 #include <stdint.h>
 #include "vec3.h"
@@ -56,8 +56,9 @@ struct rdata {
 	struct rinst  *insts;
 };
 
-void  rd_init(struct rdata *rd, unsigned int maxmtls,
-              unsigned int maxtris, unsigned int maxinsts);
-void  rd_release(struct rdata *rd);
+struct scene;
+
+struct rdata  *rend_init(const struct scene *s);
+void          rend_release(struct rdata *rd);
 
 #endif
