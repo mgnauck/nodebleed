@@ -70,33 +70,34 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		}
 
 		struct gltfbufview *ibv = &g->bufviews[iacc->bufview];
-		unsigned int *ip = m->inds;
-		const unsigned char *b = bin + ibv->byteofs;
+		unsigned int *ip = m->inds + m->icnt;
+		const unsigned char *bi = bin + ibv->byteofs;
 		if (iacc->comptype == 5121) {
 			uint8_t v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
-				memcpy(&v, b, sizeof(v));
-				b += sizeof(v);
+				memcpy(&v, bi, sizeof(v));
+				bi += sizeof(v);
 				*ip++ = v;
 			}
 		} else if (iacc->comptype == 5123) {
 			uint16_t v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
-				memcpy(&v, b, sizeof(v));
-				b += sizeof(v);
+				memcpy(&v, bi, sizeof(v));
+				bi += sizeof(v);
 				*ip++ = v;
 			}
 		} else if(iacc->comptype == 5125) {
 			uint32_t v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
-				memcpy(&v, b, sizeof(v));
-				b += sizeof(v);
+				memcpy(&v, bi, sizeof(v));
+				bi += sizeof(v);
 				*ip++ = v;
 			}
 		} else {
-		    printf("Expected index buffer with byte, short or int components. Ignoring primitive.\n");
-		    continue;
-		} 
+			printf("Expected index buffer with byte, short or int components. Ignoring primitive.\n");
+			continue;
+		}
+		m->icnt += ip - m->inds + m->icnt;
 
 		// Vertices
 		struct gltfaccessor *vacc = &g->accessors[p->posid];
@@ -107,21 +108,8 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 
 		struct gltfbufview *vbv = &g->bufviews[vacc->bufview];
 		if (vacc->comptype != 5126) { // 5126 = float
-		    printf("Expected vertex buffer with float components. Ignoring primitive.\n");
-		    continue;
-		}
-
-		struct vec3 *vp = m->vrts;
-		b = bin + vbv->byteofs;
-		assert(sizeof(vp->x) == 4);
-		for (unsigned int i = 0; i < vacc->cnt; i++) {
-			memcpy(&vp->x, b, sizeof(vp->x));
-			b += sizeof(vp->x);
-			memcpy(&vp->y, b, sizeof(vp->y));
-			b += sizeof(vp->y);
-			memcpy(&vp->z, b, sizeof(vp->z));
-			b += sizeof(vp->z);
-			vp++;
+			printf("Expected vertex buffer with float components. Ignoring primitive.\n");
+			continue;
 		}
 
 		// Normals
@@ -133,21 +121,37 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 
 		struct gltfbufview *nbv = &g->bufviews[nacc->bufview];
 		if (nacc->comptype != 5126) { // 5126 = float
-		    printf("Expected normals buffer with float components. Ignoring primitive.\n");
-		    continue;
+			printf("Expected normals buffer with float components. Ignoring primitive.\n");
+			continue;
 		}
 
-		struct vec3 *np = m->nrms;
-		b = bin + nbv->byteofs;
+		// Vertex cnt == normal cnt in primitive
+		assert(vacc->cnt == nacc->cnt);
+
+		struct vec3 *vp = m->vrts + m->vcnt;
+		assert(sizeof(vp->x) == 4);
+		struct vec3 *np = m->nrms + m->vcnt; // No extra normal count in mesh
 		assert(sizeof(np->x) == 4);
-		for (unsigned int i = 0; i < nacc->cnt; i++) {
-			memcpy(&np->x, b, sizeof(np->x));
-			b += sizeof(np->x);
-			memcpy(&np->y, b, sizeof(np->y));
-			b += sizeof(np->y);
-			memcpy(&np->z, b, sizeof(np->z));
-			b += sizeof(np->z);
+		const unsigned char *bv = bin + vbv->byteofs;
+		const unsigned char *bn = bin + nbv->byteofs;
+		for (unsigned int i = 0; i < vacc->cnt; i++) {
+			memcpy(&vp->x, bv, sizeof(vp->x));
+			bv += sizeof(vp->x);
+			memcpy(&vp->y, bv, sizeof(vp->y));
+			bv += sizeof(vp->y);
+			memcpy(&vp->z, bv, sizeof(vp->z));
+			bv += sizeof(vp->z);
+			vp++;
+
+			memcpy(&np->x, bn, sizeof(np->x));
+			bn += sizeof(np->x);
+			memcpy(&np->y, bn, sizeof(np->y));
+			bn += sizeof(np->y);
+			memcpy(&np->z, bn, sizeof(np->z));
+			bn += sizeof(np->z);
 			np++;
+
+			m->vcnt++;
 		}
 
 		// Track consolidated mtl flags at mesh
@@ -155,6 +159,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 
 		// Primitive's material
 		m->mtls[j] = (struct mtlinf){p->mtlid, mtlofs, iacc->cnt / 3};
+		m->mcnt++;
 		mtlofs += iacc->cnt / 3;
 	}
 }
