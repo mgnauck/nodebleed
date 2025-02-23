@@ -56,9 +56,8 @@ struct rdata {
 	struct rinst  *insts;
 };
 
-struct scene;
-
-struct rdata  *rend_init(const struct scene *s);
-void          rend_release(struct rdata *rd);
+void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
+                unsigned int maxinsts);
+void  rend_release(struct rdata *rd);
 
 #endif
