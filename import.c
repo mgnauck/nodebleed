@@ -58,7 +58,6 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 	struct mesh *m = scene_initmesh(s, scene_acquiremesh(s),
 	  vcnt, icnt, gm->primcnt);
 
-	unsigned int mtlofs = 0;
 	for (unsigned int j = 0; j < gm->primcnt; j++) {
 		struct gltfprim *p = &gm->prims[j];
 
@@ -158,9 +157,8 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		setflags(&m->flags, s->mtls[p->mtlid].flags); 
 
 		// Primitive's material
-		m->mtls[j] = (struct mtlinf){p->mtlid, mtlofs, iacc->cnt / 3};
+		m->mtls[j] = (struct mtlref){p->mtlid, iacc->cnt / 3};
 		m->mcnt++;
-		mtlofs += iacc->cnt / 3;
 	}
 }
 

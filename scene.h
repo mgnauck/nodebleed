@@ -42,9 +42,8 @@ struct cam {
 	unsigned int  nodeid;
 };
 
-struct mtlinf {
+struct mtlref {
 	unsigned int  mtlid;
-	unsigned int  triofs; // Triangle offset this mtl becomes active
 	unsigned int  tricnt; // Triangle count this mtl is used
 };
 
@@ -57,7 +56,7 @@ struct mesh {
 	unsigned int   *inds;
 
 	unsigned int   mcnt;
-	struct mtlinf  *mtls;
+	struct mtlref  *mtls;
 
 	unsigned int   flags;
 };

@@ -8,7 +8,7 @@
 #include "scene.h"
 #include "util.h"
 
-void print_type_sizes(void)
+void print_typesz(void)
 {
 	printf("sizeof(void *): %ld\n", sizeof(void *));
 	printf("sizeof(float): %ld\n", sizeof(float));
@@ -49,18 +49,18 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 	// Copy meshes
 	for (unsigned int k = 0; k < s->meshcnt; k++) {
 		printf("--- mesh with ofs: %d\n", ofs);
-		struct mesh *m = &s->meshes[k];
+		struct mesh *m = scene_getmesh(s, k);
 		unsigned int *ip = m->inds;
 		for (unsigned int j = 0; j < m->mcnt; j++) {
-			struct mtlinf *mi = &m->mtls[j];
-			for (unsigned int i = 0; i < mi->tricnt; i++) {
+			struct mtlref *mr = &m->mtls[j];
+			for (unsigned int i = 0; i < mr->tricnt; i++) {
 				memcpy(&rt->v0, &m->vrts[*(ip + 0)], sizeof(rt->v0));
 				memcpy(&rt->v1, &m->vrts[*(ip + 1)], sizeof(rt->v1));
 				memcpy(&rt->v2, &m->vrts[*(ip + 2)], sizeof(rt->v2));
 				memcpy(&rn->n0, &m->nrms[*(ip + 0)], sizeof(rn->n0));
 				memcpy(&rn->n1, &m->nrms[*(ip + 1)], sizeof(rn->n1));
 				memcpy(&rn->n2, &m->nrms[*(ip + 2)], sizeof(rn->n2));
-				rn->mtlid = mi->mtlid;
+				rn->mtlid = mr->mtlid;
 				ip += 3;
 				rt++;
 				rn++;
@@ -72,12 +72,12 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 
 	// Copy mtls
 	for (unsigned int i = 0; i < s->mtlcnt; i++)
-		memcpy(&rd->mtls[i], &s->mtls[i], sizeof(*s->mtls));
+		memcpy(&rd->mtls[i], scene_getmtl(s, i), sizeof(*s->mtls));
 
 	// TODO Create instances from mesh nodes
 }
 
-void cpy_glob_transforms()
+void cpy_globtransforms(struct rdata *rd, struct scene *s)
 {
 	// TODO
 }
@@ -87,7 +87,7 @@ void set_rcam(struct rcam *rc, struct cam *c, float transform[16])
 	*rc = (struct rcam){
 	  .vfov = c->vertfov, .focangle = c->focangle, .focdist = c->focdist};
 
-	// TODO Calc eye, right, up from given transform
+	// TODO Get eye, right, up from given transform
 }
 
 int main(int argc, char *argv[])
@@ -118,7 +118,6 @@ int main(int argc, char *argv[])
 	// TODO Visualize
 
 	rend_release(&rd);
-
 	scene_release(&s);
 
 	return 0;
