@@ -72,7 +72,7 @@ struct transform {
 	float  glob[16];
 };
 
-struct objdata {
+struct obj {
 	int           objid;
 	unsigned int  flags;
 };
@@ -98,7 +98,7 @@ struct scene {
 	unsigned int      nodecnt;
 	struct node       *nodes;
 	struct transform  *transforms;
-	struct objdata    *objdata;
+	struct obj        *objs;
 
 	char              *names;
 
@@ -140,7 +140,7 @@ struct node       *scene_initnode(struct scene *s, unsigned int id,
                                  unsigned int cofs, unsigned int ccnt);
 struct node       *scene_getnode(struct scene *s, unsigned int id);
 int               scene_findnode(struct scene *s, const char *name);
-struct objdata    *scene_getobjdata(struct scene *s, unsigned int id);
+struct obj        *scene_getobjs(struct scene *s, unsigned int id);
 struct transform  *scene_gettransform(struct scene *s, unsigned int id);
 const char        *scene_getnodename(struct scene *s, unsigned int id);
 

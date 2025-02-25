@@ -46,7 +46,7 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 	s->nodemax = maxnodes;
 	s->nodecnt = 0;
 	s->nodes = emalloc(maxnodes * sizeof(*s->nodes));
-	s->objdata = emalloc(maxnodes * sizeof(*s->objdata));
+	s->objs = emalloc(maxnodes * sizeof(*s->objs));
 	s->transforms = emalloc(maxnodes * sizeof(*s->transforms));
 
 	s->names = emalloc((maxmtls + maxcams + maxnodes) *
@@ -72,7 +72,7 @@ void scene_release(struct scene *s)
 	free(s->names);
 
 	free(s->transforms);
-	free(s->objdata);
+	free(s->objs);
 	free(s->nodes);
 	s->nodecnt = s->nodemax = 0;
 	
@@ -212,8 +212,8 @@ struct node *scene_initnode(struct scene *s, unsigned int id,
 	if (n) {
 		*n = (struct node){.id = id, .cofs = cofs, .ccnt = ccnt};
 
-		struct objdata *o = scene_getobjdata(s, id);
-		*o = (struct objdata){.objid = objid, .flags = flags};
+		struct obj *o = scene_getobjs(s, id);
+		*o = (struct obj){.objid = objid, .flags = flags};
 
 		struct transform *t = scene_gettransform(s, id);
 		memcpy(t->loc, local, sizeof(t->loc));
@@ -234,9 +234,9 @@ int scene_findnode(struct scene *s, const char *name)
 	return findid(s, name, s->mtlmax + s->cammax, s->nodecnt);
 }
 
-struct objdata *scene_getobjdata(struct scene *s, unsigned int id)
+struct obj *scene_getobjs(struct scene *s, unsigned int id)
 {
-	return id < s->nodecnt ? &s->objdata[id] : NULL;
+	return id < s->nodecnt ? &s->objs[id] : NULL;
 }
 
 struct transform *scene_gettransform(struct scene *s, unsigned int id)

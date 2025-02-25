@@ -29,7 +29,7 @@ unsigned int getmaxtris(struct mesh *meshes, unsigned int meshcnt)
 	return maxtris;
 }
 
-unsigned int getmaxinsts(struct objdata *objs, unsigned int objcnt)
+unsigned int getmaxinsts(struct obj *objs, unsigned int objcnt)
 {
 	unsigned int maxinsts = 0;
 	for (unsigned int i = 0; i < objcnt; i++)
@@ -104,7 +104,7 @@ int main(int argc, char *argv[])
 
 	// TODO Static/dynamic separation of meshes in the node tree (incl. premul)
 	unsigned int trimax = getmaxtris(s.meshes, s.meshcnt);
-	unsigned int instmax = getmaxinsts(s.objdata, s.nodecnt);
+	unsigned int instmax = getmaxinsts(s.objs, s.nodecnt);
 	printf("renderer with %d max insts, %d max tris\n", instmax, trimax);
 
 	struct rdata rd = { 0 };
