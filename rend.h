@@ -60,4 +60,6 @@ void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
                 unsigned int maxinsts);
 void  rend_release(struct rdata *rd);
 
+void  rcam_set(struct rcam *c, struct vec3 eye, struct vec3 fwd);
+
 #endif

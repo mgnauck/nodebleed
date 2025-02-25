@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "import.h"
+#include "mat4.h"
 #include "rend.h"
 #include "scene.h"
 #include "util.h"
@@ -74,7 +75,16 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 	for (unsigned int i = 0; i < s->mtlcnt; i++)
 		memcpy(&rd->mtls[i], scene_getmtl(s, i), sizeof(*s->mtls));
 
-	// TODO Create instances from mesh nodes
+	// Create instances from mesh nodes
+	unsigned int instid = 0;
+	for (unsigned int i = 0; i < s->nodecnt; i++) {
+		struct obj *o = scene_getobj(s, i);
+		if (hasflags(o->flags, MESH)) {
+			rd->insts[instid] = (struct rinst){
+			  .id = instid, .ofs = triofs[o->objid], .flags = o->flags};
+			instid++;
+		}
+	}
 }
 
 void cpy_globtransforms(struct rdata *rd, struct scene *s)
@@ -87,7 +97,8 @@ void set_rcam(struct rcam *rc, struct cam *c, float transform[16])
 	*rc = (struct rcam){
 	  .vfov = c->vertfov, .focangle = c->focangle, .focdist = c->focdist};
 
-	// TODO Get eye, right, up from given transform
+	rcam_set(rc, mat4_gettrans(transform),
+	  mat4_muldir(transform, (struct vec3){0.0f, 0.0f, 1.0f}));
 }
 
 int main(int argc, char *argv[])

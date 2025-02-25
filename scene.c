@@ -212,7 +212,7 @@ struct node *scene_initnode(struct scene *s, unsigned int id,
 	if (n) {
 		*n = (struct node){.id = id, .cofs = cofs, .ccnt = ccnt};
 
-		struct obj *o = scene_getobjs(s, id);
+		struct obj *o = scene_getobj(s, id);
 		*o = (struct obj){.objid = objid, .flags = flags};
 
 		struct transform *t = scene_gettransform(s, id);
@@ -234,7 +234,7 @@ int scene_findnode(struct scene *s, const char *name)
 	return findid(s, name, s->mtlmax + s->cammax, s->nodecnt);
 }
 
-struct obj *scene_getobjs(struct scene *s, unsigned int id)
+struct obj *scene_getobj(struct scene *s, unsigned int id)
 {
 	return id < s->nodecnt ? &s->objs[id] : NULL;
 }

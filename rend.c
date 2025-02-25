@@ -17,3 +17,12 @@ void rend_release(struct rdata *rd)
 	free(rd->tris);
 	free(rd->mtls);
 }
+
+void rcam_set(struct rcam *c, struct vec3 eye, struct vec3 fwd)
+{
+	c->eye = eye;
+	fwd = vec3_unit(fwd);
+
+	c->right = vec3_unit(vec3_cross((struct vec3){0.0f, 1.0f, 0.0f}, fwd));
+	c->up = vec3_unit(vec3_cross(fwd, c->right));
+}

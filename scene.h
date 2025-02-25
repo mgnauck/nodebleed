@@ -140,7 +140,7 @@ struct node       *scene_initnode(struct scene *s, unsigned int id,
                                  unsigned int cofs, unsigned int ccnt);
 struct node       *scene_getnode(struct scene *s, unsigned int id);
 int               scene_findnode(struct scene *s, const char *name);
-struct obj        *scene_getobjs(struct scene *s, unsigned int id);
+struct obj        *scene_getobj(struct scene *s, unsigned int id);
 struct transform  *scene_gettransform(struct scene *s, unsigned int id);
 const char        *scene_getnodename(struct scene *s, unsigned int id);
 
