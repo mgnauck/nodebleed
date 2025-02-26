@@ -86,8 +86,27 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 	}
 }
 
-void upd_node_transforms(struct scene *s)
+void upd_node_transforms(struct node *nodes, struct transform *transforms)
 {
+#define STACK_SIZE  64
+	unsigned int stack[STACK_SIZE];
+	unsigned int spos = 0;
+	stack[spos++] = 0;
+	mat4_cpy(transforms->glob, transforms->loc);
+	// TODO Profile traversal, each node is fetched twice
+	while (spos > 0) {
+		unsigned int nid = stack[--spos];
+		struct node *n = &nodes[nid];
+		struct transform *nt = &transforms[nid];
+		for (unsigned int i = 0; i < n->ccnt; i++) {
+			unsigned int cid = n->cofs + i;
+			struct node *c = &nodes[cid];
+			struct transform *ct = &transforms[cid];
+			mat4_mul(ct->glob, nt->glob, ct->loc);
+			assert(spos < STACK_SIZE);
+			stack[spos++] = c->id;
+		}
+	}
 }
 
 void upd_inst_transforms(struct rdata *rd, struct scene *s)
@@ -99,7 +118,8 @@ void upd_inst_transforms(struct rdata *rd, struct scene *s)
 			struct rinst *ri = &rd->insts[o->instid];
 			float inv[16];
 			mat4_inv(inv, t->glob);
-			memcpy(&ri->itransform, inv, sizeof(ri->itransform));
+			// globinv is only 3x4
+			memcpy(&ri->globinv, inv, sizeof(ri->globinv));
 		}
 	}
 }
@@ -133,11 +153,20 @@ int main(int argc, char *argv[])
 
 	cpy_rdata(&rd, &s);
 
-	upd_node_transforms(&s);
+	upd_node_transforms(s.nodes, s.transforms);
 	upd_inst_transforms(&rd, &s);
 
 	struct cam *c = scene_getcam(&s, s.currcam);
 	set_rcam(&rd.cam, c, scene_gettransform(&s, c->nodeid)->glob);
+
+	/*for (int i = 0; i < instmax; i++) {
+		float *m = rd.insts[i].globinv;
+		printf("%6.3f %6.3f %6.3f %6.3f\n", m[ 0], m[ 1], m[ 2], m[ 3]);
+		printf("%6.3f %6.3f %6.3f %6.3f\n", m[ 4], m[ 5], m[ 6], m[ 7]);
+		printf("%6.3f %6.3f %6.3f %6.3f\n", m[ 8], m[ 9], m[10], m[11]);
+		printf("%6.3f %6.3f %6.3f %6.3f\n", m[12], m[13], m[14], m[15]);
+		printf("\n");
+	}*/
 
 	// TODO Visualize
 	// TODO Animation test

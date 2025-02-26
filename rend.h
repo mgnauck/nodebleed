@@ -41,8 +41,8 @@ struct rnrm {
 };
 
 struct rinst {
-	float     itransform[12];
-	uint32_t  id; // Instance id
+	float     globinv[12]; // Inverse transform 3x4
+	uint32_t  id; // TODO Check if instance id is required
 	uint32_t  ofs; // Buffer ofs tri + bvh
 	uint32_t  flags; // Invisible, no shadow, etc.
 	uint32_t  pad0;
