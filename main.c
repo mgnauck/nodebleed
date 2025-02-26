@@ -22,7 +22,7 @@ void print_typesz(void)
 	printf("\n\n");
 }
 
-unsigned int getmaxtris(struct mesh *meshes, unsigned int meshcnt)
+unsigned int get_max_tris(struct mesh *meshes, unsigned int meshcnt)
 {
 	unsigned int maxtris = 0;
 	for (unsigned int i = 0; i < meshcnt; i++)
@@ -30,7 +30,7 @@ unsigned int getmaxtris(struct mesh *meshes, unsigned int meshcnt)
 	return maxtris;
 }
 
-unsigned int getmaxinsts(struct obj *objs, unsigned int objcnt)
+unsigned int get_max_insts(struct obj *objs, unsigned int objcnt)
 {
 	unsigned int maxinsts = 0;
 	for (unsigned int i = 0; i < objcnt; i++)
@@ -49,7 +49,6 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 
 	// Copy meshes
 	for (unsigned int k = 0; k < s->meshcnt; k++) {
-		printf("--- mesh with ofs: %d\n", ofs);
 		struct mesh *m = scene_getmesh(s, k);
 		unsigned int *ip = m->inds;
 		for (unsigned int j = 0; j < m->mcnt; j++) {
@@ -82,14 +81,27 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 		if (hasflags(o->flags, MESH)) {
 			rd->insts[instid] = (struct rinst){
 			  .id = instid, .ofs = triofs[o->objid], .flags = o->flags};
-			instid++;
+			o->instid = instid++;
 		}
 	}
 }
 
-void cpy_globtransforms(struct rdata *rd, struct scene *s)
+void upd_node_transforms(struct scene *s)
 {
-	// TODO
+}
+
+void upd_inst_transforms(struct rdata *rd, struct scene *s)
+{
+	for (unsigned int i = 0; i < s->nodecnt; i++) {
+		struct obj *o = scene_getobj(s, i);
+		if (hasflags(o->flags, MESH)) {
+			struct transform *t = scene_gettransform(s, i);
+			struct rinst *ri = &rd->insts[o->instid];
+			float inv[16];
+			mat4_inv(inv, t->glob);
+			memcpy(&ri->itransform, inv, sizeof(ri->itransform));
+		}
+	}
 }
 
 void set_rcam(struct rcam *rc, struct cam *c, float transform[16])
@@ -113,20 +125,23 @@ int main(int argc, char *argv[])
 	printf("imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
 	  s.meshcnt, s.mtlcnt, s.camcnt, s.rootcnt, s.nodecnt);
 
-	// TODO Static/dynamic separation of meshes in the node tree (incl. premul)
-	unsigned int trimax = getmaxtris(s.meshes, s.meshcnt);
-	unsigned int instmax = getmaxinsts(s.objs, s.nodecnt);
-	printf("renderer with %d max insts, %d max tris\n", instmax, trimax);
+	unsigned int trimax = get_max_tris(s.meshes, s.meshcnt);
+	unsigned int instmax = get_max_insts(s.objs, s.nodecnt);
 
 	struct rdata rd = { 0 };
 	rend_init(&rd, s.mtlmax, trimax, instmax);
 
 	cpy_rdata(&rd, &s);
 
+	upd_node_transforms(&s);
+	upd_inst_transforms(&rd, &s);
+
 	struct cam *c = scene_getcam(&s, s.currcam);
 	set_rcam(&rd.cam, c, scene_gettransform(&s, c->nodeid)->glob);
 
 	// TODO Visualize
+	// TODO Animation test
+	// TODO Static/dynamic separation of meshes in the node tree (incl. premul)
 
 	rend_release(&rd);
 	scene_release(&s);

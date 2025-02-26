@@ -213,7 +213,7 @@ struct node *scene_initnode(struct scene *s, unsigned int id,
 		*n = (struct node){.id = id, .cofs = cofs, .ccnt = ccnt};
 
 		struct obj *o = scene_getobj(s, id);
-		*o = (struct obj){.objid = objid, .flags = flags};
+		*o = (struct obj){.objid = objid, .instid = -1, .flags = flags};
 
 		struct transform *t = scene_gettransform(s, id);
 		memcpy(t->loc, local, sizeof(t->loc));

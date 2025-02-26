@@ -74,6 +74,7 @@ struct transform {
 
 struct obj {
 	int           objid;
+	int           instid;
 	unsigned int  flags;
 };
 
