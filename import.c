@@ -167,12 +167,13 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 #define STACK_SIZE 64
 	unsigned int gnids[STACK_SIZE];
 	unsigned int snids[STACK_SIZE];
+
+	int id = scene_acquirenode(s, true);
+	if (id < 0)
+		eprintf("failed to acquire node: %s", nodes[rootid].name);
 	
 	gnids[0] = rootid;
-	snids[0] = scene_acquirenode(s, true);
-	
-	if (snids[0] < 0)
-		eprintf("failed to acquire node: %s", nodes[rootid].name);
+	snids[0] = id;
 
 	unsigned int spos = 1;
 

@@ -11,20 +11,20 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH  1024
-#define HEIGHT  768
+#define WIDTH   1920
+#define HEIGHT  1080
 
-void print_typesz(void)
+void print_type_sizes(void)
 {
-	printf("sizeof(void *): %ld\n", sizeof(void *));
-	printf("sizeof(float): %ld\n", sizeof(float));
-	printf("sizeof(double): %ld\n", sizeof(double));
 	printf("sizeof(char): %ld\n", sizeof(char));
 	printf("sizeof(short int): %ld\n", sizeof(short int));
 	printf("sizeof(int): %ld\n", sizeof(int));
 	printf("sizeof(long int): %ld\n", sizeof(long int));
 	printf("sizeof(long long int): %ld\n", sizeof(long long int));
-	printf("\n\n");
+	printf("sizeof(void *): %ld\n", sizeof(void *));
+	printf("sizeof(float): %ld\n", sizeof(float));
+	printf("sizeof(double): %ld\n", sizeof(double));
+	printf("\n");
 }
 
 unsigned int get_max_tris(struct mesh *meshes, unsigned int meshcnt)
@@ -115,6 +115,30 @@ void set_rcam(struct rcam *rc, struct cam *c, float transform[16])
 	  mat4_muldir(transform, (struct vec3){0.0f, 0.0f, 1.0f}));
 }
 
+void init(struct scene *s, struct rdata *rd)
+{
+	if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
+		printf("Failed to import gltf\n");
+
+	printf("imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
+	  s->meshcnt, s->mtlcnt, s->camcnt, s->rootcnt, s->nodecnt);
+
+	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
+	unsigned int instmax = get_max_insts(s->objs, s->nodecnt);
+
+	rend_init(rd, s->mtlmax, trimax, instmax);
+	cpy_rdata(rd, s);
+}
+
+void update(struct rdata *rd, struct scene *s)
+{
+	scene_updtransforms(s);
+	upd_inst_transforms(rd, s);
+
+	struct cam *c = scene_getcam(s, s->currcam);
+	set_rcam(&rd->cam, c, scene_gettransform(s, c->nodeid)->glob);
+}
+
 int main(int argc, char *argv[])
 {
 	// TODO Visualize
@@ -123,33 +147,13 @@ int main(int argc, char *argv[])
 
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
 	assert(sizeof(uint16_t) == sizeof(unsigned short int));
-
-	struct scene s = { 0 };
-	if (import_gltf(&s, "../data/test.gltf", "../data/test.bin") != 0)
-		printf("Failed to import gltf\n");
-
-	printf("imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
-	  s.meshcnt, s.mtlcnt, s.camcnt, s.rootcnt, s.nodecnt);
-
-	unsigned int trimax = get_max_tris(s.meshes, s.meshcnt);
-	unsigned int instmax = get_max_insts(s.objs, s.nodecnt);
-
-	struct rdata rd = { 0 };
-	rend_init(&rd, s.mtlmax, trimax, instmax);
-
-	cpy_rdata(&rd, &s);
-
-	scene_updtransforms(&s);
-	upd_inst_transforms(&rd, &s);
-
-	struct cam *c = scene_getcam(&s, s.currcam);
-	set_rcam(&rd.cam, c, scene_gettransform(&s, c->nodeid)->glob);
+	//print_type_sizes();
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		return 1;
 
-	SDL_Window *win = SDL_CreateWindow("unik", SDL_WINDOWPOS_CENTERED,
-	  SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, 0);
+	SDL_Window *win = SDL_CreateWindow("unik",
+	  SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, 0);
 	if (!win) {
 		SDL_Quit();
 		return 1;
@@ -160,6 +164,10 @@ int main(int argc, char *argv[])
 		SDL_DestroyWindow(win);
 		return 1;
 	}
+
+	struct scene s = { 0 };
+	struct rdata rd = { 0 };
+	init(&s, &rd);
 
 	bool quit = false;
 	long last = SDL_GetTicks64();
@@ -177,16 +185,17 @@ int main(int argc, char *argv[])
 		SDL_SetWindowTitle(win, title);
 		last = SDL_GetTicks64();
 
-		// TODO Update/render
+		update(&rd, &s);
+		rend_render(scr->pixels, WIDTH, HEIGHT, &rd);
 
 		SDL_UpdateWindowSurface(win);
 	}
 
-	SDL_DestroyWindow(win);
-	SDL_Quit();
-
 	rend_release(&rd);
 	scene_release(&s);
+
+	SDL_DestroyWindow(win);
+	SDL_Quit();
 
 	return 0;
 }
