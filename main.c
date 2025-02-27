@@ -9,6 +9,9 @@
 #include "scene.h"
 #include "util.h"
 
+#define WIDTH  1024
+#define HEIGHT  768
+
 void print_typesz(void)
 {
 	printf("sizeof(void *): %ld\n", sizeof(void *));
@@ -135,15 +138,6 @@ int main(int argc, char *argv[])
 
 	struct cam *c = scene_getcam(&s, s.currcam);
 	set_rcam(&rd.cam, c, scene_gettransform(&s, c->nodeid)->glob);
-
-	/*for (int i = 0; i < instmax; i++) {
-		float *m = rd.insts[i].globinv;
-		printf("%6.3f %6.3f %6.3f %6.3f\n", m[ 0], m[ 1], m[ 2], m[ 3]);
-		printf("%6.3f %6.3f %6.3f %6.3f\n", m[ 4], m[ 5], m[ 6], m[ 7]);
-		printf("%6.3f %6.3f %6.3f %6.3f\n", m[ 8], m[ 9], m[10], m[11]);
-		printf("%6.3f %6.3f %6.3f %6.3f\n", m[12], m[13], m[14], m[15]);
-		printf("\n");
-	}*/
 
 	// TODO Visualize
 	// TODO Animation test
