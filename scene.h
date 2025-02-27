@@ -145,4 +145,6 @@ struct obj        *scene_getobj(struct scene *s, unsigned int id);
 struct transform  *scene_gettransform(struct scene *s, unsigned int id);
 const char        *scene_getnodename(struct scene *s, unsigned int id);
 
+void              scene_updtransforms(struct scene *s);
+
 #endif

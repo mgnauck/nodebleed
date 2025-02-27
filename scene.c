@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "mat4.h"
 #include "scene.h"
 #include "util.h"
 
@@ -248,4 +249,29 @@ const char *scene_getnodename(struct scene *s, unsigned int id)
 {
 	return id < s->nodecnt ?
 	  &s->names[(s->mtlmax + s->cammax + id) * NAME_MAX_LEN] : NULL;
+}
+
+void scene_updtransforms(struct scene *s)
+{
+#define STACK_SIZE  64
+	unsigned int stack[STACK_SIZE];
+	unsigned int spos = 0;
+	stack[spos++] = 0;
+	struct node *nodes = s->nodes;
+	struct transform *transforms = s->transforms;
+	mat4_cpy(transforms->glob, transforms->loc);
+	// TODO Profile traversal, each node is fetched twice
+	while (spos > 0) {
+		unsigned int nid = stack[--spos];
+		struct node *n = &nodes[nid];
+		struct transform *nt = &transforms[nid];
+		for (unsigned int i = 0; i < n->ccnt; i++) {
+			unsigned int cid = n->cofs + i;
+			struct node *c = &nodes[cid];
+			struct transform *ct = &transforms[cid];
+			mat4_mul(ct->glob, nt->glob, ct->loc);
+			assert(spos < STACK_SIZE);
+			stack[spos++] = c->id;
+		}
+	}
 }
