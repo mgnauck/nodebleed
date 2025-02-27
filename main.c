@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <SDL.h>
+
 #include "import.h"
 #include "mat4.h"
 #include "rend.h"
@@ -115,6 +117,10 @@ void set_rcam(struct rcam *rc, struct cam *c, float transform[16])
 
 int main(int argc, char *argv[])
 {
+	// TODO Visualize
+	// TODO Animation test
+	// TODO Static/dynamic separation of meshes in the node tree (incl. premul)
+
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
 	assert(sizeof(uint16_t) == sizeof(unsigned short int));
 
@@ -139,9 +145,45 @@ int main(int argc, char *argv[])
 	struct cam *c = scene_getcam(&s, s.currcam);
 	set_rcam(&rd.cam, c, scene_gettransform(&s, c->nodeid)->glob);
 
-	// TODO Visualize
-	// TODO Animation test
-	// TODO Static/dynamic separation of meshes in the node tree (incl. premul)
+	if (SDL_Init(SDL_INIT_VIDEO) < 0)
+		return 1;
+
+	SDL_Window *win = SDL_CreateWindow("unik", SDL_WINDOWPOS_CENTERED,
+	  SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, 0);
+	if (!win) {
+		SDL_Quit();
+		return 1;
+	}
+
+	SDL_Surface *scr = SDL_GetWindowSurface(win);
+	if (!scr) {
+		SDL_DestroyWindow(win);
+		return 1;
+	}
+
+	bool quit = false;
+	long last = SDL_GetTicks64();
+	while (!quit) {
+		SDL_Event event;
+		while (SDL_PollEvent(&event)) {
+			if (event.type == SDL_QUIT ||
+			    (event.type == SDL_KEYDOWN &&
+			     event.key.keysym.sym == SDLK_ESCAPE))
+				quit = true;
+		}
+
+		char title[64];
+		snprintf(title, 64, "%ld ms", SDL_GetTicks64() - last);
+		SDL_SetWindowTitle(win, title);
+		last = SDL_GetTicks64();
+
+		// TODO Update/render
+
+		SDL_UpdateWindowSurface(win);
+	}
+
+	SDL_DestroyWindow(win);
+	SDL_Quit();
 
 	rend_release(&rd);
 	scene_release(&s);
