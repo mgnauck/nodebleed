@@ -131,7 +131,7 @@ int scene_acquirecam(struct scene *s)
 }
 
 struct cam *scene_initcam(struct scene *s, unsigned int id,
-                  const char *name, float vertfov,
+                  const char *name, float vfov,
                   float focdist, float focangle)
 {
 	assert(strlen(name) < NAME_MAX_LEN);
@@ -139,7 +139,7 @@ struct cam *scene_initcam(struct scene *s, unsigned int id,
 	struct cam *c = scene_getcam(s, id);
 	if (c) {
 		*c = (struct cam){
-		  .vertfov = vertfov,
+		  .vfov = vfov,
 		  .focdist = focdist,
 		  .focangle = focangle};
 
@@ -273,5 +273,21 @@ void scene_updtransforms(struct scene *s)
 			assert(spos < STACK_SIZE);
 			stack[spos++] = c->id;
 		}
+	}
+}
+
+void calc_cam(struct cam *c, float trans[16])
+{
+	c->eye = mat4_gettrans(trans);
+	c->fwd = vec3_unit(mat4_muldir(trans, (struct vec3){0.0f, 0.0f, 1.0f}));
+	c->ri = vec3_unit(vec3_cross((struct vec3){0.0f, 1.0f, 0.0f}, c->fwd));
+	c->up = vec3_unit(vec3_cross(c->fwd, c->ri));
+}
+
+void scene_updcams(struct scene *s)
+{
+	for (unsigned int i = 0; i < s->camcnt; i++) {
+		struct cam *c = scene_getcam(s, i);
+		calc_cam(c, scene_gettransform(s, c->nodeid)->glob);
 	}
 }

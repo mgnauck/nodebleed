@@ -13,15 +13,6 @@ struct rmtl {
 	uint32_t     pad0;
 };
 
-struct rcam {
-	struct vec3  eye;
-	float        vfov;
-	struct vec3  right;
-	float        focdist;
-	struct vec3  up;
-	float        focangle;
-};
-
 struct rtri {
 	struct vec3  v0;
 	float        pad0;
@@ -48,20 +39,36 @@ struct rinst {
 	uint32_t  pad0;
 };
 
+struct rcam {
+	struct vec3  eye;
+	float        vfov;
+	struct vec3  ri;
+	float        focdist;
+	struct vec3  up;
+	float        focangle;
+};
+
+struct rview {
+	struct vec3   pix_dx;
+	unsigned int  w;
+	struct vec3   pix_dy;
+	unsigned int  h;
+	struct vec3   pix_topleft;
+};
+
 struct rdata {
 	struct rmtl   *mtls;
-	struct rcam   cam;
 	struct rtri   *tris;
 	struct rnrm   *nrms;
 	struct rinst  *insts;
+	struct rcam   cam;
+	struct rview  view;
 };
 
 void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
                 unsigned int maxinsts);
 void  rend_release(struct rdata *rd);
 
-void  rcam_set(struct rcam *c, struct vec3 eye, struct vec3 fwd);
-
-void  rend_render(void *dst, unsigned int w, unsigned int h, struct rdata *rd);
+void  rend_render(void *dst, struct rdata *rd);
 
 #endif

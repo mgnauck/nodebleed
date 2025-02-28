@@ -36,9 +36,13 @@ struct mtl {
 };
 
 struct cam {
-	float         vertfov;
+	struct vec3   eye;
+	float         vfov;
+	struct vec3   fwd;
 	float         focdist;
+	struct vec3   ri;
 	float         focangle;
+	struct vec3   up;
 	unsigned int  nodeid;
 };
 
@@ -123,7 +127,7 @@ int               scene_findmtl(struct scene *s, const char *name);
 
 int               scene_acquirecam(struct scene *s);
 struct cam        *scene_initcam(struct scene *s, unsigned int id,
-                                 const char *name, float vertfov, float focdist,
+                                 const char *name, float vfov, float focdist,
                                  float focangle);
 struct cam        *scene_getcam(struct scene *s, unsigned int id);
 int               scene_findcam(struct scene *s, const char *name);
@@ -146,5 +150,6 @@ struct transform  *scene_gettransform(struct scene *s, unsigned int id);
 const char        *scene_getnodename(struct scene *s, unsigned int id);
 
 void              scene_updtransforms(struct scene *s);
+void              scene_updcams(struct scene *s);
 
 #endif

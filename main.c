@@ -91,7 +91,7 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 	}
 }
 
-void upd_inst_transforms(struct rdata *rd, struct scene *s)
+void set_inst_transforms(struct rdata *rd, struct scene *s)
 {
 	for (unsigned int i = 0; i < s->nodecnt; i++) {
 		struct obj *o = scene_getobj(s, i);
@@ -106,13 +106,40 @@ void upd_inst_transforms(struct rdata *rd, struct scene *s)
 	}
 }
 
-void set_rcam(struct rcam *rc, struct cam *c, float transform[16])
+void set_rcam(struct rcam *rc, struct cam *c)
 {
 	*rc = (struct rcam){
-	  .vfov = c->vertfov, .focangle = c->focangle, .focdist = c->focdist};
+	  .eye = c->eye,
+	  .vfov = c->vfov * PI / 180.0f,
+	  .ri = c->ri,
+	  .focangle = c->focangle * PI / 180.0f,
+	  .up = c->up,
+	  .focdist = c->focdist};
+}
 
-	rcam_set(rc, mat4_gettrans(transform),
-	  mat4_muldir(transform, (struct vec3){0.0f, 0.0f, 1.0f}));
+void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
+{
+	float v_height = 2.0f * tanf(0.5f * c->vfov * PI / 180.0f) * c->focdist;
+	float v_width = v_height * (float)width / (float)height;
+
+	struct vec3 v_right = vec3_scale(c->ri, v_width);
+	struct vec3 v_down = vec3_scale(c->up, -v_height);
+
+	// Pixel delta x/y
+	v->pix_dx = vec3_scale(v_right, 1.0f / width);
+	v->pix_dy = vec3_scale(v_down, 1.0f / height);
+
+	// view_topleft = eye - focdist * fwd - 0.5 * (view_right + view_down)
+	struct vec3 v_topleft = vec3_add(c->eye, vec3_add(
+	  vec3_scale(c->fwd, -c->focdist),
+	  vec3_scale(vec3_add(v_right, v_down), -0.5f)));
+
+	// pix_topleft = view_topleft + 0.5 * (pix_dx + pix_dy)
+	v->pix_topleft = vec3_add(v_topleft,
+	  vec3_scale(vec3_add(v->pix_dx, v->pix_dy), 0.5f));
+
+	v->w = width;
+	v->h = height;
 }
 
 void init(struct scene *s, struct rdata *rd)
@@ -133,10 +160,14 @@ void init(struct scene *s, struct rdata *rd)
 void update(struct rdata *rd, struct scene *s)
 {
 	scene_updtransforms(s);
-	upd_inst_transforms(rd, s);
+	scene_updcams(s);
+
+	set_inst_transforms(rd, s);
 
 	struct cam *c = scene_getcam(s, s->currcam);
-	set_rcam(&rd->cam, c, scene_gettransform(s, c->nodeid)->glob);
+	set_rcam(&rd->cam, c);
+
+	calc_view(&rd->view, WIDTH, HEIGHT, c);
 }
 
 int main(int argc, char *argv[])
@@ -186,7 +217,7 @@ int main(int argc, char *argv[])
 		last = SDL_GetTicks64();
 
 		update(&rd, &s);
-		rend_render(scr->pixels, WIDTH, HEIGHT, &rd);
+		rend_render(scr->pixels, &rd);
 
 		SDL_UpdateWindowSurface(win);
 	}

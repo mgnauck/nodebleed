@@ -23,7 +23,7 @@ unsigned int getmtlflags(struct gltfmtl *gm)
 void import_cam(struct scene *s, struct gltfcam *gc)
 {
 	scene_initcam(s, scene_acquirecam(s), gc->name,
-	  gc->vertfov * 180.0f / PI, 10.0f, 0.0f);
+	  gc->vfov * 180.0f / PI, 10.0f, 0.0f);
 }
 
 void import_mtl(struct scene *s, struct gltfmtl *gm)
