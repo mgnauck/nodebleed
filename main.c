@@ -11,7 +11,7 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   320
+#define WIDTH   200
 #define HEIGHT  200
 
 void print_type_sizes(void)
@@ -155,8 +155,6 @@ void init(struct scene *s, struct rdata *rd)
 {
 	if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
 		printf("Failed to import gltf\n");
-
-	scene_getcam(s, s->currcam)->nodeid = 3;
 
 	/// Handcraft a scene
 	/*scene_init(s, 1, 1, 1, 2, 2);

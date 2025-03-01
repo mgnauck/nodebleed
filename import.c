@@ -188,11 +188,13 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 		int objid = n->camid < 0 ? n->meshid : n->camid;
 
 		unsigned int flags = 0;
-		setflags(&flags, n->camid < 0 ? 0 : CAM);
-		if (n->meshid >= 0) {
-			setflags(&flags, MESH);
+		if (n->camid >= 0) {
+			setflags(&flags, CAM);
+			// Cam references its node for transform
+			s->cams[objid].nodeid = snid;
+		} else if (n->meshid >= 0) {
 			// Track mesh flags at mesh node
-			setflags(&flags, s->meshes[n->meshid].flags);
+			setflags(&flags, MESH | s->meshes[n->meshid].flags);
 		}
 
 		// If any children, acquire and push to stack in reverse order
