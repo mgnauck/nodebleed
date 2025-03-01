@@ -11,7 +11,7 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   200
+#define WIDTH   320
 #define HEIGHT  200
 
 void print_type_sizes(void)
@@ -79,7 +79,7 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 
 	// Copy mtls
 	for (unsigned int i = 0; i < s->mtlcnt; i++)
-		memcpy(&rd->mtls[i], scene_getmtl(s, i), sizeof(*s->mtls));
+		memcpy(&rd->mtls[i], scene_getmtl(s, i), sizeof(*rd->mtls));
 
 	// Create instances from mesh nodes
 	unsigned int cnt = 0;
@@ -153,11 +153,13 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	//if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
-	//	printf("Failed to import gltf\n");
+	if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
+		printf("Failed to import gltf\n");
+
+	scene_getcam(s, s->currcam)->nodeid = 3;
 
 	/// Handcraft a scene
-	scene_init(s, 1, 1, 1, 2, 2);
+	/*scene_init(s, 1, 1, 1, 2, 2);
 
 	scene_initmtl(s, scene_acquiremtl(s), "testmtl", (struct vec3){1.0f, 0.0f, 0.0f});
 	scene_initcam(s, scene_acquirecam(s), "testcam", 60.0f, 10.0f, 0.0f)->nodeid = 1;
@@ -259,10 +261,8 @@ int main(int argc, char *argv[])
 		SDL_SetWindowTitle(win, title);
 		last = SDL_GetTicks64();
 
-		mat4_trans(s.transforms[1].loc, (struct vec3){sin(last * 0.004f) * 1.5f, 0.0f, 2.0f});
-
-		update(&rd, &s);
-		rend_render(scr->pixels, &rd);
+		//update(&rd, &s);
+		//rend_render(scr->pixels, &rd);
 
 		SDL_UpdateWindowSurface(win);
 	}
