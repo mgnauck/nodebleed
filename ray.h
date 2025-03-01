@@ -9,7 +9,7 @@ struct ray {
 	struct vec3 idir;
 };
 
-struct ray  ray_create(struct vec3 ori, struct vec3 dir);
-struct ray  ray_transform(struct ray r, float m[16]);
+void  ray_create(struct ray *r, const struct vec3 *ori, const struct vec3 *dir);
+void  ray_transform(struct ray *dst, const struct ray *src, float m[16]);
 
 #endif

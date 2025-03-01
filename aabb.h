@@ -9,7 +9,7 @@ struct aabb {
 };
 
 void    aabb_init(struct aabb *a);
-void    aabb_combine(struct aabb * restrict dst,
+void    aabb_combine(struct aabb *dst,
                      const struct aabb * a,
                      const struct aabb * b);
 void   aabb_grow(struct aabb *a, struct vec3 v);

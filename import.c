@@ -10,6 +10,9 @@
 #include "scene.h"
 #include "util.h"
 
+#define dprintf printf
+//#define dprintf(...)
+
 unsigned int getmtlflags(struct gltfmtl *gm)
 {
 	unsigned int flags = 0;
@@ -47,11 +50,11 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		struct gltfprim *p = &gm->prims[j];
 		struct gltfaccessor *a = &g->accessors[p->indid];
 		if (a->datatype != DT_SCALAR)
-			printf("Expected indices accessor with scalar data type. Ignoring primitive.\n");
+			dprintf("Expected indices accessor with scalar data type. Ignoring primitive.\n");
 		icnt += a->cnt;
 		a = &g->accessors[p->posid];
 		if (a->datatype != DT_VEC3)
-			printf("Expected vertices accessor with vec3 data type. Ignoring primitive.\n");
+			dprintf("Expected vertices accessor with vec3 data type. Ignoring primitive.\n");
 		vcnt += a->cnt;
 	}
 
@@ -64,7 +67,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		// Indices
 		struct gltfaccessor *iacc = &g->accessors[p->indid];
 		if (iacc->datatype != DT_SCALAR) {
-			printf("Expected indices accessor with scalar data type. Ignoring primitive.\n");
+			dprintf("Expected indices accessor with scalar data type. Ignoring primitive.\n");
 			continue;
 		}
 
@@ -93,7 +96,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 				*ip++ = v;
 			}
 		} else {
-			printf("Expected index buffer with byte, short or int components. Ignoring primitive.\n");
+			dprintf("Expected index buffer with byte, short or int components. Ignoring primitive.\n");
 			continue;
 		}
 		m->icnt += ip - m->inds + m->icnt;
@@ -101,26 +104,26 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		// Vertices
 		struct gltfaccessor *vacc = &g->accessors[p->posid];
 		if (vacc->datatype != DT_VEC3) {
-			printf("Expected vertices accessor with vec3 data type. Ignoring primitive.\n");
+			dprintf("Expected vertices accessor with vec3 data type. Ignoring primitive.\n");
 			continue;
 		}
 
 		struct gltfbufview *vbv = &g->bufviews[vacc->bufview];
 		if (vacc->comptype != 5126) { // 5126 = float
-			printf("Expected vertex buffer with float components. Ignoring primitive.\n");
+			dprintf("Expected vertex buffer with float components. Ignoring primitive.\n");
 			continue;
 		}
 
 		// Normals
 		struct gltfaccessor *nacc = &g->accessors[p->nrmid];
 		if (nacc->datatype != DT_VEC3) {
-			printf("Expected normals accessor with vec3 data type. Ignoring primitive.\n");
+			dprintf("Expected normals accessor with vec3 data type. Ignoring primitive.\n");
 			continue;
 		}
 
 		struct gltfbufview *nbv = &g->bufviews[nacc->bufview];
 		if (nacc->comptype != 5126) { // 5126 = float
-			printf("Expected normals buffer with float components. Ignoring primitive.\n");
+			dprintf("Expected normals buffer with float components. Ignoring primitive.\n");
 			continue;
 		}
 

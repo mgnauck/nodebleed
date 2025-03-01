@@ -4,12 +4,6 @@
 #include <stdbool.h>
 #include "vec3.h"
 
-// TODO
-// primitive generation
-// subdivision
-// animation data/handling
-// convert host data to device data
-
 #define NAME_MAX_LEN  128
 
 enum flags {
@@ -78,7 +72,7 @@ struct transform {
 
 struct obj {
 	int           objid;
-	int           instid;
+	int           instid; // TODO Remove?
 	unsigned int  flags;
 };
 

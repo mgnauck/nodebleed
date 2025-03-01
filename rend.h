@@ -49,11 +49,11 @@ struct rcam {
 };
 
 struct rview {
-	struct vec3   pix_dx;
+	struct vec3   dx; // Pixel delta x
 	unsigned int  w;
-	struct vec3   pix_dy;
+	struct vec3   dy; // Pixel delta y
 	unsigned int  h;
-	struct vec3   pix_topleft;
+	struct vec3   tl; // Pixel top left
 };
 
 struct rdata {

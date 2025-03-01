@@ -11,7 +11,7 @@ void aabb_init(struct aabb *a)
 	  (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX}};
 }
 
-void aabb_combine(struct aabb * restrict dst,
+void aabb_combine(struct aabb *dst,
                   const struct aabb * a,
                   const struct aabb * b)
 {

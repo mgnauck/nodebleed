@@ -394,7 +394,7 @@ void mat4_fromquat(float dst[16], float x, float y, float z, float w)
 	dst[15] = 1.0f;
 }
 
-void mat4_from3x4(float dst[restrict 16], const float src[12])
+void mat4_from3x4(float dst[16], const float src[12])
 {
 	for (unsigned int i = 0; i < 12; i++)
 		dst[i] = src[i];

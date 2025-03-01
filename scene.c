@@ -259,24 +259,24 @@ void scene_updtransforms(struct scene *s)
 	struct node *nodes = s->nodes;
 	struct transform *transforms = s->transforms;
 	for (unsigned int j = 0; j < s->rootcnt; j++) {
-	unsigned int root = s->roots[j];
-	stack[0] = root;
-	spos = 1;
-	mat4_cpy(transforms[root].glob, transforms[root].loc);
-	// TODO Profile traversal, each node is fetched twice
-	while (spos > 0) {
-		unsigned int nid = stack[--spos];
-		struct node *n = &nodes[nid];
-		struct transform *nt = &transforms[nid];
-		for (unsigned int i = 0; i < n->ccnt; i++) {
-			unsigned int cid = n->cofs + i;
-			struct node *c = &nodes[cid];
-			struct transform *ct = &transforms[cid];
-			mat4_mul(ct->glob, nt->glob, ct->loc);
-			assert(spos < STACK_SIZE);
-			stack[spos++] = c->id;
+		unsigned int rid = s->roots[j];
+		stack[0] = rid;
+		spos = 1;
+		mat4_cpy(transforms[rid].glob, transforms[rid].loc);
+		// TODO Profile traversal, each node is fetched twice
+		while (spos > 0) {
+			unsigned int nid = stack[--spos];
+			struct node *n = &nodes[nid];
+			struct transform *nt = &transforms[nid];
+			for (unsigned int i = 0; i < n->ccnt; i++) {
+				unsigned int cid = n->cofs + i;
+				struct node *c = &nodes[cid];
+				struct transform *ct = &transforms[cid];
+				mat4_mul(ct->glob, nt->glob, ct->loc);
+				assert(spos < STACK_SIZE);
+				stack[spos++] = c->id;
+			}
 		}
-	}
 	}
 }
 

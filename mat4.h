@@ -36,6 +36,6 @@ struct vec3  mat4_muldir(const float m[16], const struct vec3 v);
 struct vec3  mat4_gettrans(const float m[16]);
 
 void         mat4_fromquat(float dst[16], float x, float y, float z, float w);
-void         mat4_from3x4(float dst[restrict 16], const float src[12]);
+void         mat4_from3x4(float dst[16], const float src[12]);
 
 #endif

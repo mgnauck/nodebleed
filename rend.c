@@ -31,15 +31,15 @@ struct hit {
 	uint32_t  e;
 };
 
-void intersect_tri(struct hit *h, const struct ray r, const struct vec3 v0,
-                   const struct vec3 v1, const struct vec3 v2, uint32_t id)
+void intersect_tri(struct hit *h, const struct ray *r, const struct vec3 *v0,
+                   const struct vec3 *v1, const struct vec3 *v2, uint32_t id)
 {
 	// Vectors of two edges sharing v0
-	const struct vec3 e0 = vec3_sub(v1, v0);
-	const struct vec3 e1 = vec3_sub(v2, v0);
+	const struct vec3 e0 = vec3_sub(*v1, *v0);
+	const struct vec3 e1 = vec3_sub(*v2, *v0);
 
 	// Calculate determinat and u param later on
-	const struct vec3 pv = vec3_cross(r.dir, e1);
+	const struct vec3 pv = vec3_cross(r->dir, e1);
 	float det = vec3_dot(e0, pv);
 
 	if (fabsf(det) < EPS)
@@ -49,7 +49,7 @@ void intersect_tri(struct hit *h, const struct ray r, const struct vec3 v0,
 	float idet = 1.0f / det;
 
 	// Distance v0 to origin
-	const struct vec3 tv = vec3_sub(r.ori, v0);
+	const struct vec3 tv = vec3_sub(r->ori, *v0);
 
 	// Calculate param u and test bounds
 	float u = vec3_dot(tv, pv) * idet;
@@ -60,7 +60,7 @@ void intersect_tri(struct hit *h, const struct ray r, const struct vec3 v0,
 	const struct vec3 qv = vec3_cross(tv, e0);
 
 	// Calculate param v and test bounds
-	float v = vec3_dot(r.dir, qv) * idet;
+	float v = vec3_dot(r->dir, qv) * idet;
 	if (v < 0.0f || u + v > 1.0f)
 		return;
 
@@ -74,16 +74,17 @@ void intersect_tri(struct hit *h, const struct ray r, const struct vec3 v0,
 	}
 }
 
-void intersect_insts(struct hit *h, struct ray r, const struct rdata *rd)
+void intersect_insts(struct hit *h, const struct ray *r, const struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		const struct rinst *ri= &rd->insts[j];
 		float inv[16];
 		mat4_from3x4(inv, ri->globinv);
-		struct ray ros = ray_transform(r, inv);
+		struct ray ros;
+		ray_transform(&ros, r, inv);
 		const struct rtri *t = &rd->tris[ri->triofs];
 		for (unsigned int i = 0; i < ri->tricnt; i++) {
-			intersect_tri(h, ros, t->v0, t->v1, t->v2, i << 16 | j);
+			intersect_tri(h, &ros, &t->v0, &t->v1, &t->v2, i << 16 | j);
 			t++;
 		}
 	}
@@ -92,18 +93,19 @@ void intersect_insts(struct hit *h, struct ray r, const struct rdata *rd)
 void rend_render(void *dst, struct rdata *rd)
 {
 	struct vec3 eye = rd->cam.eye;
-	struct vec3 dx = rd->view.pix_dx;
-	struct vec3 dy = rd->view.pix_dy;
-	struct vec3 left = rd->view.pix_topleft;
+	struct vec3 dx = rd->view.dx;
+	struct vec3 dy = rd->view.dy;
+	struct vec3 le = rd->view.tl;
 
 	uint32_t *buf = dst;
 	unsigned int ofs = 0;
 	for (unsigned int j = 0; j < rd->view.h; j++) {
-		struct vec3 p = left;
+		struct vec3 p = le;
 		for (unsigned int i = 0; i < rd->view.w; i++) {
-			struct ray r = ray_create(eye, vec3_unit(vec3_sub(p, eye)));
+			struct ray r;
+			ray_create(&r, &eye, &vec3_unit(vec3_sub(p, eye)));
 			struct hit h = (struct hit){ .t = FLT_MAX };
-			intersect_insts(&h, r, rd);
+			intersect_insts(&h, &r, rd);
 
 			struct vec3 c = rd->bgcol;
 			if (h.t < FLT_MAX) {
@@ -122,7 +124,7 @@ void rend_render(void *dst, struct rdata *rd)
 			p = vec3_add(p, dx);
 		}
 
-		left = vec3_add(left, dy);
+		le = vec3_add(le, dy);
 		ofs += rd->view.w;
 	}
 }
