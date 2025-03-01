@@ -397,7 +397,7 @@ unsigned int read_cam_perspective(struct gltfcam *c, const char *s, jsmntok_t *t
 
 unsigned int read_cam(struct gltfcam *c, const char *s, jsmntok_t *t)
 {
-	c->vfov = 45.0f;
+	c->vfov = 0.5f;
 
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {

@@ -34,9 +34,9 @@ struct rnrm {
 struct rinst {
 	float     globinv[12]; // Inverse transform 3x4
 	uint32_t  id; // TODO Check if instance id is required
-	uint32_t  ofs; // Buffer ofs tri + bvh
 	uint32_t  flags; // Invisible, no shadow, etc.
-	uint32_t  pad0;
+	uint32_t  triofs;
+	uint32_t  tricnt;
 };
 
 struct rcam {
@@ -61,8 +61,10 @@ struct rdata {
 	struct rtri   *tris;
 	struct rnrm   *nrms;
 	struct rinst  *insts;
+	unsigned int  instcnt; // Temp
 	struct rcam   cam;
 	struct rview  view;
+	struct vec3   bgcol;
 };
 
 void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,

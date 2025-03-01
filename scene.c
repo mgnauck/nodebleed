@@ -109,7 +109,7 @@ struct mtl *scene_initmtl(struct scene *s, unsigned int id,
 	 	 .ior = 1.5f,
 		 .flags = 0};
 
-		setname(s, name, 0);
+		setname(s, name, /* ofs */ 0);
 	}
 
 	return m;
@@ -143,7 +143,7 @@ struct cam *scene_initcam(struct scene *s, unsigned int id,
 		  .focdist = focdist,
 		  .focangle = focangle};
 
-		setname(s, name, s->mtlmax);
+		setname(s, name, /* ofs */ s->mtlmax);
 	}
 
 	return c;
@@ -219,7 +219,7 @@ struct node *scene_initnode(struct scene *s, unsigned int id,
 		struct transform *t = scene_gettransform(s, id);
 		memcpy(t->loc, local, sizeof(t->loc));
 
-		setname(s, name, s->mtlmax + s->cammax + id);
+		setname(s, name, /* ofs */ s->mtlmax + s->cammax + id);
 	}
 
 	return n;
@@ -255,11 +255,14 @@ void scene_updtransforms(struct scene *s)
 {
 #define STACK_SIZE  64
 	unsigned int stack[STACK_SIZE];
-	unsigned int spos = 0;
-	stack[spos++] = 0;
+	unsigned int spos;
 	struct node *nodes = s->nodes;
 	struct transform *transforms = s->transforms;
-	mat4_cpy(transforms->glob, transforms->loc);
+	for (unsigned int j = 0; j < s->rootcnt; j++) {
+	unsigned int root = s->roots[j];
+	stack[0] = root;
+	spos = 1;
+	mat4_cpy(transforms[root].glob, transforms[root].loc);
 	// TODO Profile traversal, each node is fetched twice
 	while (spos > 0) {
 		unsigned int nid = stack[--spos];
@@ -273,6 +276,7 @@ void scene_updtransforms(struct scene *s)
 			assert(spos < STACK_SIZE);
 			stack[spos++] = c->id;
 		}
+	}
 	}
 }
 

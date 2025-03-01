@@ -37,7 +37,7 @@ struct mtl {
 
 struct cam {
 	struct vec3   eye;
-	float         vfov;
+	float         vfov; // In degree
 	struct vec3   fwd;
 	float         focdist;
 	struct vec3   ri;

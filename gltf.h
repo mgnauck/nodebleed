@@ -29,7 +29,7 @@ struct gltfmtl {
 };
 
 struct gltfcam {
-	float  vfov;
+	float  vfov; // In radian
 	char   name[NAME_MAX_LEN];
 	// Ignoring everthing else
 };

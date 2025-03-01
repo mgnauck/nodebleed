@@ -11,8 +11,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   1920
-#define HEIGHT  1080
+#define WIDTH   200
+#define HEIGHT  200
 
 void print_type_sizes(void)
 {
@@ -47,6 +47,7 @@ unsigned int get_max_insts(struct obj *objs, unsigned int objcnt)
 void cpy_rdata(struct rdata *rd, struct scene *s)
 {
 	unsigned int triofs[s->meshcnt];
+	unsigned int tricnt[s->meshcnt];
 	unsigned int ofs = 0;
 
 	struct rtri *rt = rd->tris;
@@ -72,6 +73,7 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 			}
 		}
 		triofs[k] = ofs;
+		tricnt[k] = m->icnt / 3;
 		ofs += m->icnt / 3;
 	}
 
@@ -80,15 +82,22 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 		memcpy(&rd->mtls[i], scene_getmtl(s, i), sizeof(*s->mtls));
 
 	// Create instances from mesh nodes
-	unsigned int instid = 0;
+	unsigned int cnt = 0;
 	for (unsigned int i = 0; i < s->nodecnt; i++) {
 		struct obj *o = scene_getobj(s, i);
 		if (hasflags(o->flags, MESH)) {
-			rd->insts[instid] = (struct rinst){
-			  .id = instid, .ofs = triofs[o->objid], .flags = o->flags};
-			o->instid = instid++;
+			rd->insts[cnt] = (struct rinst){
+			  .id = cnt,
+			  .flags = o->flags,
+			  .triofs = triofs[o->objid],
+			  .tricnt = tricnt[o->objid]};
+			o->instid = cnt++;
 		}
 	}
+	rd->instcnt = cnt;
+
+	// Other data
+	rd->bgcol = s->bgcol;
 }
 
 void set_inst_transforms(struct rdata *rd, struct scene *s)
@@ -144,14 +153,45 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
-		printf("Failed to import gltf\n");
+	//if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
+	//	printf("Failed to import gltf\n");
+
+	/// Handcraft a scene
+	scene_init(s, 1, 1, 1, 2, 2);
+
+	scene_initmtl(s, scene_acquiremtl(s), "testmtl", (struct vec3){1.0f, 0.0f, 0.0f});
+	scene_initcam(s, scene_acquirecam(s), "testcam", 60.0f, 10.0f, 0.0f)->nodeid = 1;
+	
+	struct mesh *m = scene_initmesh(s, scene_acquiremesh(s), 3, 1, 1);
+	*(m->vrts + 0) = (struct vec3){-1.0f,  1.0f, -1.0f};
+	*(m->vrts + 1) = (struct vec3){-1.0f, -1.0f, -1.0f};
+	*(m->vrts + 2) = (struct vec3){ 1.0f, -1.0f, -1.0f};
+	*(m->nrms + 0) = (struct vec3){ 0.0f, 0.0f, -1.0f};
+	*(m->nrms + 1) = (struct vec3){ 0.0f, 0.0f, -1.0f};
+	*(m->nrms + 2) = (struct vec3){ 0.0f, 0.0f, -1.0f};
+	*(m->inds + 0) = 0;
+	*(m->inds + 1) = 1;
+	*(m->inds + 2) = 2;
+	m->vcnt = 3;
+	m->icnt = 3;
+	*m->mtls = (struct mtlref){0, 1};
+	m->mcnt = 1;
+
+	float trans[16];
+	mat4_identity(trans);
+	mat4_trans(trans, (struct vec3){0.0f, 0.0f, -1.0f});
+	scene_initnode(s, scene_acquirenode(s, true), "meshnode", 0, MESH, trans, 0, 0);
+	mat4_trans(trans, (struct vec3){0.0f, 0.0f, 2.0f});
+	scene_initnode(s, scene_acquirenode(s, true), "camnode", 0, CAM, trans, 0, 0);
+	//*/
 
 	printf("imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
 	  s->meshcnt, s->mtlcnt, s->camcnt, s->rootcnt, s->nodecnt);
 
 	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
 	unsigned int instmax = get_max_insts(s->objs, s->nodecnt);
+
+	printf("trimax: %d, instmax: %d\n", trimax, instmax);
 
 	rend_init(rd, s->mtlmax, trimax, instmax);
 	cpy_rdata(rd, s);
@@ -200,6 +240,9 @@ int main(int argc, char *argv[])
 	struct rdata rd = { 0 };
 	init(&s, &rd);
 
+	update(&rd, &s);
+	rend_render(scr->pixels, &rd);
+
 	bool quit = false;
 	long last = SDL_GetTicks64();
 	while (!quit) {
@@ -215,6 +258,8 @@ int main(int argc, char *argv[])
 		snprintf(title, 64, "%ld ms", SDL_GetTicks64() - last);
 		SDL_SetWindowTitle(win, title);
 		last = SDL_GetTicks64();
+
+		mat4_trans(s.transforms[1].loc, (struct vec3){sin(last * 0.004f) * 1.5f, 0.0f, 2.0f});
 
 		update(&rd, &s);
 		rend_render(scr->pixels, &rd);

@@ -10,5 +10,6 @@ struct ray {
 };
 
 struct ray  ray_create(struct vec3 ori, struct vec3 dir);
+struct ray  ray_transform(struct ray r, float m[16]);
 
 #endif
