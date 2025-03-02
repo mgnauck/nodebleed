@@ -3,9 +3,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "mat4.h"
-#include "ray.h"
 #include "rend.h"
 #include "util.h"
+
+struct ray {
+	struct vec3  ori;
+	struct vec3  dir;
+	struct vec3  idir;
+};
+
+struct hit {
+	float     t;
+	float     u;
+	float     v;
+	uint32_t  e;
+};
 
 void rend_init(struct rdata *rd, unsigned int maxmtls,
                unsigned int maxtris, unsigned int maxinsts) 
@@ -23,13 +35,6 @@ void rend_release(struct rdata *rd)
 	free(rd->tris);
 	free(rd->mtls);
 }
-
-struct hit {
-	float     t;
-	float     u;
-	float     v;
-	uint32_t  e;
-};
 
 void intersect_tri(struct hit *h, const struct ray *r, const struct vec3 *v0,
                    const struct vec3 *v1, const struct vec3 *v2, uint32_t id)
@@ -78,10 +83,16 @@ void intersect_insts(struct hit *h, const struct ray *r, const struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		const struct rinst *ri= &rd->insts[j];
+
 		float inv[16];
 		mat4_from3x4(inv, ri->globinv);
-		struct ray ros;
-		ray_transform(&ros, r, inv);
+
+		struct ray ros = (struct ray){
+		  .ori = mat4_mulpos(inv, r->ori),
+		  .dir = mat4_muldir(inv, r->dir)};
+		ros.idir = (struct vec3){
+		  1.0f / ros.dir.x, 1.0f / ros.dir.y, 1.0f / ros.dir.z};
+
 		const struct rtri *t = &rd->tris[ri->triofs];
 		for (unsigned int i = 0; i < ri->tricnt; i++) {
 			intersect_tri(h, &ros, &t->v0, &t->v1, &t->v2, i << 16 | j);
@@ -102,9 +113,13 @@ void rend_render(void *dst, struct rdata *rd)
 	for (unsigned int j = 0; j < rd->view.h; j++) {
 		struct vec3 p = le;
 		for (unsigned int i = 0; i < rd->view.w; i++) {
-			struct ray r;
-			ray_create(&r, &eye, &vec3_unit(vec3_sub(p, eye)));
-			struct hit h = (struct hit){ .t = FLT_MAX };
+			struct ray r = (struct ray){
+			  .ori = eye, .dir = vec3_unit(vec3_sub(p, eye))};
+			r.idir = (struct vec3){
+			  1.0f / r.dir.x, 1.0f / r.dir.y, 1.0f / r.dir.z};
+
+			struct hit h = (struct hit){.t = FLT_MAX};
+
 			intersect_insts(&h, &r, rd);
 
 			struct vec3 c = rd->bgcol;
