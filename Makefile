@@ -4,10 +4,11 @@ OUT = a.out
 
 CC = tcc
 CPPFLAGS =
-CFLAGS = -std=c99 -Os -Wall -Wextra -pedantic -Wno-unused-parameter -Wno-unused-variable
+CFLAGS = -std=c99 -O3 -Wall -Wextra -pedantic -Wno-unused-parameter -Wno-unused-variable
 #CFLAGS += -Wunsupported
 CFLAGS += $(shell sdl2-config --cflags)
-DBGFLAGS = -g
+#DBGFLAGS = -g
+DBGFLAGS =
 LIBS = -lm
 LIBS += $(shell sdl2-config --libs)
 LDFLAGS = -s
