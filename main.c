@@ -11,8 +11,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   32
-#define HEIGHT  20
+#define WIDTH   640
+#define HEIGHT  400
 
 void print_type_sizes(void)
 {
@@ -162,11 +162,14 @@ void init(struct scene *s, struct rdata *rd)
 	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
 	unsigned int instmax = get_max_insts(s->objs, s->nodecnt);
 
-	printf("renderer with trimax: %d, instmax: %d\n", trimax, instmax);
-
 	rend_init(rd, s->mtlmax, trimax, instmax);
 	cpy_rdata(rd, s);
+
+	printf("created render data with %d mtls, %d tris, %d insts\n", s->mtlmax, trimax, instmax);
+
+	long last = SDL_GetTicks();
 	rend_prepstatic(rd);
+	printf("created bvhs in %d ms\n", SDL_GetTicks() - last);
 }
 
 void update(struct rdata *rd, struct scene *s)
@@ -184,7 +187,8 @@ void update(struct rdata *rd, struct scene *s)
 
 int main(int argc, char *argv[])
 {
-	// TODO Visualize
+	// TODO TLAS
+	// TODO Move code from main into some subsys
 	// TODO Animation test
 	// TODO Static/dynamic separation of meshes in the node tree (incl. premul)
 

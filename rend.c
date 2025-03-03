@@ -8,7 +8,7 @@
 #include "rend.h"
 #include "util.h"
 
-#define MIN_SPLIT_CNT  1
+#define MIN_SPLIT_CNT  3
 #define INTERVAL_CNT  16
 
 struct split {
@@ -24,7 +24,7 @@ struct interval {
 
 struct bnode {
 	struct vec3  min;
-	uint32_t     sid; // Start index or id
+	uint32_t     sid; // Start index or node id
 	struct vec3  max;
 	uint32_t     cnt;
 };
@@ -60,9 +60,11 @@ void update_bounds(struct bnode *n, struct rtri *tris, unsigned int *imap)
 	n->min = a.min;
 	n->max = a.max;
 
+	/*
 	printf("min: %6.3f, %6.3f, %6.3f\n", a.min.x, a.min.y, a.min.z);
 	printf("max: %6.3f, %6.3f, %6.3f\n", a.max.x, a.max.y, a.max.z);
 	printf("sid: %d, cnt: %d\n\n", n->sid, n->cnt);
+	*/
 }
 
 struct split find_intervalsplit(struct bnode *n, struct rtri *tris,
@@ -224,6 +226,18 @@ void build_bvh(struct bnode *nodes, struct rtri *tris,
 	subdivide_node(nodes, nodes, tris, imap, centers, &ncnt);
 }
 
+float intersect_aabb(const struct ray *r, float tfar,
+                     struct vec3 min_ext, struct vec3 max_ext)
+{
+	struct vec3 t0 = vec3_mul(vec3_sub(min_ext, r->ori), r->idir);
+	struct vec3 t1 = vec3_mul(vec3_sub(max_ext, r->ori), r->idir);
+
+	float tmin = max(vec3_maxc(vec3_min(t0, t1)), EPS);
+	float tmax = min(vec3_minc(vec3_max(t1, t0)), tfar);
+
+	return tmin <= tmax ? tmin : FLT_MAX;
+}
+
 void intersect_tri(struct hit *h, const struct ray *r, const struct vec3 *v0,
                    const struct vec3 *v1, const struct vec3 *v2, uint32_t id)
 {
@@ -267,6 +281,56 @@ void intersect_tri(struct hit *h, const struct ray *r, const struct vec3 *v0,
 	}
 }
 
+void intersect_blas(struct hit *h, const struct ray *r,
+                    const struct bnode *nodes, const struct rtri *tris,
+                    const unsigned int *imap, unsigned int instid)
+                    
+{
+#define STACK_SIZE 32
+	const struct bnode *stack[STACK_SIZE];
+	unsigned int spos = 0;
+
+	const struct bnode *n = nodes;
+
+	while (true) {
+		if (n->cnt > 0) {
+			// Leaf, check triangles
+			const unsigned int *ip = &imap[n->sid];
+			for (unsigned int i = 0; i < n->cnt; i++) {
+				unsigned int triid = *ip++;
+				const struct rtri *t = &tris[triid];
+				intersect_tri(h, r, &t->v0, &t->v1, &t->v2,
+				  triid << 16 | instid);
+			}
+			// Pop next node of stack if something is left
+			if (spos > 0)
+				n = stack[--spos];
+			else
+				return;
+		} else {
+			// Interior node, check children
+			const struct bnode *c = &nodes[n->sid];
+			float dist[2] = {
+			  intersect_aabb(r, h->t, c->min, c->max),
+			  intersect_aabb(r, h->t, (c + 1)->min, (c + 1)->max)};
+			unsigned char near = dist[1] > dist[0] ? 0 : 1;
+			if (dist[near] == FLT_MAX) {
+				// Did not hit any child, try the stack
+				if (spos > 0)
+					n = stack[--spos];
+				else
+					return;
+			} else {
+				// Continue with nearer child node
+				n = c + near; 
+				if (dist[1 - near] < FLT_MAX)
+					// Put farther child on stack
+					stack[spos++] = c + 1 - near;
+			}
+		}
+	}
+}
+
 void intersect_insts(struct hit *h, const struct ray *r, const struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
@@ -281,11 +345,9 @@ void intersect_insts(struct hit *h, const struct ray *r, const struct rdata *rd)
 		ros.idir = (struct vec3){
 		  1.0f / ros.dir.x, 1.0f / ros.dir.y, 1.0f / ros.dir.z};
 
-		const struct rtri *t = &rd->tris[ri->triofs];
-		for (unsigned int i = 0; i < ri->tricnt; i++) {
-			intersect_tri(h, &ros, &t->v0, &t->v1, &t->v2, i << 16 | j);
-			t++;
-		}
+		unsigned int ofs = ri->triofs;
+		intersect_blas(h, &ros, &rd->nodes[ofs << 1], &rd->tris[ofs],
+		  &rd->imap[ofs], j);
 	}
 }
 
@@ -315,7 +377,7 @@ void rend_prepstatic(struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		const struct rinst *ri = &rd->insts[j];
-		printf("instance: %d, ofs: %d, cnt: %d\n", j, ri->triofs, ri->tricnt);
+		//printf("instance: %d, ofs: %d, cnt: %d\n", j, ri->triofs, ri->tricnt);
 		unsigned int o = ri->triofs;
 		if (rd->nodes[o << 1].cnt == 0) // Tris of this instance not processed yet
 			build_bvh(&rd->nodes[o << 1], &rd->tris[o], &rd->imap[o], ri->tricnt);
