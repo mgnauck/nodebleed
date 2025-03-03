@@ -11,8 +11,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   320
-#define HEIGHT  200
+#define WIDTH   32
+#define HEIGHT  20
 
 void print_type_sizes(void)
 {
@@ -166,6 +166,7 @@ void init(struct scene *s, struct rdata *rd)
 
 	rend_init(rd, s->mtlmax, trimax, instmax);
 	cpy_rdata(rd, s);
+	rend_prepstatic(rd);
 }
 
 void update(struct rdata *rd, struct scene *s)

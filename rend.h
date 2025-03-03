@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "vec3.h"
 
+struct bnode;
+
 struct rmtl {
 	struct vec3  col;
 	float        metallic;
@@ -60,8 +62,10 @@ struct rdata {
 	struct rmtl   *mtls;
 	struct rtri   *tris;
 	struct rnrm   *nrms;
+	unsigned int  *imap; // Triangle indices mapping (bvh)
 	struct rinst  *insts;
-	unsigned int  instcnt; // Temp
+	unsigned int  instcnt;
+	struct bnode  *nodes; // Bottom level
 	struct rcam   cam;
 	struct rview  view;
 	struct vec3   bgcol;
@@ -71,6 +75,7 @@ void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
                 unsigned int maxinsts);
 void  rend_release(struct rdata *rd);
 
+void  rend_prepstatic(struct rdata *rd);
 void  rend_render(void *dst, struct rdata *rd);
 
 #endif

@@ -83,14 +83,19 @@ struct vec3 vec3_max(struct vec3 a, struct vec3 b)
 	return (struct vec3){max(a.x, b.x), max(a.y, b.y), max(a.z, b.z)};
 }
 
-float vec3_mincomp(struct vec3 v)
+float vec3_minc(struct vec3 v)
 {
 	return min(min(v.x, v.y), v.z);
 }
 
-float vec3_maxcomp(struct vec3 v)
+float vec3_maxc(struct vec3 v)
 {
 	return max(max(v.x, v.y), v.z);
+}
+
+float vec3_getc(struct vec3 v, unsigned char i)
+{
+	return i == 0 ? v.x : (i == 1 ? v.y : v.z);
 }
 
 struct vec3 vec3_abs(struct vec3 v)

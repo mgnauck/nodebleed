@@ -26,8 +26,10 @@ float        vec3_len(struct vec3 v);
 struct vec3  vec3_min(struct vec3 a, struct vec3 b);
 struct vec3  vec3_max(struct vec3 a, struct vec3 b);
 
-float        vec3_mincomp(struct vec3 v);
-float        vec3_maxcomp(struct vec3 v);
+float        vec3_minc(struct vec3 v); // Component
+float        vec3_maxc(struct vec3 v);
+
+float        vec3_getc(struct vec3 v, unsigned char i);
 
 struct vec3  vec3_abs(struct vec3 v);
 

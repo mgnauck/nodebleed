@@ -2,9 +2,31 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include "aabb.h"
 #include "mat4.h"
 #include "rend.h"
 #include "util.h"
+
+#define INTERVAL_CNT  16
+
+struct split {
+	float          cost;
+	float          pos;
+	unsigned char  axis;
+};
+
+struct interval {
+	struct aabb   box;
+	unsigned int  cnt;
+};
+
+struct bnode {
+	struct vec3  min;
+	uint32_t     sid; // Start index or id
+	struct vec3  max;
+	uint32_t     cnt;
+};
 
 struct ray {
 	struct vec3  ori;
@@ -19,21 +41,187 @@ struct hit {
 	uint32_t  e;
 };
 
-void rend_init(struct rdata *rd, unsigned int maxmtls,
-               unsigned int maxtris, unsigned int maxinsts) 
+void update_bounds(struct bnode *n, struct rtri *tris, unsigned int *imap)
 {
-	rd->mtls = malloc(maxmtls * sizeof(*rd->mtls));
-	rd->tris = malloc(maxtris * sizeof(*rd->tris));
-	rd->nrms = malloc(maxtris * sizeof(*rd->nrms));
-	rd->insts = malloc(maxinsts * sizeof(*rd->insts));
+	struct aabb a;
+	aabb_init(&a);
+
+	unsigned int *ip = imap + n->sid;
+	for (unsigned int i = 0; i < n->cnt; i++) {
+		struct rtri *t = &tris[*ip];
+		aabb_grow(&a, t->v0);
+		aabb_grow(&a, t->v1);
+		aabb_grow(&a, t->v2);
+		ip++;
+	}
+
+	aabb_pad(&a);
+	n->min = a.min;
+	n->max = a.max;
+
+	printf("min: %6.3f, %6.3f, %6.3f\n", a.min.x, a.min.y, a.min.z);
+	printf("max: %6.3f, %6.3f, %6.3f\n", a.max.x, a.max.y, a.max.z);
+	printf("sid: %d, cnt: %d\n\n", n->sid, n->cnt);
 }
 
-void rend_release(struct rdata *rd)
+struct split find_intervalsplit(struct bnode *n, struct rtri *tris,
+                                unsigned int *imap, struct vec3 *centers)
 {
-	free(rd->insts);
-	free(rd->nrms);
-	free(rd->tris);
-	free(rd->mtls);
+	struct split best = {.cost = FLT_MAX};
+	for (unsigned char axis = 0; axis < 3; axis++) {
+		// Calc center bounds
+		float minc = FLT_MAX;
+		float maxc = -FLT_MAX;
+		unsigned int *ip = imap + n->sid;
+		for (unsigned int i = 0; i < n->cnt; i++) {
+			float c = vec3_getc(centers[*ip++], axis);
+			minc = min(minc, c);
+			maxc = max(maxc, c);
+		}
+
+		if (fabsf(maxc - minc) < EPS)
+			continue; // Skip empty axis
+
+		// Init empty intervals
+		struct interval ivs[INTERVAL_CNT];
+		struct interval *ivp = ivs;
+		for (unsigned int i = 0; i < INTERVAL_CNT; i++) {
+			ivp->cnt = 0;
+			aabb_init(&ivp->box);
+			ivp++;
+		}
+
+		// Count objects per interval and find the combined bounds
+		float delta = INTERVAL_CNT / (maxc - minc);
+		ip = imap + n->sid;
+		for (unsigned int i = 0; i < n->cnt; i++) {
+			unsigned int iv_id  = (unsigned int)min(
+			  INTERVAL_CNT - 1,
+			  (vec3_getc(centers[*ip], axis) - minc) * delta);
+			struct interval *iv = &ivs[iv_id];
+			struct aabb *iv_box = &iv->box;
+			struct rtri *tri = &tris[*ip++];
+			aabb_grow(iv_box, tri->v0);
+			aabb_grow(iv_box, tri->v1);
+			aabb_grow(iv_box, tri->v2);
+			iv->cnt++;
+		}
+
+		// Calc l/r areas and cnts for each interval separating plane
+		float lareas[INTERVAL_CNT - 1]; // Areas left
+		float rareas[INTERVAL_CNT - 1];
+		unsigned int lcnts[INTERVAL_CNT - 1];
+		unsigned int rcnts[INTERVAL_CNT - 1];
+		struct aabb lbox;
+		struct aabb rbox;
+		unsigned int ltotcnt = 0; // Total cnt
+		unsigned int rtotcnt = 0;
+		aabb_init(&lbox);
+		aabb_init(&rbox);
+		for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
+			// From left
+			struct interval *iv = &ivs[i];
+			ltotcnt += iv->cnt;
+			lcnts[i] = ltotcnt;
+			aabb_combine(&lbox, &lbox, &iv->box);
+			lareas[i] = aabb_calcarea(&lbox);
+			// From right
+			iv = &ivs[INTERVAL_CNT - 1 - i];
+			rtotcnt += iv->cnt;
+			rcnts[INTERVAL_CNT - 2 - i] = rtotcnt;
+			aabb_combine(&rbox, &rbox, &iv->box);
+			rareas[INTERVAL_CNT - 2 - i] = aabb_calcarea(&rbox);
+		}
+
+		// Find best surface area cost for interval planes
+		delta = 1.0f / delta;
+		for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
+			float cost = lcnts[i] * lareas[i] + rcnts[i] * rareas[i];
+			if (cost < best.cost) {
+				best.cost = cost;
+				best.axis = axis;
+				best.pos = minc + (i + 1) * delta;
+			}
+		}
+	}
+
+	return best;
+}
+
+void subdivide_node(struct bnode *n, struct bnode *nodes, struct rtri *tris,
+                    unsigned int *imap, struct vec3 *centers, unsigned int *ncnt)
+{
+	// Calc if we need to split
+	struct split best = find_intervalsplit(n, tris, imap, centers);
+	float nosplit = n->cnt * aabb_calcarea(&(struct aabb){n->min, n->max});
+	if (nosplit <= best.cost) {
+		printf("no split of sid: %d, cnt: %d\n", n->sid, n->cnt);
+		return;
+	}
+
+	// Partition data into left and right of found split pos
+	int l = n->sid;
+	int r = l + n->cnt - 1;
+	while (l <= r) {
+		if (vec3_getc(centers[imap[l]], best.axis) < best.pos) {
+			l++;
+		} else {
+			unsigned int t = imap[l];
+			imap[l] = imap[r];
+			imap[r] = t;
+			r--;
+		}
+	}
+
+	// Stop if one side of the partition is empty
+	unsigned int lcnt = l - n->sid;
+	if (l == 0 || lcnt == n->cnt)
+		return;
+
+	// Init children
+	struct bnode *left = &nodes[*ncnt];
+	left->sid = n->sid;
+	left->cnt = lcnt;
+	*ncnt += 1;
+	update_bounds(left, tris, imap);
+
+	struct bnode *right = &nodes[*ncnt];
+	right->sid = l;
+	right->cnt = n->cnt - lcnt;
+	*ncnt += 1;
+	update_bounds(right, tris, imap);
+
+	// Update current (interior) node's child links
+	n->sid = *ncnt - 2; // Right child is implicitly + 1
+	n->cnt = 0; // No leaf, no tris
+
+	if (lcnt > 1)
+		subdivide_node(left, nodes, tris, imap, centers, ncnt);
+	if (right->cnt > 1)
+		subdivide_node(right, nodes, tris, imap, centers, ncnt);
+}
+
+void build_bvh(struct bnode *nodes, struct rtri *tris,
+               unsigned int *imap, unsigned int tricnt)
+{
+	struct vec3 centers[tricnt];
+
+	unsigned int *ip = imap;
+	struct vec3 *cp = centers;
+	struct rtri *tp = tris;
+	for (unsigned int i = 0; i < tricnt; i++) {
+		*ip++ = i;
+		*cp++ = vec3_scale(vec3_add(tp->v0, vec3_add(tp->v1, tp->v2)), 0.3333f);
+		tp++;
+	}
+
+	// Root
+	nodes->sid = 0;
+	nodes->cnt = tricnt;
+	update_bounds(nodes, tris, imap);
+
+	unsigned int ncnt = 2; // Root + 1 skipped node for mem alignment
+	subdivide_node(nodes, nodes, tris, imap, centers, &ncnt);
 }
 
 void intersect_tri(struct hit *h, const struct ray *r, const struct vec3 *v0,
@@ -98,6 +286,39 @@ void intersect_insts(struct hit *h, const struct ray *r, const struct rdata *rd)
 			intersect_tri(h, &ros, &t->v0, &t->v1, &t->v2, i << 16 | j);
 			t++;
 		}
+	}
+}
+
+void rend_init(struct rdata *rd, unsigned int maxmtls,
+               unsigned int maxtris, unsigned int maxinsts) 
+{
+	rd->mtls = malloc(maxmtls * sizeof(*rd->mtls));
+	rd->tris = malloc(maxtris * sizeof(*rd->tris));
+	rd->nrms = malloc(maxtris * sizeof(*rd->nrms));
+	rd->imap = malloc(maxtris * sizeof(*rd->imap));
+	rd->insts = malloc(maxinsts * sizeof(*rd->insts));
+	// Actual node count is 2 * tricnt - 1
+	rd->nodes = calloc(2 * maxtris, sizeof(*rd->nodes));
+}
+
+void rend_release(struct rdata *rd)
+{
+	free(rd->nodes);
+	free(rd->insts);
+	free(rd->imap);
+	free(rd->nrms);
+	free(rd->tris);
+	free(rd->mtls);
+}
+
+void rend_prepstatic(struct rdata *rd)
+{
+	for (unsigned int j = 0; j < rd->instcnt; j++) {
+		const struct rinst *ri = &rd->insts[j];
+		printf("instance: %d, ofs: %d, cnt: %d\n", j, ri->triofs, ri->tricnt);
+		unsigned int o = ri->triofs;
+		if (rd->nodes[o << 1].cnt == 0) // Tris of this instance not processed yet
+			build_bvh(&rd->nodes[o << 1], &rd->tris[o], &rd->imap[o], ri->tricnt);
 	}
 }
 
