@@ -8,6 +8,7 @@
 #include "rend.h"
 #include "util.h"
 
+#define MIN_SPLIT_CNT  1
 #define INTERVAL_CNT  16
 
 struct split {
@@ -168,8 +169,7 @@ void subdivide_node(struct bnode *n, struct bnode *nodes, struct rtri *tris,
 		} else {
 			unsigned int t = imap[l];
 			imap[l] = imap[r];
-			imap[r] = t;
-			r--;
+			imap[r--] = t;
 		}
 	}
 
@@ -195,9 +195,9 @@ void subdivide_node(struct bnode *n, struct bnode *nodes, struct rtri *tris,
 	n->sid = *ncnt - 2; // Right child is implicitly + 1
 	n->cnt = 0; // No leaf, no tris
 
-	if (lcnt > 1)
+	if (lcnt > MIN_SPLIT_CNT)
 		subdivide_node(left, nodes, tris, imap, centers, ncnt);
-	if (right->cnt > 1)
+	if (right->cnt > MIN_SPLIT_CNT)
 		subdivide_node(right, nodes, tris, imap, centers, ncnt);
 }
 
