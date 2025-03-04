@@ -153,7 +153,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
+	if (import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin") != 0)
 		printf("Failed to import gltf\n");
 
 	printf("imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
@@ -169,7 +169,7 @@ void init(struct scene *s, struct rdata *rd)
 
 	long last = SDL_GetTicks();
 	rend_prepstatic(rd);
-	printf("created bvhs in %d ms\n", SDL_GetTicks() - last);
+	printf("created bvhs in %ld ms\n", SDL_GetTicks() - last);
 }
 
 void update(struct rdata *rd, struct scene *s)

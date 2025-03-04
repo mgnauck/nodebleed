@@ -156,6 +156,11 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 			m->vcnt++;
 		}
 
+		if (p->mtlid < 0) {
+			dprintf("Found primitive without mtl. Switching to mtl 0.");
+			p->mtlid = 0;
+		}
+
 		// Track consolidated mtl flags at mesh
 		setflags(&m->flags, s->mtls[p->mtlid].flags); 
 
@@ -231,19 +236,34 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 int import_data(struct scene *s,
                 const char *gltfbuf, const unsigned char *binbuf)
 {
-	struct gltf g;
+	struct gltf g = { 0 };
 	if (gltf_init(&g, gltfbuf) != 0) {
 		gltf_release(&g);
 		return 1;
 	}
 
-	scene_init(s, g.meshcnt, g.mtlcnt, g.camcnt, g.rootcnt, g.nodecnt);
+	assert(g.meshcnt > 0 && g.rootcnt > 0 && g.nodecnt > 0);
+
+	scene_init(s, g.meshcnt, max(1, g.mtlcnt), max(1, g.camcnt),
+	  g.rootcnt, g.nodecnt);
 
 	for (unsigned int i = 0; i < g.mtlcnt; i++)
 		import_mtl(s, &g.mtls[i]);
 
+	if (g.mtlcnt == 0) {
+		dprintf("Found no materials. Creating default material.\n");
+		scene_initmtl(s, scene_acquiremtl(s), "FALLBACK", (struct vec3){
+		  1.0f, 0.0f, 0.0f});
+	}
+
 	for (unsigned int i = 0; i < g.camcnt; i++)
 		import_cam(s, &g.cams[i]);
+
+	if (g.camcnt == 0) {
+		dprintf("Found no cameras. Creating default cam using transform of node 0.\n");
+		scene_initcam(s, scene_acquirecam(s), "FALLBACK",
+		  60.0f * 180.0f / PI, 10.0f, 0.0f)->nodeid = 0;
+	}
 
 	for (unsigned int i = 0; i < g.meshcnt; i++)
 		import_mesh(s, &g.meshes[i], &g, binbuf);
