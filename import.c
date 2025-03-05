@@ -157,7 +157,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		}
 
 		if (p->mtlid < 0) {
-			dprintf("Found primitive without mtl. Switching to mtl 0.");
+			dprintf("Found primitive without mtl. Switching to mtl 0.\n");
 			p->mtlid = 0;
 		}
 

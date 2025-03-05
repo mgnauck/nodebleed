@@ -11,8 +11,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   640
-#define HEIGHT  400
+#define WIDTH   1024
+#define HEIGHT   768
 
 void print_type_sizes(void)
 {
