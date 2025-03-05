@@ -60,13 +60,13 @@ struct rview {
 
 struct rdata {
 	struct rmtl   *mtls;
-	struct rtri   *tris;
+	struct rtri   *tris; // Tris of all meshes
 	struct rnrm   *nrms;
-	unsigned int  *imap; // Triangle indices mapping (bvh)
+	unsigned int  *imap; // Triangle indices mapping (blas)
 	struct rinst  *insts;
 	struct aabb   *aabbs; // Instance aabbs 
 	unsigned int  instcnt;
-	struct bnode  *nodes; // Bottom level
+	struct bnode  *blas; // One blas per mesh (tri buffer)
 	struct rcam   cam;
 	struct rview  view;
 	struct vec3   bgcol;

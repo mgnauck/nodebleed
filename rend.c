@@ -153,7 +153,7 @@ struct split find_intervalsplit(const struct bnode *n,
 	return best;
 }
 
-void subdivide_node(struct bnode *n, struct bnode *nodes,
+void subdivide_node(struct bnode *n, struct bnode *blas,
                     const struct rtri *tris, unsigned int *imap,
                     const struct vec3 *centers, unsigned int *ncnt)
 {
@@ -184,12 +184,12 @@ void subdivide_node(struct bnode *n, struct bnode *nodes,
 		return;
 
 	// Init children
-	struct bnode *left = nodes + *ncnt;
+	struct bnode *left = blas + *ncnt;
 	left->sid = n->sid;
 	left->cnt = lcnt;
 	update_bounds(left, tris, imap);
 
-	struct bnode *right = nodes + *ncnt + 1;
+	struct bnode *right = blas + *ncnt + 1;
 	right->sid = l;
 	right->cnt = n->cnt - lcnt;
 	update_bounds(right, tris, imap);
@@ -198,15 +198,15 @@ void subdivide_node(struct bnode *n, struct bnode *nodes,
 	n->sid = *ncnt; // Right child is implicitly + 1
 	n->cnt = 0; // No leaf, no tris
 
-	*ncnt += 2; // Account for two new nodes
+	*ncnt += 2; // Account for two new blas
 
 	if (lcnt > MIN_SPLIT_CNT)
-		subdivide_node(left, nodes, tris, imap, centers, ncnt);
+		subdivide_node(left, blas, tris, imap, centers, ncnt);
 	if (right->cnt > MIN_SPLIT_CNT)
-		subdivide_node(right, nodes, tris, imap, centers, ncnt);
+		subdivide_node(right, blas, tris, imap, centers, ncnt);
 }
 
-void build_bvh(struct bnode *nodes, const struct rtri *tris,
+void build_bvh(struct bnode *blas, const struct rtri *tris,
                unsigned int *imap, unsigned int tricnt)
 {
 	struct vec3 centers[tricnt];
@@ -222,12 +222,12 @@ void build_bvh(struct bnode *nodes, const struct rtri *tris,
 	}
 
 	// Root
-	nodes->sid = 0;
-	nodes->cnt = tricnt;
-	update_bounds(nodes, tris, imap);
+	blas->sid = 0;
+	blas->cnt = tricnt;
+	update_bounds(blas, tris, imap);
 
 	unsigned int ncnt = 2; // Root + 1 skipped node for mem alignment
-	subdivide_node(nodes, nodes, tris, imap, centers, &ncnt);
+	subdivide_node(blas, blas, tris, imap, centers, &ncnt);
 }
 
 float intersect_aabb(const struct ray *r, float tfar,
@@ -286,7 +286,7 @@ void intersect_tri(struct hit *h, const struct ray *r, const struct vec3 *v0,
 }
 
 void intersect_blas(struct hit *h, const struct ray *r,
-                    const struct bnode *nodes, const struct rtri *tris,
+                    const struct bnode *blas, const struct rtri *tris,
                     const unsigned int *imap, unsigned int instid)
                     
 {
@@ -294,7 +294,7 @@ void intersect_blas(struct hit *h, const struct ray *r,
 	const struct bnode *stack[STACK_SIZE];
 	unsigned int spos = 0;
 
-	const struct bnode *n = nodes;
+	const struct bnode *n = blas;
 
 	while (true) {
 		if (n->cnt > 0) {
@@ -313,7 +313,7 @@ void intersect_blas(struct hit *h, const struct ray *r,
 				return;
 		} else {
 			// Interior node, check children
-			const struct bnode *c = nodes + n->sid;
+			const struct bnode *c = blas + n->sid;
 			float dist[2] = {
 			  intersect_aabb(r, h->t, c->min, c->max),
 			  intersect_aabb(r, h->t, (c + 1)->min, (c + 1)->max)};
@@ -350,7 +350,7 @@ void intersect_insts(struct hit *h, const struct ray *r, const struct rdata *rd)
 		  1.0f / ros.dir.x, 1.0f / ros.dir.y, 1.0f / ros.dir.z};
 
 		unsigned int ofs = ri->triofs;
-		intersect_blas(h, &ros, rd->nodes + (ofs << 1), rd->tris + ofs,
+		intersect_blas(h, &ros, rd->blas + (ofs << 1), rd->tris + ofs,
 		  rd->imap + ofs, j);
 	}
 }
@@ -364,12 +364,12 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	rd->imap = malloc(maxtris * sizeof(*rd->imap));
 	rd->insts = malloc(maxinsts * sizeof(*rd->insts));
 	rd->aabbs = malloc(maxinsts * sizeof(*rd->aabbs));
-	rd->nodes = calloc(2 * maxtris, sizeof(*rd->nodes)); // 2 * tricnt - 1
+	rd->blas = calloc(2 * maxtris, sizeof(*rd->blas)); // 2 * tricnt - 1
 }
 
 void rend_release(struct rdata *rd)
 {
-	free(rd->nodes);
+	free(rd->blas);
 	free(rd->aabbs);
 	free(rd->insts);
 	free(rd->imap);
@@ -385,8 +385,8 @@ void rend_prepstatic(struct rdata *rd)
 		//printf("inst: %d, ofs: %d, cnt: %d\n",
 		//  j, ri->triofs, ri->tricnt);
 		unsigned int o = ri->triofs;
-		if (rd->nodes[o << 1].cnt == 0) // Tri data not processed yet
-			build_bvh(rd->nodes + (o << 1), rd->tris + o,
+		if (rd->blas[o << 1].cnt == 0) // Tri data not processed yet
+			build_bvh(rd->blas + (o << 1), rd->tris + o,
 			  rd->imap + o, ri->tricnt);
 	}
 }
