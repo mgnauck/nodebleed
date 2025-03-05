@@ -60,12 +60,18 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 		for (unsigned int j = 0; j < m->mcnt; j++) {
 			struct mtlref *mr = &m->mtls[j];
 			for (unsigned int i = 0; i < mr->tricnt; i++) {
-				memcpy(&rt->v0, &m->vrts[*(ip + 0)], sizeof(rt->v0));
-				memcpy(&rt->v1, &m->vrts[*(ip + 1)], sizeof(rt->v1));
-				memcpy(&rt->v2, &m->vrts[*(ip + 2)], sizeof(rt->v2));
-				memcpy(&rn->n0, &m->nrms[*(ip + 0)], sizeof(rn->n0));
-				memcpy(&rn->n1, &m->nrms[*(ip + 1)], sizeof(rn->n1));
-				memcpy(&rn->n2, &m->nrms[*(ip + 2)], sizeof(rn->n2));
+				memcpy(&rt->v0, &m->vrts[*(ip + 0)],
+				  sizeof(rt->v0));
+				memcpy(&rt->v1, &m->vrts[*(ip + 1)],
+				  sizeof(rt->v1));
+				memcpy(&rt->v2, &m->vrts[*(ip + 2)],
+				  sizeof(rt->v2));
+				memcpy(&rn->n0, &m->nrms[*(ip + 0)],
+				  sizeof(rn->n0));
+				memcpy(&rn->n1, &m->nrms[*(ip + 1)],
+				  sizeof(rn->n1));
+				memcpy(&rn->n2, &m->nrms[*(ip + 2)],
+				  sizeof(rn->n2));
 				rn->mtlid = mr->mtlid;
 				ip += 3;
 				rt++;
@@ -165,7 +171,8 @@ void init(struct scene *s, struct rdata *rd)
 	rend_init(rd, s->mtlmax, trimax, instmax);
 	cpy_rdata(rd, s);
 
-	printf("created render data with %d mtls, %d tris, %d insts\n", s->mtlmax, trimax, instmax);
+	printf("created render data with %d mtls, %d tris, %d insts\n",
+	  s->mtlmax, trimax, instmax);
 
 	long last = SDL_GetTicks();
 	rend_prepstatic(rd);
@@ -190,7 +197,7 @@ int main(int argc, char *argv[])
 	// TODO TLAS
 	// TODO Move code from main into some subsys
 	// TODO Animation test
-	// TODO Static/dynamic separation of meshes in the node tree (incl. premul)
+	// TODO Static/dyn separation of meshes in the node tree (incl. premul)
 
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
 	assert(sizeof(uint16_t) == sizeof(unsigned short int));

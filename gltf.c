@@ -28,7 +28,8 @@ char *strncpyl(char * restrict dst, const char * src,
 char *toktostr(const char *s, jsmntok_t *t)
 {
 	if (t->type == JSMN_STRING || t->type == JSMN_PRIMITIVE)
-		return strncpyl(sbuf, s + t->start, t->end - t->start, SBUF_LEN);
+		return strncpyl(sbuf, s + t->start, t->end - t->start,
+		  SBUF_LEN);
 	eprintf("Expected token with type string\n");
 	return NULL;
 }
@@ -88,8 +89,10 @@ unsigned int read_mtl_extensions(struct gltfmtl *m, const char *s,
 
 		if (jsoneq(s, key, "KHR_materials_emissive_strength") == 0) {
 			if (jsoneq(s, t + j + 2, "emissiveStrength") == 0) {
-				*emissivestrength = atof(toktostr(s, t + j + 3));
-				dprintf("emissiveStrength: %f\n", *emissivestrength);
+				*emissivestrength =
+				  atof(toktostr(s, t + j + 3));
+				dprintf("emissiveStrength: %f\n",
+				  *emissivestrength);
 				j += 4;
 				continue;
 			}
@@ -98,7 +101,8 @@ unsigned int read_mtl_extensions(struct gltfmtl *m, const char *s,
 		if (jsoneq(s, key, "KHR_materials_transmission") == 0) {
 			if (jsoneq(s, t + j + 2, "transmissionFactor") == 0) {
 				m->refractive = atof(toktostr(s, t + j + 3));
-				dprintf("transmissionFactor (refractive): %f\n", m->refractive);
+				dprintf("transmissionFactor (refractive): %f\n",
+				  m->refractive);
 				j += 4;
 				continue;
 			}
@@ -119,7 +123,8 @@ unsigned int read_mtl_extensions(struct gltfmtl *m, const char *s,
 	return j;
 }
 
-unsigned int read_pbr_metallic_roughness(struct gltfmtl *m, const char *s, jsmntok_t *t)
+unsigned int read_pbr_metallic_roughness(struct gltfmtl *m, const char *s,
+                                         jsmntok_t *t)
 {
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
@@ -127,11 +132,12 @@ unsigned int read_pbr_metallic_roughness(struct gltfmtl *m, const char *s, jsmnt
 
 		if (jsoneq(s, key, "baseColorFactor") == 0) {
 			if (t[j + 1].type == JSMN_ARRAY && t[j + 1].size == 4) {
-				// Just read rgb, ignore alpha component (= j + 5)
+				// Just read rgb, ignore alpha (= j + 5)
 				memcpy(&m->col, (float[]){
 				  atof(toktostr(s, &t[j + 2])),
 				  atof(toktostr(s, &t[j + 3])),
-				  atof(toktostr(s, &t[j + 4]))}, 3 * sizeof(*m->col));
+				  atof(toktostr(s, &t[j + 4]))},
+				  3 * sizeof(*m->col));
 				j += 6;
 				continue;
 			} else {
@@ -186,7 +192,8 @@ unsigned int read_mtl(struct gltfmtl *m, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "name") == 0) {
 			char *name = toktostr(s, &t[j + 1]);
-			strncpyl(m->name, name, t[j + 1].end - t[j + 1].start, NAME_MAX_LEN);
+			strncpyl(m->name, name, t[j + 1].end - t[j + 1].start,
+			  NAME_MAX_LEN);
 			dprintf("name: %s\n", m->name);
 			j += 2;
 			continue;
@@ -197,7 +204,8 @@ unsigned int read_mtl(struct gltfmtl *m, const char *s, jsmntok_t *t)
 				memcpy(&emissivefactor, (float[]){
 				  atof(toktostr(s, &t[j + 2])),
 				  atof(toktostr(s, &t[j + 3])),
-				  atof(toktostr(s, &t[j + 4]))}, 3 * sizeof(*emissivefactor));
+				  atof(toktostr(s, &t[j + 4]))},
+				  3 * sizeof(*emissivefactor));
 				  j += 5;
 				continue;
 			} else {
@@ -206,7 +214,8 @@ unsigned int read_mtl(struct gltfmtl *m, const char *s, jsmntok_t *t)
 		}
 
 		if (jsoneq(s, key, "extensions") == 0) {
-			j += 1 + read_mtl_extensions(m, s, t + j + 1, &emissivestrength);
+			j += 1 + read_mtl_extensions(m, s, t + j + 1,
+			  &emissivestrength);
 			continue;
 		}
 
@@ -261,7 +270,8 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "name") == 0) {
 			char *name = toktostr(s, &t[j + 1]);
-			strncpyl(n->name, name, t[j + 1].end - t[j + 1].start, NAME_MAX_LEN);
+			strncpyl(n->name, name, t[j + 1].end - t[j + 1].start,
+			  NAME_MAX_LEN);
 			dprintf("name: %s\n", name);
 			j += 2;
 			continue;
@@ -286,7 +296,8 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 				memcpy(n->trans, (float[]){
 				  atof(toktostr(s, &t[j + 2])),
 				  atof(toktostr(s, &t[j + 3])),
-				  atof(toktostr(s, &t[j + 4]))}, 3 * sizeof(*n->trans));
+				  atof(toktostr(s, &t[j + 4]))},
+				  3 * sizeof(*n->trans));
 				dprintf("translation: %f, %f, %f\n",
 				  n->trans[0], n->trans[1], n->trans[2]);
 				j += 5;
@@ -301,7 +312,8 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 				memcpy(n->scale, (float[]){
 				  atof(toktostr(s, &t[j + 2])),
 				  atof(toktostr(s, &t[j + 3])),
-				  atof(toktostr(s, &t[j + 4]))}, 3 * sizeof(*n->scale));
+				  atof(toktostr(s, &t[j + 4]))},
+				  3 * sizeof(*n->scale));
 				dprintf("scale: %f, %f, %f\n",
 				  n->scale[0], n->scale[1], n->scale[2]);
 				j += 5;
@@ -317,7 +329,8 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 				  atof(toktostr(s, &t[j + 2])),
 				  atof(toktostr(s, &t[j + 3])),
 				  atof(toktostr(s, &t[j + 4])),
-				  atof(toktostr(s, &t[j + 5]))}, 4 * sizeof(*n->rot));
+				  atof(toktostr(s, &t[j + 5]))},
+				  4 * sizeof(*n->rot));
 				dprintf("rotation: %f, %f, %f, %f\n",
 				  n->rot[0], n->rot[1], n->rot[2], n->rot[3]);
 				j += 6;
@@ -331,9 +344,11 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 			if (t[j + 1].type == JSMN_ARRAY) {
 				dprintf("children: ");
 				n->ccnt = t[j + 1].size;
-				n->children = emalloc(n->ccnt * sizeof(*n->children));
+				n->children =
+				  emalloc(n->ccnt * sizeof(*n->children));
 				for (unsigned int k = 0; k < n->ccnt; k++) {
-					n->children[k] = atoi(toktostr(s, &t[j + 2 + k]));
+					n->children[k] = atoi(
+					  toktostr(s, &t[j + 2 + k]));
 					dprintf("%d ", n->children[k]);
 				}
 				dprintf("\n");
@@ -376,7 +391,8 @@ unsigned int read_nodes(struct gltf *g, const char *s, jsmntok_t *t)
 	return j;
 }
 
-unsigned int read_cam_perspective(struct gltfcam *c, const char *s, jsmntok_t *t)
+unsigned int read_cam_perspective(struct gltfcam *c, const char *s,
+                                  jsmntok_t *t)
 {
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
@@ -405,7 +421,8 @@ unsigned int read_cam(struct gltfcam *c, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "name") == 0) {
 			char *name = toktostr(s, &t[j + 1]);
-			strncpyl(c->name, name, t[j + 1].end - t[j + 1].start, NAME_MAX_LEN);
+			strncpyl(c->name, name, t[j + 1].end - t[j + 1].start,
+			  NAME_MAX_LEN);
 			dprintf("name: %s\n", c->name);
 			j += 2;
 			continue;
@@ -731,9 +748,11 @@ unsigned int read_scene(struct gltf *g, const char *s, jsmntok_t *t)
 			if (t[j + 1].type == JSMN_ARRAY) {
 				dprintf("root nodes: ");
 				g->rootcnt = t[j + 1].size;
-				g->roots = emalloc(g->rootcnt * sizeof(*g->roots));
+				g->roots =
+				  emalloc(g->rootcnt * sizeof(*g->roots));
 				for (unsigned int k = 0; k < g->rootcnt; k++) {
-					g->roots[k] = atoi(toktostr(s, &t[j + 2 + k]));
+					g->roots[k] = atoi(
+					  toktostr(s, &t[j + 2 + k]));
 					dprintf("%d ", g->roots[k]);
 				}
 				dprintf("\n");
@@ -811,59 +830,59 @@ int gltf_init(struct gltf *g, const char *buf)
 	for (int i = 0; i < t->size; i++) {
 		jsmntok_t *key = t + j;
 
-		if (jsoneq(buf, key, "scenes") == 0 && t[j + 1].type == JSMN_ARRAY &&
-		    t[j + 1].size > 0) {
+		if (jsoneq(buf, key, "scenes") == 0 &&
+		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size > 0) {
 			j++;
 			j += read_scenes(g, buf, t + j);
 			continue;
 		}
 
-		if (jsoneq(buf, key, "materials") == 0 && t[j + 1].type == JSMN_ARRAY &&
-		    t[j + 1].size > 0) {
+		if (jsoneq(buf, key, "materials") == 0 &&
+		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size > 0) {
 			j++;
 			j += read_mtls(g, buf, t + j);
 			continue;
 		}
 
-		if (jsoneq(buf, key, "nodes") == 0 && t[j + 1].type == JSMN_ARRAY &&
-		    t[j + 1].size > 0) {
+		if (jsoneq(buf, key, "nodes") == 0 &&
+		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size > 0) {
 			j++;
 			j += read_nodes(g, buf, t + j);
 			continue;
 		}
 
-		if (jsoneq(buf, key, "cameras") == 0 && t[j + 1].type == JSMN_ARRAY &&
-		    t[j + 1].size > 0) {
+		if (jsoneq(buf, key, "cameras") == 0 &&
+		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size > 0) {
 			j++;
 			j += read_cams(g, buf, t + j);
 			continue;
 		}
 
-		if (jsoneq(buf, key, "meshes") == 0 && t[j + 1].type == JSMN_ARRAY &&
-		    t[j + 1].size > 0) {
+		if (jsoneq(buf, key, "meshes") == 0 &&
+		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size > 0) {
 			j++;
 			j += read_meshes(g, buf, t + j);
 			continue;
 		}
 
-		if (jsoneq(buf, key, "accessors") == 0 && t[j + 1].type == JSMN_ARRAY &&
-		    t[j + 1].size > 0) {
+		if (jsoneq(buf, key, "accessors") == 0 &&
+		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size > 0) {
 			j++;
 			j += read_accessors(g, buf, t + j);
 			continue;
 		}
 
-		if (jsoneq(buf, key, "bufferViews") == 0 && t[j + 1].type == JSMN_ARRAY &&
-		    t[j + 1].size > 0) {
+		if (jsoneq(buf, key, "bufferViews") == 0 &&
+		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size > 0) {
 			j++;
 			j += read_bufviews(g, buf, t + j);
 			continue;
 		}
 
-		// Buffers. Check that we have a single buffer with mesh data. Something
-		// else is not supported at the moment.
-		if (jsoneq(buf, key, "buffers") == 0 && t[j + 1].type == JSMN_ARRAY &&
-		    t[j + 1].size != 1) {
+		// Buffers. Check that we have a single buffer with mesh data.
+		// Something else is not supported at the moment.
+		if (jsoneq(buf, key, "buffers") == 0 &&
+		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size != 1) {
 			eprintf("Expected gltf with one buffer only. Can not process file further.\n");
 			free(t);
 			return 1;

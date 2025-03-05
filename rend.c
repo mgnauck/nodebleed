@@ -138,9 +138,9 @@ struct split find_intervalsplit(struct bnode *n, struct rtri *tris,
 		// Find best surface area cost for interval planes
 		delta = 1.0f / delta;
 		for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
-			float cost = lcnts[i] * lareas[i] + rcnts[i] * rareas[i];
-			if (cost < best.cost) {
-				best.cost = cost;
+			float c = lcnts[i] * lareas[i] + rcnts[i] * rareas[i];
+			if (c < best.cost) {
+				best.cost = c;
 				best.axis = axis;
 				best.pos = minc + (i + 1) * delta;
 			}
@@ -151,7 +151,8 @@ struct split find_intervalsplit(struct bnode *n, struct rtri *tris,
 }
 
 void subdivide_node(struct bnode *n, struct bnode *nodes, struct rtri *tris,
-                    unsigned int *imap, struct vec3 *centers, unsigned int *ncnt)
+                    unsigned int *imap, struct vec3 *centers,
+                    unsigned int *ncnt)
 {
 	// Calc if we need to split
 	struct split best = find_intervalsplit(n, tris, imap, centers);
@@ -212,7 +213,8 @@ void build_bvh(struct bnode *nodes, struct rtri *tris,
 	struct rtri *tp = tris;
 	for (unsigned int i = 0; i < tricnt; i++) {
 		*ip++ = i;
-		*cp++ = vec3_scale(vec3_add(tp->v0, vec3_add(tp->v1, tp->v2)), 0.3333f);
+		*cp++ = vec3_scale(vec3_add(tp->v0,
+		          vec3_add(tp->v1, tp->v2)), 0.3333f);
 		tp++;
 	}
 
@@ -376,7 +378,8 @@ void rend_prepstatic(struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		const struct rinst *ri = rd->insts + j;
-		//printf("instance: %d, ofs: %d, cnt: %d\n", j, ri->triofs, ri->tricnt);
+		//printf("inst: %d, ofs: %d, cnt: %d\n",
+		//  j, ri->triofs, ri->tricnt);
 		unsigned int o = ri->triofs;
 		if (rd->nodes[o << 1].cnt == 0) // Tri data not processed yet
 			build_bvh(rd->nodes + (o << 1), rd->tris + o,
@@ -410,7 +413,8 @@ void rend_render(void *dst, struct rdata *rd)
 				unsigned int instid = h.e & 0xffff;
 				unsigned int triid = h.e >> 16;
 				struct rinst *ri = rd->insts + instid;
-				unsigned int mtlid = rd->nrms[ri->triofs + triid].mtlid;
+				unsigned int mtlid =
+				  rd->nrms[ri->triofs + triid].mtlid;
 				c = rd->mtls[mtlid].col;
 			}
 

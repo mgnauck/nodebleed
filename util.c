@@ -14,7 +14,8 @@ typedef struct pcg_state_setseq_64 {
 	uint64_t  inc;
 } pcg32_random_t;
 
-static pcg32_random_t pcg32_global = { 0x853c49e6748fea9bULL, 0xda3e39cb94b95bdbULL };
+static pcg32_random_t pcg32_global = {
+  0x853c49e6748fea9bULL, 0xda3e39cb94b95bdbULL};
 
 // Kernighan, Pike: The Practive of Programming
 void eprintf(const char *fmt, ...)
@@ -74,7 +75,8 @@ uint32_t pcg32_random_r(pcg32_random_t *rng)
 	return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
 }
 
-void pcg32_srandom_r(pcg32_random_t* rng, uint64_t initstate, uint64_t initseq)
+void pcg32_srandom_r(pcg32_random_t* rng, uint64_t initstate,
+                     uint64_t initseq)
 {
 	rng->state = 0U;
 	rng->inc = (initseq << 1u) | 1u;

@@ -132,7 +132,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 
 		struct vec3 *vp = m->vrts + m->vcnt;
 		assert(sizeof(vp->x) == 4);
-		struct vec3 *np = m->nrms + m->vcnt; // No extra normal count in mesh
+		struct vec3 *np = m->nrms + m->vcnt;
 		assert(sizeof(np->x) == 4);
 		const unsigned char *bv = bin + vbv->byteofs;
 		const unsigned char *bn = bin + nbv->byteofs;

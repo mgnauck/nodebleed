@@ -22,9 +22,9 @@ enum flags {
 };
 
 struct mtl {
-	struct vec3   col; // Diffuse col of non-metallic/specular col of metallic
-	float         metallic; // Appearance range from dielectric to conductor (0 - 1)
-	float         roughness; // Perfect reflection to completely diffuse diffuse (0 - 1)
+	struct vec3   col; // Diff col of non-metallic/specular col of metallic
+	float         metallic; // Range from dielectric to conductor (0 - 1)
+	float         roughness; // Perfect refl to completely diffuse (0 - 1)
 	float         ior; // Index of refraction
 	unsigned int  flags;
 };
