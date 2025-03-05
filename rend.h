@@ -64,6 +64,7 @@ struct rdata {
 	struct rnrm   *nrms;
 	unsigned int  *imap; // Triangle indices mapping (bvh)
 	struct rinst  *insts;
+	struct aabb   *aabbs; // Instance aabbs 
 	unsigned int  instcnt;
 	struct bnode  *nodes; // Bottom level
 	struct rcam   cam;

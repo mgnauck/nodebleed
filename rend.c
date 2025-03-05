@@ -42,14 +42,15 @@ struct hit {
 	uint32_t  e;
 };
 
-void update_bounds(struct bnode *n, struct rtri *tris, unsigned int *imap)
+void update_bounds(struct bnode *n, const struct rtri *tris,
+                   const unsigned int *imap)
 {
 	struct aabb a;
 	aabb_init(&a);
 
-	unsigned int *ip = imap + n->sid;
+	const unsigned int *ip = imap + n->sid;
 	for (unsigned int i = 0; i < n->cnt; i++) {
-		struct rtri *t = &tris[*ip++];
+		const struct rtri *t = &tris[*ip++];
 		aabb_grow(&a, t->v0);
 		aabb_grow(&a, t->v1);
 		aabb_grow(&a, t->v2);
@@ -66,15 +67,17 @@ void update_bounds(struct bnode *n, struct rtri *tris, unsigned int *imap)
 	*/
 }
 
-struct split find_intervalsplit(struct bnode *n, struct rtri *tris,
-                                unsigned int *imap, struct vec3 *centers)
+struct split find_intervalsplit(const struct bnode *n,
+                                const struct rtri *tris,
+                                const unsigned int *imap,
+                                const struct vec3 *centers)
 {
 	struct split best = {.cost = FLT_MAX};
 	for (unsigned char axis = 0; axis < 3; axis++) {
 		// Calc center bounds
 		float minc = FLT_MAX;
 		float maxc = -FLT_MAX;
-		unsigned int *ip = imap + n->sid;
+		const unsigned int *ip = imap + n->sid;
 		for (unsigned int i = 0; i < n->cnt; i++) {
 			float c = vec3_getc(centers[*ip++], axis);
 			minc = min(minc, c);
@@ -102,7 +105,7 @@ struct split find_intervalsplit(struct bnode *n, struct rtri *tris,
 			  (vec3_getc(centers[*ip], axis) - minc) * delta);
 			struct interval *iv = ivs + iv_id;
 			struct aabb *iv_box = &iv->box;
-			struct rtri *tri = &tris[*ip++];
+			const struct rtri *tri = &tris[*ip++];
 			aabb_grow(iv_box, tri->v0);
 			aabb_grow(iv_box, tri->v1);
 			aabb_grow(iv_box, tri->v2);
@@ -150,9 +153,9 @@ struct split find_intervalsplit(struct bnode *n, struct rtri *tris,
 	return best;
 }
 
-void subdivide_node(struct bnode *n, struct bnode *nodes, struct rtri *tris,
-                    unsigned int *imap, struct vec3 *centers,
-                    unsigned int *ncnt)
+void subdivide_node(struct bnode *n, struct bnode *nodes,
+                    const struct rtri *tris, unsigned int *imap,
+                    const struct vec3 *centers, unsigned int *ncnt)
 {
 	// Calc if we need to split
 	struct split best = find_intervalsplit(n, tris, imap, centers);
@@ -203,14 +206,14 @@ void subdivide_node(struct bnode *n, struct bnode *nodes, struct rtri *tris,
 		subdivide_node(right, nodes, tris, imap, centers, ncnt);
 }
 
-void build_bvh(struct bnode *nodes, struct rtri *tris,
+void build_bvh(struct bnode *nodes, const struct rtri *tris,
                unsigned int *imap, unsigned int tricnt)
 {
 	struct vec3 centers[tricnt];
 
 	unsigned int *ip = imap;
 	struct vec3 *cp = centers;
-	struct rtri *tp = tris;
+	const struct rtri *tp = tris;
 	for (unsigned int i = 0; i < tricnt; i++) {
 		*ip++ = i;
 		*cp++ = vec3_scale(vec3_add(tp->v0,
@@ -360,13 +363,14 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	rd->nrms = malloc(maxtris * sizeof(*rd->nrms));
 	rd->imap = malloc(maxtris * sizeof(*rd->imap));
 	rd->insts = malloc(maxinsts * sizeof(*rd->insts));
-	// Actual node count is 2 * tricnt - 1
-	rd->nodes = calloc(2 * maxtris, sizeof(*rd->nodes));
+	rd->aabbs = malloc(maxinsts * sizeof(*rd->aabbs));
+	rd->nodes = calloc(2 * maxtris, sizeof(*rd->nodes)); // 2 * tricnt - 1
 }
 
 void rend_release(struct rdata *rd)
 {
 	free(rd->nodes);
+	free(rd->aabbs);
 	free(rd->insts);
 	free(rd->imap);
 	free(rd->nrms);
@@ -377,7 +381,7 @@ void rend_release(struct rdata *rd)
 void rend_prepstatic(struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
-		const struct rinst *ri = rd->insts + j;
+		struct rinst *ri = rd->insts + j;
 		//printf("inst: %d, ofs: %d, cnt: %d\n",
 		//  j, ri->triofs, ri->tricnt);
 		unsigned int o = ri->triofs;
