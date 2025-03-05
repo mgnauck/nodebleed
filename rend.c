@@ -389,44 +389,58 @@ void rend_prepstatic(struct rdata *rd)
 
 void rend_render(void *dst, struct rdata *rd)
 {
+#define BLK_SZ  16
 	struct vec3 eye = rd->cam.eye;
 	struct vec3 dx = rd->view.dx;
 	struct vec3 dy = rd->view.dy;
-	struct vec3 le = rd->view.tl;
+	struct vec3 tl = rd->view.tl;
 
 	uint32_t *buf = dst;
-	unsigned int ofs = 0;
-	for (unsigned int j = 0; j < rd->view.h; j++) {
-		struct vec3 p = le;
-		for (unsigned int i = 0; i < rd->view.w; i++) {
-			struct ray r = (struct ray){
-			  .ori = eye, .dir = vec3_unit(vec3_sub(p, eye))};
-			r.idir = (struct vec3){
-			  1.0f / r.dir.x, 1.0f / r.dir.y, 1.0f / r.dir.z};
+	for (unsigned int j = 0; j < rd->view.h; j += BLK_SZ) {
+		for (unsigned int i = 0; i < rd->view.w; i += BLK_SZ) {
+			for (unsigned int y = 0; y < BLK_SZ; y++) {
+				for (unsigned x = 0; x < BLK_SZ; x++) {
+					struct vec3 p = vec3_add(tl, vec3_add(
+					  vec3_scale(dx, i + x),
+					  vec3_scale(dy, j + y)));
+					struct ray r = (struct ray){
+					  .ori = eye,
+					  .dir = vec3_unit(vec3_sub(p, eye))};
+					r.idir = (struct vec3){
+					  1.0f / r.dir.x,
+					  1.0f / r.dir.y,
+					  1.0f / r.dir.z};
 
-			struct hit h = (struct hit){.t = FLT_MAX};
+					struct hit h = (struct hit){
+					  .t = FLT_MAX};
 
-			intersect_insts(&h, &r, rd);
+					intersect_insts(&h, &r, rd);
 
-			struct vec3 c = rd->bgcol;
-			if (h.t < FLT_MAX) {
-				unsigned int instid = h.e & 0xffff;
-				unsigned int triid = h.e >> 16;
-				struct rinst *ri = rd->insts + instid;
-				unsigned int mtlid =
-				  rd->nrms[ri->triofs + triid].mtlid;
-				c = rd->mtls[mtlid].col;
+					struct vec3 c = rd->bgcol;
+					if (h.t < FLT_MAX) {
+						unsigned int instid =
+						  h.e & 0xffff;
+						unsigned int triid =
+						  h.e >> 16;
+						struct rinst *ri =
+						  rd->insts + instid;
+						unsigned int mtlid =
+						  rd->nrms[
+						    ri->triofs + triid].mtlid;
+						c = rd->mtls[mtlid].col;
+					}
+
+					unsigned int cr = min(255,
+					  (unsigned int)(255 * c.x));
+					unsigned int cg = min(255,
+					  (unsigned int)(255 * c.y));
+					unsigned int cb = min(255,
+					  (unsigned int)(255 * c.z));
+					buf[rd->view.w * (j + y) + (i + x)] =
+					  0xff << 24 | cr << 16 |
+					  cg << 8 | cb;
+				}
 			}
-
-			unsigned int cr = min(255, (unsigned int)(255 * c.x));
-			unsigned int cg = min(255, (unsigned int)(255 * c.y));
-			unsigned int cb = min(255, (unsigned int)(255 * c.z));
-			buf[ofs + i] = 0xff << 24 | cr << 16 | cg << 8 | cb;
-
-			p = vec3_add(p, dx);
 		}
-
-		le = vec3_add(le, dy);
-		ofs += rd->view.w;
 	}
 }
