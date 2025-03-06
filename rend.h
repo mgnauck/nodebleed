@@ -11,6 +11,8 @@ struct bnode { // blas
 	uint32_t     cnt; // Tri cnt
 };
 
+struct tnode;
+
 struct rmtl {
 	struct vec3  col;
 	float        metallic;
@@ -72,6 +74,7 @@ struct rdata {
 	struct aabb   *aabbs; // Instance aabbs 
 	unsigned int  instcnt;
 	struct bnode  *blas; // One blas per mesh (tri buffer)
+	struct tnode  *tlas; // One tlas for all instances
 	struct rcam   cam;
 	struct rview  view;
 	struct vec3   bgcol;
@@ -82,6 +85,7 @@ void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
 void  rend_release(struct rdata *rd);
 
 void  rend_prepstatic(struct rdata *rd);
+void  rend_prepdynamic(struct rdata *rd);
 void  rend_render(void *dst, struct rdata *rd);
 
 #endif

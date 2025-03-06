@@ -2,24 +2,10 @@
 #define SCENE_H
 
 #include <stdbool.h>
+#include "types.h"
 #include "vec3.h"
 
 #define NAME_MAX_LEN  128
-
-enum flags {
-	// Types
-	MESH         = 0x0001,
-	CAM          = 0x0002,
-	MTL          = 0x0004,
-
-	// State/behaviour
-	DISABLED    = 0x0100,
-	DYNAMIC     = 0x0200,
-	INVISIBLE   = 0x0400,
-	NOSHADOW    = 0x0800,
-	EMISSIVE    = 0x1000,
-	REFRACTIVE  = 0x2000,
-};
 
 struct mtl {
 	struct vec3   col; // Diff col of non-metallic/specular col of metallic

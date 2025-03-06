@@ -180,7 +180,7 @@ void init(struct scene *s, struct rdata *rd)
 	if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
 		printf("Failed to import gltf\n");
 
-	printf("imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
+	printf("Imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
 	  s->meshcnt, s->mtlcnt, s->camcnt, s->rootcnt, s->nodecnt);
 
 	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
@@ -189,12 +189,12 @@ void init(struct scene *s, struct rdata *rd)
 	rend_init(rd, s->mtlmax, trimax, instmax);
 	cpy_rdata(rd, s);
 
-	printf("created render data with %d mtls, %d tris, %d insts\n",
+	printf("Created render data with %d mtls, %d tris, %d insts\n",
 	  s->mtlmax, trimax, instmax);
 
 	long last = SDL_GetTicks();
 	rend_prepstatic(rd);
-	printf("created bvhs in %ld ms\n", SDL_GetTicks() - last);
+	printf("Created blas in %ld ms\n", SDL_GetTicks() - last);
 }
 
 void update(struct rdata *rd, struct scene *s)
@@ -203,6 +203,10 @@ void update(struct rdata *rd, struct scene *s)
 	scene_updcams(s);
 
 	upd_instances(rd, s);
+
+	//long last = SDL_GetTicks();
+	rend_prepdynamic(rd);
+	//printf("Created tlas in %ld ms\n", SDL_GetTicks() - last);
 
 	struct cam *c = scene_getcam(s, s->currcam);
 	set_rcam(&rd->cam, c);
