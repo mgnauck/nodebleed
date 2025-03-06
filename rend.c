@@ -41,7 +41,7 @@ void update_bounds(struct bnode *n, const struct rtri *tris,
 	struct aabb a;
 	aabb_init(&a);
 
-	const unsigned int *ip = imap + n->sid;
+	const unsigned int *ip = &imap[n->sid];
 	for (unsigned int i = 0; i < n->cnt; i++) {
 		const struct rtri *t = &tris[*ip++];
 		aabb_grow(&a, t->v0);
@@ -70,7 +70,7 @@ struct split find_intervalsplit(const struct bnode *n,
 		// Calc center bounds
 		float minc = FLT_MAX;
 		float maxc = -FLT_MAX;
-		const unsigned int *ip = imap + n->sid;
+		const unsigned int *ip = &imap[n->sid];
 		for (unsigned int i = 0; i < n->cnt; i++) {
 			float c = vec3_getc(centers[*ip++], axis);
 			minc = min(minc, c);
@@ -91,12 +91,12 @@ struct split find_intervalsplit(const struct bnode *n,
 
 		// Count objects per interval and find the combined bounds
 		float delta = INTERVAL_CNT / (maxc - minc);
-		ip = imap + n->sid;
+		ip = &imap[n->sid];
 		for (unsigned int i = 0; i < n->cnt; i++) {
 			unsigned int iv_id  = (unsigned int)min(
 			  INTERVAL_CNT - 1,
 			  (vec3_getc(centers[*ip], axis) - minc) * delta);
-			struct interval *iv = ivs + iv_id;
+			struct interval *iv = &ivs[iv_id];
 			struct aabb *iv_box = &iv->box;
 			const struct rtri *tri = &tris[*ip++];
 			aabb_grow(iv_box, tri->v0);
@@ -118,13 +118,13 @@ struct split find_intervalsplit(const struct bnode *n,
 		aabb_init(&rbox);
 		for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
 			// From left
-			struct interval *iv = ivs + i;
+			struct interval *iv = &ivs[i];
 			ltotcnt += iv->cnt;
 			lcnts[i] = ltotcnt;
 			aabb_combine(&lbox, &lbox, &iv->box);
 			lareas[i] = aabb_calcarea(&lbox);
 			// From right
-			iv = ivs + INTERVAL_CNT - 1 - i;
+			iv = &ivs[INTERVAL_CNT - 1 - i];
 			rtotcnt += iv->cnt;
 			rcnts[INTERVAL_CNT - 2 - i] = rtotcnt;
 			aabb_combine(&rbox, &rbox, &iv->box);
@@ -177,12 +177,12 @@ void subdivide_node(struct bnode *n, struct bnode *blas,
 		return;
 
 	// Init children
-	struct bnode *left = blas + *ncnt;
+	struct bnode *left = &blas[*ncnt];
 	left->sid = n->sid;
 	left->cnt = lcnt;
 	update_bounds(left, tris, imap);
 
-	struct bnode *right = blas + *ncnt + 1;
+	struct bnode *right = &blas[*ncnt + 1];
 	right->sid = l;
 	right->cnt = n->cnt - lcnt;
 	update_bounds(right, tris, imap);
@@ -292,10 +292,10 @@ void intersect_blas(struct hit *h, const struct ray *r,
 	while (true) {
 		if (n->cnt > 0) {
 			// Leaf, check triangles
-			const unsigned int *ip = imap + n->sid;
+			const unsigned int *ip = &imap[n->sid];
 			for (unsigned int i = 0; i < n->cnt; i++) {
 				unsigned int triid = *ip++;
-				const struct rtri *t = tris + triid;
+				const struct rtri *t = &tris[triid];
 				intersect_tri(h, r, &t->v0, &t->v1, &t->v2,
 				  triid << 16 | instid);
 			}
@@ -305,11 +305,11 @@ void intersect_blas(struct hit *h, const struct ray *r,
 			else
 				return;
 		} else {
-			// Interior node, check children
-			const struct bnode *c = blas + n->sid;
+			// Interior node, check children, right child is + 1
+			const struct bnode *c = &blas[n->sid];
 			float dist[2] = {
-			  intersect_aabb(r, h->t, c->min, c->max),
-			  intersect_aabb(r, h->t, (c + 1)->min, (c + 1)->max)};
+			  intersect_aabb(r, h->t, c[0].min, c[0].max),
+			  intersect_aabb(r, h->t, c[1].min, c[1].max)};
 			unsigned char near = dist[1] > dist[0] ? 0 : 1;
 			if (dist[near] == FLT_MAX) {
 				// Did not hit any child, try the stack
@@ -319,10 +319,10 @@ void intersect_blas(struct hit *h, const struct ray *r,
 					return;
 			} else {
 				// Continue with nearer child node
-				n = c + near; 
+				n = &c[near]; 
 				if (dist[1 - near] < FLT_MAX)
 					// Put farther child on stack
-					stack[spos++] = c + 1 - near;
+					stack[spos++] = &c[1 - near];
 			}
 		}
 	}
@@ -331,7 +331,7 @@ void intersect_blas(struct hit *h, const struct ray *r,
 void intersect_insts(struct hit *h, const struct ray *r, const struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
-		const struct rinst *ri = rd->insts + j;
+		const struct rinst *ri = &rd->insts[j];
 
 		float inv[16];
 		mat4_from3x4(inv, ri->globinv);
@@ -342,9 +342,9 @@ void intersect_insts(struct hit *h, const struct ray *r, const struct rdata *rd)
 		ros.idir = (struct vec3){
 		  1.0f / ros.dir.x, 1.0f / ros.dir.y, 1.0f / ros.dir.z};
 
-		unsigned int ofs = ri->triofs;
-		intersect_blas(h, &ros, rd->blas + (ofs << 1), rd->tris + ofs,
-		  rd->imap + ofs, j);
+		unsigned int o = ri->triofs;
+		intersect_blas(h, &ros, &rd->blas[o << 1], &rd->tris[o],
+		  &rd->imap[o], j);
 	}
 }
 
@@ -374,13 +374,13 @@ void rend_release(struct rdata *rd)
 void rend_prepstatic(struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
-		struct rinst *ri = rd->insts + j;
+		struct rinst *ri = &rd->insts[j];
 		//printf("inst: %d, ofs: %d, cnt: %d\n",
 		//  j, ri->triofs, ri->tricnt);
 		unsigned int o = ri->triofs;
-		struct bnode *root = rd->blas + (o << 1);
+		struct bnode *root = &rd->blas[o << 1];
 		if (root->cnt + root->sid == 0) // Tri data not processed yet
-			build_bvh(root, rd->tris + o, rd->imap + o, ri->tricnt);
+			build_bvh(root, &rd->tris[o], &rd->imap[o], ri->tricnt);
 	}
 }
 
@@ -420,7 +420,7 @@ void rend_render(void *dst, struct rdata *rd)
 						unsigned int triid =
 						  h.e >> 16;
 						struct rinst *ri =
-						  rd->insts + instid;
+						  &rd->insts[instid];
 						unsigned int mtlid =
 						  rd->nrms[
 						    ri->triofs + triid].mtlid;
