@@ -357,7 +357,7 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	rd->imap = malloc(maxtris * sizeof(*rd->imap));
 	rd->insts = malloc(maxinsts * sizeof(*rd->insts));
 	rd->aabbs = malloc(maxinsts * sizeof(*rd->aabbs));
-	rd->blas = calloc(2 * maxtris, sizeof(*rd->blas)); // 2 * tricnt - 1
+	rd->blas = calloc(2 * maxtris, sizeof(*rd->blas));
 }
 
 void rend_release(struct rdata *rd)
@@ -394,50 +394,37 @@ void rend_render(void *dst, struct rdata *rd)
 
 	uint32_t *buf = dst;
 	for (unsigned int j = 0; j < rd->view.h; j += BLK_SZ) {
-		for (unsigned int i = 0; i < rd->view.w; i += BLK_SZ) {
-			for (unsigned int y = 0; y < BLK_SZ; y++) {
-				for (unsigned x = 0; x < BLK_SZ; x++) {
-					struct vec3 p = vec3_add(tl, vec3_add(
-					  vec3_scale(dx, i + x),
-					  vec3_scale(dy, j + y)));
-					struct ray r = (struct ray){
-					  .ori = eye,
-					  .dir = vec3_unit(vec3_sub(p, eye))};
-					r.idir = (struct vec3){
-					  1.0f / r.dir.x,
-					  1.0f / r.dir.y,
-					  1.0f / r.dir.z};
+	  for (unsigned int i = 0; i < rd->view.w; i += BLK_SZ) {
+	    for (unsigned int y = 0; y < BLK_SZ; y++) {
+	      for (unsigned x = 0; x < BLK_SZ; x++) {
+			struct vec3 p = vec3_add(tl, vec3_add(
+			  vec3_scale(dx, i + x), vec3_scale(dy, j + y)));
 
-					struct hit h = (struct hit){
-					  .t = FLT_MAX};
+			struct ray r = (struct ray){.ori = eye,
+			  .dir = vec3_unit(vec3_sub(p, eye))};
+			r.idir = (struct vec3){
+			  1.0f / r.dir.x, 1.0f / r.dir.y, 1.0f / r.dir.z};
 
-					intersect_insts(&h, &r, rd);
+			struct hit h = (struct hit){.t = FLT_MAX};
+			intersect_insts(&h, &r, rd);
 
-					struct vec3 c = rd->bgcol;
-					if (h.t < FLT_MAX) {
-						unsigned int instid =
-						  h.e & 0xffff;
-						unsigned int triid =
-						  h.e >> 16;
-						struct rinst *ri =
-						  &rd->insts[instid];
-						unsigned int mtlid =
-						  rd->nrms[
-						    ri->triofs + triid].mtlid;
-						c = rd->mtls[mtlid].col;
-					}
-
-					unsigned int cr = min(255,
-					  (unsigned int)(255 * c.x));
-					unsigned int cg = min(255,
-					  (unsigned int)(255 * c.y));
-					unsigned int cb = min(255,
-					  (unsigned int)(255 * c.z));
-					buf[rd->view.w * (j + y) + (i + x)] =
-					  0xff << 24 | cr << 16 |
-					  cg << 8 | cb;
-				}
+			struct vec3 c = rd->bgcol;
+			if (h.t < FLT_MAX) {
+				unsigned int instid = h.e & 0xffff;
+				unsigned int triid = h.e >> 16;
+				struct rinst *ri = &rd->insts[instid];
+				unsigned int mtlid =
+				  rd->nrms[ri->triofs + triid].mtlid;
+				c = rd->mtls[mtlid].col;
 			}
-		}
+
+			unsigned int cr = min(255, (unsigned int)(255 * c.x));
+			unsigned int cg = min(255, (unsigned int)(255 * c.y));
+			unsigned int cb = min(255, (unsigned int)(255 * c.z));
+			buf[rd->view.w * (j + y) + (i + x)] =
+			  0xff << 24 | cr << 16 | cg << 8 | cb;
+	      }
+	    }
+	  }
 	}
 }
