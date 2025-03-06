@@ -4,7 +4,12 @@
 #include <stdint.h>
 #include "vec3.h"
 
-struct bnode;
+struct bnode { // blas
+	struct vec3  min;
+	uint32_t     sid; // Start index or node id
+	struct vec3  max;
+	uint32_t     cnt; // Tri cnt
+};
 
 struct rmtl {
 	struct vec3  col;

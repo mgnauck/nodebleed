@@ -22,13 +22,6 @@ struct interval {
 	unsigned int  cnt;
 };
 
-struct bnode {
-	struct vec3  min;
-	uint32_t     sid; // Start index or node id
-	struct vec3  max;
-	uint32_t     cnt;
-};
-
 struct ray {
 	struct vec3  ori;
 	struct vec3  dir;
@@ -385,9 +378,9 @@ void rend_prepstatic(struct rdata *rd)
 		//printf("inst: %d, ofs: %d, cnt: %d\n",
 		//  j, ri->triofs, ri->tricnt);
 		unsigned int o = ri->triofs;
-		if (rd->blas[o << 1].cnt == 0) // Tri data not processed yet
-			build_bvh(rd->blas + (o << 1), rd->tris + o,
-			  rd->imap + o, ri->tricnt);
+		struct bnode *root = rd->blas + (o << 1);
+		if (root->cnt + root->sid == 0) // Tri data not processed yet
+			build_bvh(root, rd->tris + o, rd->imap + o, ri->tricnt);
 	}
 }
 

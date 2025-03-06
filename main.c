@@ -5,6 +5,7 @@
 
 #include <SDL.h>
 
+#include "aabb.h"
 #include "import.h"
 #include "mat4.h"
 #include "rend.h"
@@ -106,18 +107,35 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 	rd->bgcol = s->bgcol;
 }
 
-void set_inst_transforms(struct rdata *rd, struct scene *s)
+void upd_instances(struct rdata *rd, struct scene *s)
 {
 	for (unsigned int i = 0; i < s->nodecnt; i++) {
 		struct obj *o = scene_getobj(s, i);
-		if (hasflags(o->flags, MESH)) {
-			struct transform *t = scene_gettransform(s, i);
-			struct rinst *ri = &rd->insts[o->instid];
-			float inv[16];
-			mat4_inv(inv, t->glob);
-			// globinv is only 3x4
-			memcpy(&ri->globinv, inv, sizeof(ri->globinv));
-		}
+		if (!hasflags(o->flags, MESH))
+			continue;
+
+		// Update transforms
+		struct transform *t = scene_gettransform(s, i);
+		struct rinst *ri = &rd->insts[o->instid];
+		float inv[16];
+		mat4_inv(inv, t->glob);
+		memcpy(ri->globinv, inv, sizeof(ri->globinv)); // 3x4
+
+		// Update instance aabbs, transform blas root to world
+		struct aabb *a = &rd->aabbs[o->instid];
+		struct bnode *n = &rd->blas[ri->triofs << 1];
+		struct vec3 mi = n->min;
+		struct vec3 ma = n->max;
+		float *m = t->glob;
+		aabb_init(a);
+		aabb_grow(a, mat4_mulpos(m, (struct vec3){mi.x, mi.y, mi.z}));
+		aabb_grow(a, mat4_mulpos(m, (struct vec3){ma.x, mi.y, mi.z}));
+		aabb_grow(a, mat4_mulpos(m, (struct vec3){mi.x, ma.y, mi.z}));
+		aabb_grow(a, mat4_mulpos(m, (struct vec3){mi.x, mi.y, ma.z}));
+		aabb_grow(a, mat4_mulpos(m, (struct vec3){ma.x, ma.y, mi.z}));
+		aabb_grow(a, mat4_mulpos(m, (struct vec3){ma.x, mi.y, ma.z}));
+		aabb_grow(a, mat4_mulpos(m, (struct vec3){mi.x, ma.y, ma.z}));
+		aabb_grow(a, mat4_mulpos(m, (struct vec3){ma.x, ma.y, ma.z}));
 	}
 }
 
@@ -159,7 +177,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin") != 0)
+	if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
 		printf("Failed to import gltf\n");
 
 	printf("imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
@@ -184,7 +202,7 @@ void update(struct rdata *rd, struct scene *s)
 	scene_updtransforms(s);
 	scene_updcams(s);
 
-	set_inst_transforms(rd, s);
+	upd_instances(rd, s);
 
 	struct cam *c = scene_getcam(s, s->currcam);
 	set_rcam(&rd->cam, c);
