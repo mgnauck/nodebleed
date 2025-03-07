@@ -94,7 +94,6 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 		struct obj *o = scene_getobj(s, i);
 		if (hasflags(o->flags, MESH)) {
 			rd->insts[cnt] = (struct rinst){
-			  .id = cnt,
 			  .flags = o->flags,
 			  .triofs = triofs[o->objid],
 			  .tricnt = tricnt[o->objid]};

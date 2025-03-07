@@ -42,10 +42,10 @@ struct rnrm {
 
 struct rinst {
 	float     globinv[12]; // Inverse transform 3x4
-	uint32_t  id; // TODO Check if instance id is required
-	uint32_t  flags; // Invisible, no shadow, etc.
+	uint32_t  flags; // Disabled, emissive, no shadow etc.
 	uint32_t  triofs;
 	uint32_t  tricnt;
+	uint32_t  pad0;
 };
 
 struct rcam {

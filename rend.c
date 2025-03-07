@@ -416,6 +416,7 @@ void intersect_blas(struct hit *h, const struct ray *r,
 				intersect_tri(h, r, &t->v0, &t->v1, &t->v2,
 				  triid << 16 | instid);
 			}
+
 			// Pop next node of stack if something is left
 			if (spos > 0)
 				n = stack[--spos];
@@ -427,6 +428,7 @@ void intersect_blas(struct hit *h, const struct ray *r,
 			float dist[2] = {
 			  intersect_aabb(r, h->t, c[0].min, c[0].max),
 			  intersect_aabb(r, h->t, c[1].min, c[1].max)};
+
 			unsigned char near = dist[1] > dist[0] ? 0 : 1;
 			if (dist[near] == FLT_MAX) {
 				// Did not hit any child, try the stack
@@ -445,26 +447,62 @@ void intersect_blas(struct hit *h, const struct ray *r,
 	}
 }
 
-void intersect_insts(struct hit *h, const struct ray *r, const struct rdata *rd)
+void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
 {
-	for (unsigned int j = 0; j < rd->instcnt; j++) {
-		const struct rinst *ri = &rd->insts[j];
+#define STACK_SIZE 64
+	const struct tnode *stack[STACK_SIZE];
+	unsigned int spos = 0;
 
-		float inv[16];
-		mat4_from3x4(inv, ri->globinv);
+	const struct tnode *n = rd->tlas;
 
-		struct ray ros = (struct ray){
-		  .ori = mat4_mulpos(inv, r->ori),
-		  .dir = mat4_muldir(inv, r->dir)};
-		ros.idir = (struct vec3){
-		  1.0f / ros.dir.x, 1.0f / ros.dir.y, 1.0f / ros.dir.z};
+	while (true) {
+		if (n->children == 0) {
+			// Leaf, check instance blas
+			const struct rinst *ri = &rd->insts[n->id];
 
-		unsigned int o = ri->triofs;
-		intersect_blas(h, &ros, &rd->blas[o << 1], &rd->tris[o],
-		  &rd->imap[o], j);
+			// Transform ray into object space of instance
+			float inv[16];
+			mat4_from3x4(inv, ri->globinv);
+			struct ray ros = (struct ray){
+			  .ori = mat4_mulpos(inv, r->ori),
+			  .dir = mat4_muldir(inv, r->dir)};
+			ros.idir = (struct vec3){
+			  1.0f / ros.dir.x, 1.0f / ros.dir.y, 1.0f / ros.dir.z};
+
+			unsigned int o = ri->triofs;
+			intersect_blas(h, &ros, &rd->blas[o << 1], &rd->tris[o],			  &rd->imap[o], n->id);
+
+			// Pop next node of stack if something is left
+			if (spos > 0)
+				n = stack[--spos];
+			else
+				return;
+		} else {
+			// Interior node, check children
+			const struct tnode *c[2] = {
+			  &rd->tlas[n->children & 0xff],
+			  &rd->tlas[n->children >> 16]};
+			float dist[2] = {
+			  intersect_aabb(r, h->t, c[0]->min, c[0]->max),
+			  intersect_aabb(r, h->t, c[1]->min, c[1]->max)};
+
+			unsigned char near = dist[1] > dist[0] ? 0 : 1;
+			if (dist[near] == FLT_MAX) {
+				// Did not hit any child, try the stack
+				if (spos > 0)
+					n = stack[--spos];
+				else
+					return;
+			} else {
+				// Continue with nearer child node
+				n = c[near];
+				if (dist[1 - near] < FLT_MAX)
+					// Put farther child on stack
+					stack[spos++] = c[1 - near];
+			}
+		}
 	}
 }
-
 void rend_init(struct rdata *rd, unsigned int maxmtls,
                unsigned int maxtris, unsigned int maxinsts) 
 {
@@ -530,7 +568,8 @@ void rend_render(void *dst, struct rdata *rd)
 			  1.0f / r.dir.x, 1.0f / r.dir.y, 1.0f / r.dir.z};
 
 			struct hit h = (struct hit){.t = FLT_MAX};
-			intersect_insts(&h, &r, rd);
+			//intersect_insts(&h, &r, rd);
+			intersect_tlas(&h, &r, rd);
 
 			struct vec3 c = rd->bgcol;
 			if (h.t < FLT_MAX) {
