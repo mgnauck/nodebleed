@@ -215,7 +215,6 @@ void update(struct rdata *rd, struct scene *s)
 
 int main(int argc, char *argv[])
 {
-	// TODO TLAS
 	// TODO Move code from main into some subsys
 	// TODO Animation test
 	// TODO Static/dyn separation of meshes in the node tree (incl. premul)
