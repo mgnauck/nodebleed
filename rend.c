@@ -546,6 +546,14 @@ void rend_prepdynamic(struct rdata *rd)
 	build_tlas(rd->tlas, rd->insts, rd->aabbs, rd->instcnt);
 }
 
+struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
+                        float inv_transpose[16])
+{
+	struct vec3 nrm = vec3_add(vec3_scale(rn->n1, u),
+	  vec3_add(vec3_scale(rn->n2, v), vec3_scale(rn->n0, 1 - u - v)));
+	return vec3_unit(mat4_muldir(inv_transpose, nrm));
+}
+
 void rend_render(void *dst, struct rdata *rd)
 {
 #define BLK_SZ  16
@@ -576,9 +584,20 @@ void rend_render(void *dst, struct rdata *rd)
 				unsigned int instid = h.e & 0xffff;
 				unsigned int triid = h.e >> 16;
 				struct rinst *ri = &rd->insts[instid];
-				unsigned int mtlid =
-				  rd->nrms[ri->triofs + triid].mtlid;
-				c = rd->mtls[mtlid].col;
+				struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+				unsigned int mtlid = rn->mtlid;
+
+				// Inverse transpose, dir mul is 3x4 only
+				float it[16];
+				float *rt = ri->globinv;
+				for (int j = 0; j < 4; j++)
+					for (int i = 0; i < 3; i++)
+						it[4 * j + i] = rt[4 * i + j];
+
+				struct vec3 nrm = calc_nrm(h.u, h.v, rn, it);
+				nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
+				//c = vec3_mul(nrm, rd->mtls[mtlid].col);
+				c = nrm;
 			}
 
 			unsigned int cr = min(255, (unsigned int)(255 * c.x));
