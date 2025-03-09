@@ -262,7 +262,7 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 	memcpy(n->rot, (float[]){0.0f, 0.0f, 0.0f, 1.0f}, 4 * sizeof(*n->rot));
 	memcpy(n->trans, (float[]){0.0f, 0.0f, 0.0f}, 3 * sizeof(*n->trans));
 	n->children = NULL;
-	n->ccnt = 0;
+	n->childcnt = 0;
 
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
@@ -343,16 +343,16 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 		if (jsoneq(s, key, "children") == 0) {
 			if (t[j + 1].type == JSMN_ARRAY) {
 				dprintf("children: ");
-				n->ccnt = t[j + 1].size;
+				n->childcnt = t[j + 1].size;
 				n->children =
-				  emalloc(n->ccnt * sizeof(*n->children));
-				for (unsigned int k = 0; k < n->ccnt; k++) {
+				  emalloc(n->childcnt * sizeof(*n->children));
+				for (unsigned int k = 0; k < n->childcnt; k++) {
 					n->children[k] = atoi(
 					  toktostr(s, &t[j + 2 + k]));
 					dprintf("%d ", n->children[k]);
 				}
 				dprintf("\n");
-				j += 2 + n->ccnt;
+				j += 2 + n->childcnt;
 				continue;
 			} else {
 				eprintf("Failed to read children.\n");
@@ -594,6 +594,213 @@ unsigned int read_meshes(struct gltf *g, const char *s, jsmntok_t *t)
 	return j;
 }
 
+unsigned int read_target(struct gltftarget *ta, const char *s, jsmntok_t *t)
+{
+	unsigned int j = 1;
+	for (int i = 0; i < t->size; i++) {
+		jsmntok_t *key = t + j;
+
+		if (jsoneq(s, key, "node") == 0) {
+			ta->node = atoi(toktostr(s, &t[j + 1]));
+			dprintf("node: %i\n", ta->node);
+			j += 2;
+			continue;
+		}
+
+		if (jsoneq(s, key, "path") == 0) {
+			char *path = toktostr(s, &t[j + 1]);
+			if (strstr(path, "translation"))
+				ta->path = TRANSLATION;
+			else if (strstr(path, "rotation"))
+				ta->path = ROTATION;
+			else if (strstr(path, "scale"))
+				ta->path = SCALE;
+			else if (strstr(path, "weights"))
+				ta->path = WEIGHTS;
+			else
+				eprintf("Anim path of unknown type: %s\n",
+				  path);
+			dprintf("path: %i (%s)\n", ta->path, path);
+			j += 2;
+			continue;
+		}
+
+		j += ignore(s, key);
+	}
+
+	return j;
+}
+
+unsigned int read_channel(struct gltfchan *c, const char *s, jsmntok_t *t)
+{
+	unsigned int j = 1;
+	for (int i = 0; i < t->size; i++) {
+		jsmntok_t *key = t + j;
+
+		if (jsoneq(s, key, "target") == 0) {
+			j += 1 + read_target(&c->target, s, t + j + 1);
+			continue;
+		}
+
+		if (jsoneq(s, key, "sampler") == 0) {
+			c->sampler = atoi(toktostr(s, &t[j + 1]));
+			dprintf("sampler: %i\n", c->sampler);
+			j += 2;
+			continue;
+		}
+
+		j += ignore(s, key);
+	}
+
+	return j;
+}
+
+unsigned int read_channels(struct gltfanim *a, const char *s, jsmntok_t *t)
+{
+	dprintf("> channels\n");
+
+	a->channelcnt = t->size;
+	a->channels = emalloc(a->channelcnt * sizeof(*a->channels));
+
+	unsigned int cnt = 0;
+	unsigned int j = 1;
+	for (int i = 0; i < t->size; i++) {
+		dprintf("> channel %i\n", i);
+		j += read_channel(&a->channels[cnt++], s, &t[j]);
+		dprintf("< channel %i\n", i);
+	}
+
+	dprintf("< channels (total: %i)\n", cnt);
+
+	return j;
+}
+
+unsigned int read_sampler(struct gltfsampler *sa, const char *s, jsmntok_t *t)
+{
+	unsigned int j = 1;
+	for (int i = 0; i < t->size; i++) {
+		jsmntok_t *key = t + j;
+
+		if (jsoneq(s, key, "input") == 0) {
+			sa->input = atoi(toktostr(s, &t[j + 1]));
+			dprintf("input: %i\n", sa->input);
+			j += 2;
+			continue;
+		}
+
+		if (jsoneq(s, key, "interpolation") == 0) {
+			char *interp = toktostr(s, &t[j + 1]);
+			if (strstr(interp, "STEP"))
+				sa->interp = STEP;
+			else if (strstr(interp, "LINEAR"))
+				sa->interp = LINEAR;
+			else if (strstr(interp, "CUBICSPLINE"))
+				sa->interp = CUBICSPLINE;
+			else
+				eprintf("Interpolation mode of unknown type: %s\n",
+				  interp);
+			dprintf("interp: %i (%s)\n", sa->interp, interp);
+			j += 2;
+			continue;
+		}
+
+		if (jsoneq(s, key, "output") == 0) {
+			sa->output = atoi(toktostr(s, &t[j + 1]));
+			dprintf("output: %i\n", sa->output);
+			j += 2;
+			continue;
+		}
+
+		j += ignore(s, key);
+	}
+
+	return j;
+}
+
+unsigned int read_samplers(struct gltfanim *a, const char *s, jsmntok_t *t)
+{
+	dprintf("> samplers\n");
+
+	a->samplercnt = t->size;
+	a->samplers = emalloc(a->samplercnt * sizeof(*a->samplers));
+
+	unsigned int cnt = 0;
+	unsigned int j = 1;
+	for (int i = 0; i < t->size; i++) {
+		dprintf("> sampler %i\n", i);
+		j += read_sampler(&a->samplers[cnt++], s, &t[j]);
+		dprintf("< sampler %i\n", i);
+	}
+
+	dprintf("< samplers (total: %i)\n", cnt);
+
+	return j;
+}
+
+unsigned int read_anim(struct gltfanim *a, const char *s, jsmntok_t *t)
+{
+	a->channels = NULL;
+	a->channelcnt = 0;
+	a->samplers = NULL;
+	a->samplercnt =0;
+
+	unsigned int j = 1;
+	for (int i = 0; i < t->size; i++) {
+		jsmntok_t *key = t + j;
+
+		if (jsoneq(s, key, "name") == 0) {
+			char *name = toktostr(s, &t[j + 1]);
+			strncpyl(a->name, name,
+			  t[j + 1].end - t[j + 1].start, NAME_MAX_LEN);
+			dprintf("name: %s\n", name);
+			j += 2;
+			continue;
+		}
+
+		if (jsoneq(s, key, "channels") == 0) {
+			if (t[j + 1].type == JSMN_ARRAY) {
+				j += 1 + read_channels(a, s, &t[j + 1]);
+				continue;
+			} else {
+				eprintf("Failed to read channels\n");
+			}
+		}
+
+		if (jsoneq(s, key, "samplers") == 0) {
+			if (t[j + 1].type == JSMN_ARRAY) {
+				j += 1 + read_samplers(a, s, &t[j + 1]);
+				continue;
+			} else {
+				eprintf("Failed to read samplers\n");
+			}
+		}
+
+		j += ignore(s, key);
+	}
+
+	return j;
+}
+
+unsigned int read_anims(struct gltf *g, const char *s, jsmntok_t *t)
+{
+	dprintf("> anims\n");
+
+	g->animcnt = t->size;
+	g->anims = emalloc(g->animcnt * sizeof(*g->anims));
+
+	unsigned int cnt = 0;
+	unsigned int j = 1;
+	for (int i = 0; i < t->size; i++) {
+		dprintf("> anim %i\n", i);
+		j += read_anim(&g->anims[cnt++], s, t + j);
+		dprintf("< anim %i\n", i);
+	}
+
+	dprintf("< anims (total: %i)\n", cnt);
+
+	return j;
+}
+
 unsigned int read_accessor(struct gltfaccessor *a, const char *s, jsmntok_t *t)
 {
 	a->bufview = -1;
@@ -635,6 +842,8 @@ unsigned int read_accessor(struct gltfaccessor *a, const char *s, jsmntok_t *t)
 			char *type = toktostr(s, &t[j + 1]);
 			if (strstr(type, "VEC3")) {
 				a->datatype = DT_VEC3;
+			} else if (strstr(type, "VEC4")) {
+				a->datatype = DT_VEC4;
 			} else if (strstr(type, "SCALAR")) {
 				a->datatype = DT_SCALAR;
 			} else {
@@ -865,6 +1074,13 @@ int gltf_init(struct gltf *g, const char *buf)
 			continue;
 		}
 
+		if (jsoneq(buf, key, "animations") == 0 &&
+		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size > 0) {
+			j++;
+			j += read_anims(g, buf, t + j);
+			continue;
+		}
+
 		if (jsoneq(buf, key, "accessors") == 0 &&
 		  t[j + 1].type == JSMN_ARRAY && t[j + 1].size > 0) {
 			j++;
@@ -896,6 +1112,11 @@ int gltf_init(struct gltf *g, const char *buf)
 
 void gltf_release(struct gltf *g)
 {
+	for (unsigned int i = 0; i < g->animcnt; i++) {
+		free(g->anims[i].channels);
+		free(g->anims[i].samplers);
+	}
+
 	for (unsigned int i = 0; i < g->meshcnt; i++)
 		free(g->meshes[i].prims);
 
@@ -907,6 +1128,7 @@ void gltf_release(struct gltf *g)
 	free(g->mtls);
 	free(g->meshes);
 	free(g->cams);
+	free(g->anims);
 	free(g->accessors);
 	free(g->bufviews);
 }

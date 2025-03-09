@@ -2,18 +2,20 @@
 #define GLTF_H
 
 // Limitations:
-// - Ignoring all assets and extensions
+// - Ignoring asset and extensions information
 // - Expecting only one scene
-// - Ignoring animation and skinning data
+// - Ignoring skins and morph targets
 // - Ignoring texture coords and textures
+// - Not handling sparse accessors
 // - Expecting only one external binary buffer (i.e. not embedded)
-// - Only a small set of buffer data types are supported
+// - A limited set of buffer data types is supported
 
 #define NAME_MAX_LEN  128
 
 enum gltfdatatype {
 	DT_SCALAR,
 	DT_VEC3,
+	DT_VEC4,
 	DT_UNKNOWN // All the unsupported ones
 };
 
@@ -47,6 +49,43 @@ struct gltfmesh {
 	char             name[NAME_MAX_LEN];
 };
 
+enum gltfpath {
+	TRANSLATION,
+	ROTATION,
+	SCALE,
+	WEIGHTS
+};
+
+struct gltftarget {
+	unsigned int   node;
+	enum gltfpath  path;
+};
+
+struct gltfchan {
+	unsigned int       sampler;
+	struct gltftarget  target;
+};
+
+enum gltfinterp {
+	STEP,
+	LINEAR,
+	CUBICSPLINE
+};
+
+struct gltfsampler {
+	unsigned int     input; // Accessor to time values
+	enum gltfinterp  interp;
+	unsigned int     output; // Accessor to keyframes
+};
+
+struct gltfanim {
+	struct gltfchan     *channels;
+	unsigned int        channelcnt;
+	struct gltfsampler  *samplers;
+	unsigned int        samplercnt;
+	char                name[NAME_MAX_LEN];
+};
+
 struct gltfaccessor {
 	int                bufview; // TODO: When undefined, data should be 0
 	unsigned int       cnt;
@@ -69,7 +108,7 @@ struct gltfnode {
 	float         rot[4]; // Quaternion xyzw
 	float         trans[3];
 	unsigned int  *children;
-	unsigned int  ccnt;
+	unsigned int  childcnt;
 	char          name[NAME_MAX_LEN];
 };
 
@@ -85,6 +124,8 @@ struct gltf {
 	unsigned int         meshcnt;
 	struct gltfcam       *cams;
 	unsigned int         camcnt;
+	struct gltfanim      *anims;
+	unsigned int         animcnt;
 	struct gltfaccessor  *accessors;
 	unsigned int         accessorcnt;
 	struct gltfbufview   *bufviews;

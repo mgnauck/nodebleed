@@ -208,11 +208,11 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 		// If any children, acquire and push to stack in reverse order
 		// Direct descendants will be next to each other in mem
 		unsigned int snofs = s->nodecnt;
-		for (unsigned int i = 0; i < n->ccnt; i++) {
+		for (unsigned int i = 0; i < n->childcnt; i++) {
 			if (scene_acquirenode(s, false) < 0)
 				eprintf("failed to acquire node: %s", n->name);
 			assert(spos < STACK_SIZE);
-			unsigned int child = n->ccnt - i - 1;
+			unsigned int child = n->childcnt - i - 1;
 			gnids[spos] = n->children[child];
 			snids[spos++] = snofs + child; 
 		}
@@ -229,7 +229,7 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 
 		// Set all data of scene node
 		scene_initnode(s, snid, n->name, objid, flags,
-		  loc, n->ccnt > 0 ? snofs : 0, n->ccnt);
+		  loc, n->childcnt > 0 ? snofs : 0, n->childcnt);
 	}
 }
 
