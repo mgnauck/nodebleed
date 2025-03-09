@@ -211,7 +211,7 @@ struct node *scene_initnode(struct scene *s, unsigned int id,
 
 	struct node *n = scene_getnode(s, id);
 	if (n) {
-		*n = (struct node){.id = id, .cofs = cofs, .ccnt = ccnt};
+		*n = (struct node){.cofs = cofs, .ccnt = ccnt};
 
 		struct obj *o = scene_getobj(s, id);
 		*o = (struct obj){.objid = objid, .instid = -1, .flags = flags};
@@ -268,13 +268,13 @@ void scene_updtransforms(struct scene *s)
 			unsigned int nid = stack[--spos];
 			struct node *n = &nodes[nid];
 			struct transform *nt = &transforms[nid];
+			unsigned int cid = n->cofs;
 			for (unsigned int i = 0; i < n->ccnt; i++) {
-				unsigned int cid = n->cofs + i;
 				struct node *c = &nodes[cid];
 				struct transform *ct = &transforms[cid];
 				mat4_mul(ct->glob, nt->glob, ct->loc);
 				assert(spos < STACK_SIZE);
-				stack[spos++] = c->id;
+				stack[spos++] = cid++;
 			}
 		}
 	}

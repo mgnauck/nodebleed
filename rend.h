@@ -11,7 +11,7 @@ struct bnode { // blas
 	uint32_t     cnt; // Tri cnt
 };
 
-struct tnode;
+struct tnode; // tlas
 
 struct rmtl {
 	struct vec3  col;

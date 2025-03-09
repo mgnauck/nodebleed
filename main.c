@@ -12,8 +12,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   1024
-#define HEIGHT   768
+#define WIDTH   320
+#define HEIGHT  240
 
 void print_type_sizes(void)
 {
@@ -106,7 +106,7 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 	rd->bgcol = s->bgcol;
 }
 
-void upd_instances(struct rdata *rd, struct scene *s)
+void upd_rinsts(struct rdata *rd, struct scene *s)
 {
 	for (unsigned int i = 0; i < s->nodecnt; i++) {
 		struct obj *o = scene_getobj(s, i);
@@ -138,7 +138,7 @@ void upd_instances(struct rdata *rd, struct scene *s)
 	}
 }
 
-void set_rcam(struct rcam *rc, struct cam *c)
+void upd_rcam(struct rcam *rc, struct cam *c)
 {
 	*rc = (struct rcam){
 	  .eye = c->eye,
@@ -201,14 +201,14 @@ void update(struct rdata *rd, struct scene *s)
 	scene_updtransforms(s);
 	scene_updcams(s);
 
-	upd_instances(rd, s);
+	upd_rinsts(rd, s);
 
 	//long last = SDL_GetTicks();
 	rend_prepdynamic(rd);
 	//printf("Created tlas in %ld ms\n", SDL_GetTicks() - last);
 
 	struct cam *c = scene_getcam(s, s->currcam);
-	set_rcam(&rd->cam, c);
+	upd_rcam(&rd->cam, c);
 
 	calc_view(&rd->view, WIDTH, HEIGHT, c);
 }

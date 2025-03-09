@@ -470,7 +470,8 @@ void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
 			  1.0f / ros.dir.x, 1.0f / ros.dir.y, 1.0f / ros.dir.z};
 
 			unsigned int o = ri->triofs;
-			intersect_blas(h, &ros, &rd->blas[o << 1], &rd->tris[o],			  &rd->imap[o], n->id);
+			intersect_blas(h, &ros, &rd->blas[o << 1], &rd->tris[o],
+			               &rd->imap[o], n->id);
 
 			// Pop next node of stack if something is left
 			if (spos > 0)
@@ -576,7 +577,6 @@ void rend_render(void *dst, struct rdata *rd)
 			  1.0f / r.dir.x, 1.0f / r.dir.y, 1.0f / r.dir.z};
 
 			struct hit h = (struct hit){.t = FLT_MAX};
-			//intersect_insts(&h, &r, rd);
 			intersect_tlas(&h, &r, rd);
 
 			struct vec3 c = rd->bgcol;
@@ -587,7 +587,7 @@ void rend_render(void *dst, struct rdata *rd)
 				struct rnrm *rn = &rd->nrms[ri->triofs + triid];
 				unsigned int mtlid = rn->mtlid;
 
-				// Inverse transpose, dir mul is 3x4 only
+				// Inverse transpose, dir mul can be 3x4 only
 				float it[16];
 				float *rt = ri->globinv;
 				for (int j = 0; j < 4; j++)
@@ -595,7 +595,8 @@ void rend_render(void *dst, struct rdata *rd)
 						it[4 * j + i] = rt[4 * i + j];
 
 				struct vec3 nrm = calc_nrm(h.u, h.v, rn, it);
-				nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
+				nrm = vec3_scale(vec3_add(nrm,
+				  (struct vec3){1, 1, 1}), 0.5f);
 				//c = vec3_mul(nrm, rd->mtls[mtlid].col);
 				c = nrm;
 			}

@@ -8,7 +8,7 @@
 #define NAME_MAX_LEN  128
 
 struct mtl {
-	struct vec3   col; // Diff col of non-metallic/specular col of metallic
+	struct vec3   col; // Non-metalic diff or metallic spec col
 	float         metallic; // Range from dielectric to conductor (0 - 1)
 	float         roughness; // Perfect refl to completely diffuse (0 - 1)
 	float         ior; // Index of refraction
@@ -46,7 +46,6 @@ struct mesh {
 };
 
 struct node {
-	unsigned int  id; // TODO Remove id to self? 
 	unsigned int  cofs; // Child ofs
 	unsigned int  ccnt; // Child cnt
 };
