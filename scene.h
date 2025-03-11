@@ -61,6 +61,31 @@ struct obj {
 	unsigned int  flags;
 };
 
+enum path { // Data path
+	PATH_TRANS,
+	PATH_ROT,
+	PATH_SCALE
+};
+
+struct chan {
+	unsigned int  sid; // Sampler id
+	unsigned int  nid; // Node id
+	enum path     path;
+};
+
+enum interpmode {
+	IM_STEP,
+	IM_LINEAR,
+	IM_CUBIC
+};
+
+struct sampler {
+	unsigned int     kcnt; // Keyframe count
+	unsigned int     kofs; // Offset to keyframes (timestamps)
+	unsigned int     dofs; // Offset to keyframe data
+	enum interpmode  interp;
+};
+
 struct scene {
 	unsigned int      meshmax;
 	unsigned int      meshcnt;
@@ -83,6 +108,12 @@ struct scene {
 	struct node       *nodes;
 	struct transform  *transforms;
 	struct obj        *objs;
+
+	struct chan       *chans;
+	unsigned int      chancnt;
+	struct sampler    *samplers;
+	unsigned int      samplercnt;
+	float             *animdata;
 
 	char              *names;
 
