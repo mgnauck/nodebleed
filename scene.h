@@ -61,22 +61,22 @@ struct obj {
 	unsigned int  flags;
 };
 
-enum path { // Data path
-	PATH_TRANS,
-	PATH_ROT,
-	PATH_SCALE
+enum datatgt { // Data target
+	DT_TRANS, // 3 floats
+	DT_ROT, // 4 floats (quat)
+	DT_SCALE // 3 floats
 };
 
-struct chan {
+struct track {
 	unsigned int  sid; // Sampler id
 	unsigned int  nid; // Node id
-	enum path     path;
+	enum datatgt  tgt;
 };
 
 enum interpmode {
 	IM_STEP,
 	IM_LINEAR,
-	IM_CUBIC
+	IM_CUBIC // Additional in+out tangent
 };
 
 struct sampler {
@@ -109,10 +109,14 @@ struct scene {
 	struct transform  *transforms;
 	struct obj        *objs;
 
-	struct chan       *chans;
-	unsigned int      chancnt;
-	struct sampler    *samplers;
+	unsigned int      trackmax;
+	unsigned int      trackcnt;
+	struct track      *tracks;
+
+	unsigned int      samplermax;
 	unsigned int      samplercnt;
+	struct sampler    *samplers;
+
 	float             *animdata;
 
 	char              *names;
@@ -126,7 +130,9 @@ struct scene {
 
 void              scene_init(struct scene *s, unsigned int maxmeshes,
                              unsigned int maxmtls, unsigned int maxcams,
-                             unsigned int maxrnodes, unsigned int maxsnodes);
+                             unsigned int maxrnodes, unsigned int maxsnodes,
+                             unsigned int maxtracks, unsigned int maxsamplers,
+                             unsigned int animdatasz);
 void              scene_release(struct scene *s);
 
 int               scene_acquiremtl(struct scene *s);
@@ -150,14 +156,26 @@ struct mesh       *scene_getmesh(struct scene *s, unsigned int id);
 
 int               scene_acquirenode(struct scene *s, bool isroot);
 struct node       *scene_initnode(struct scene *s, unsigned int id,
-                                 const char *name, int objid,
-                                 unsigned int flags, float local[16],
-                                 unsigned int cofs, unsigned int ccnt);
+                                  const char *name, int objid,
+                                  unsigned int flags, float local[16],
+                                  unsigned int cofs, unsigned int ccnt);
 struct node       *scene_getnode(struct scene *s, unsigned int id);
 int               scene_findnode(struct scene *s, const char *name);
 struct obj        *scene_getobj(struct scene *s, unsigned int id);
 struct transform  *scene_gettransform(struct scene *s, unsigned int id);
 const char        *scene_getnodename(struct scene *s, unsigned int id);
+
+int               scene_acquiretrack(struct scene *s);
+struct track      *scene_inittrack(struct scene *s, unsigned int id,
+                                   unsigned int sid, unsigned int nid,
+                                   enum datatgt tgt);
+struct track      *scene_gettrack(struct scene *s, unsigned int id);
+
+int               scene_acquiresampler(struct scene *s);
+struct sampler    *scene_initsampler(struct scene *s, unsigned int id,
+                                     unsigned int kcnt, unsigned int kofs,
+                                     unsigned int dofs, enum interpmode interp);
+struct sampler    *scene_getsampler(struct scene *s, unsigned int id);
 
 void              scene_updtransforms(struct scene *s);
 void              scene_updcams(struct scene *s);

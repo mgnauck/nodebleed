@@ -26,7 +26,9 @@ void setname(struct scene *s, const char *name, unsigned int ofs)
 
 void scene_init(struct scene *s, unsigned int maxmeshes,
                 unsigned int maxmtls, unsigned int maxcams,
-                unsigned int maxroots, unsigned int maxnodes)
+                unsigned int maxroots, unsigned int maxnodes,
+                unsigned int maxtracks, unsigned int maxsamplers,
+                unsigned int animdatasz)
 {
 	s->meshmax = maxmeshes;
 	s->meshcnt = 0;
@@ -50,6 +52,16 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 	s->objs = emalloc(maxnodes * sizeof(*s->objs));
 	s->transforms = emalloc(maxnodes * sizeof(*s->transforms));
 
+	s->trackmax = maxtracks;
+	s->trackcnt = 0;
+	s->tracks = emalloc(maxtracks * sizeof(*s->tracks));
+
+	s->samplermax = maxsamplers;
+	s->samplercnt = 0;
+	s->samplers = emalloc(maxsamplers * sizeof(*s->samplers));
+
+	s->animdata = emalloc(animdatasz * sizeof(float));
+
 	s->names = emalloc((maxmtls + maxcams + maxnodes) *
 	                   NAME_MAX_LEN * sizeof(*s->names));
 	
@@ -71,6 +83,12 @@ void scene_release(struct scene *s)
 	}
 
 	free(s->names);
+
+	free(s->animdata);
+	free(s->samplers);
+	s->samplercnt = 0;
+	free(s->tracks);
+	s->trackcnt = 0;
 
 	free(s->transforms);
 	free(s->objs);
@@ -249,6 +267,47 @@ const char *scene_getnodename(struct scene *s, unsigned int id)
 {
 	return id < s->nodecnt ?
 	  &s->names[(s->mtlmax + s->cammax + id) * NAME_MAX_LEN] : NULL;
+}
+
+int scene_acquiretrack(struct scene *s)
+{
+	return s->trackcnt < s->trackmax ? (int)s->trackcnt++ : -1;
+}
+
+struct track *scene_inittrack(struct scene *s, unsigned int id,
+                              unsigned int sid, unsigned int nid,
+                              enum datatgt tgt)
+{
+	struct track *t = scene_gettrack(s, id);
+	if (t)
+		*t = (struct track){.sid = sid, .nid = nid, .tgt = tgt};
+	return t;
+}
+
+struct track *scene_gettrack(struct scene *s, unsigned int id)
+{
+	return id < s->trackcnt ? &s->tracks[id] : NULL;
+}
+
+int scene_acquiresampler(struct scene *s)
+{
+	return s->samplercnt < s->samplermax ? (int)s->samplercnt++ : -1;
+}
+
+struct sampler *scene_initsampler(struct scene *s, unsigned int id,
+                                  unsigned int kcnt, unsigned int kofs,
+                                  unsigned int dofs, enum interpmode interp)
+{
+	struct sampler *sa = scene_getsampler(s, id);
+	if (sa)
+		*sa = (struct sampler){.kcnt = kcnt, .kofs = kofs, .dofs = dofs,
+		  .interp = interp};
+	return sa;
+}
+
+struct sampler *scene_getsampler(struct scene *s, unsigned int id)
+{
+	return id < s->samplercnt ? &s->samplers[id] : NULL;
 }
 
 void scene_updtransforms(struct scene *s)

@@ -3,12 +3,12 @@
 
 // Limitations:
 // - Ignoring asset and extensions information
-// - Expecting only one scene
+// - Reading only the first scene
 // - Ignoring skins and morph targets
 // - Ignoring texture coords and textures
 // - Not handling sparse accessors
-// - Expecting only one external binary buffer (i.e. not embedded)
-// - A limited set of buffer data types is supported
+// - Expecting only one external (i.e. not embedded) binary buffer
+// - Supporting only a limited set of buffer data types
 
 #define NAME_MAX_LEN  128
 
@@ -87,7 +87,7 @@ struct gltfanim {
 };
 
 struct gltfaccessor {
-	int                bufview; // TODO: When undefined, data should be 0
+	int                bufview; // TODO: When undefined, data is 0
 	unsigned int       cnt;
 	unsigned int       byteofs;
 	unsigned int       comptype;

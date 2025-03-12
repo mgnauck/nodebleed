@@ -176,11 +176,13 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/test.gltf", "../data/test.bin") != 0)
+	if (import_gltf(s, "../data/animtest.gltf", "../data/animtest.bin")
+            != 0)
 		printf("Failed to import gltf\n");
 
-	printf("Imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes\n",
-	  s->meshcnt, s->mtlcnt, s->camcnt, s->rootcnt, s->nodecnt);
+	printf("Imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes, %d tracks, %d samplers\n",
+	  s->meshcnt, s->mtlcnt, s->camcnt, s->rootcnt, s->nodecnt, s->trackcnt,
+	  s->samplercnt);
 
 	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
 	unsigned int instmax = get_max_insts(s->objs, s->nodecnt);

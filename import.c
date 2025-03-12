@@ -170,7 +170,8 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 	}
 }
 
-void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
+void import_nodes(struct scene *s, unsigned int nmap[], struct gltfnode *nodes,
+                  unsigned int rootid)
 {
 #define STACK_SIZE 64
 	unsigned int gnids[STACK_SIZE];
@@ -189,6 +190,8 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 		// Pop next gltf and scene node
 		unsigned int gnid = gnids[--spos];
 		unsigned int snid = snids[spos];
+
+		nmap[gnid] = snid; // Store for later
 
 		struct gltfnode *n = &nodes[gnid];
 
@@ -233,6 +236,10 @@ void import_nodes(struct scene *s, struct gltfnode *nodes, unsigned int rootid)
 	}
 }
 
+void import_animdata(struct scene *s, struct gltfanim *a, unsigned int nmap[])
+{
+}
+
 int import_data(struct scene *s,
                 const char *gltfbuf, const unsigned char *binbuf)
 {
@@ -244,8 +251,15 @@ int import_data(struct scene *s,
 
 	assert(g.meshcnt > 0 && g.rootcnt > 0 && g.nodecnt > 0);
 
+	unsigned int scnt = 0, tcnt = 0, animdatasz = 0;
+	for (unsigned int i = 0; i < g.animcnt; i++) {
+		scnt += g.anims[i].samplercnt;
+		tcnt += g.anims[i].channelcnt;
+		// TODO Calc animdata size
+	}
+
 	scene_init(s, g.meshcnt, max(1, g.mtlcnt), max(1, g.camcnt),
-	  g.rootcnt, g.nodecnt);
+	  g.rootcnt, g.nodecnt, tcnt, scnt, animdatasz);
 
 	for (unsigned int i = 0; i < g.mtlcnt; i++)
 		import_mtl(s, &g.mtls[i]);
@@ -268,8 +282,9 @@ int import_data(struct scene *s,
 	for (unsigned int i = 0; i < g.meshcnt; i++)
 		import_mesh(s, &g.meshes[i], &g, binbuf);
 
+	unsigned int nodemap[g.nodecnt];
 	for (unsigned int i = 0; i < g.rootcnt; i++)
-		import_nodes(s, g.nodes, g.roots[i]);
+		import_nodes(s, nodemap, g.nodes, g.roots[i]);
 
 	gltf_release(&g);
 
