@@ -236,8 +236,33 @@ void import_nodes(struct scene *s, unsigned int nmap[], struct gltfnode *nodes,
 	}
 }
 
-void import_animdata(struct scene *s, struct gltfanim *a, unsigned int nmap[])
+void import_anim(struct scene *s, struct gltfanim *a, unsigned int nmap[])
 {
+	for (unsigned int i = 0; i < a->channelcnt; i++) {
+		struct gltfchan *c = &a->channels[i];
+		enum datatgt tgt;
+		switch (c->target.path) {
+		case TRANSLATION:
+			tgt = DT_TRANS;
+		break;
+		case SCALE:
+			tgt = DT_SCALE;
+		break;
+		case ROTATION:
+			tgt = DT_ROT;
+		break;
+		case WEIGHTS: // Not yet supported
+		default:
+			eprintf("unknown animation target");
+			tgt = DT_TRANS;
+		};
+		scene_inittrack(s, scene_acquiretrack(s), c->sampler,
+		  nmap[c->target.node], tgt);
+	}
+
+	for (unsigned int i = 0; i < a->samplercnt; i++) {
+		// TODO Copy samplers and referenced data
+	}
 }
 
 int import_data(struct scene *s,
@@ -285,6 +310,9 @@ int import_data(struct scene *s,
 	unsigned int nodemap[g.nodecnt];
 	for (unsigned int i = 0; i < g.rootcnt; i++)
 		import_nodes(s, nodemap, g.nodes, g.roots[i]);
+
+	for (unsigned int i = 0; i < g.animcnt; i++)
+		import_anim(s, &g.anims[i], nodemap);
 
 	gltf_release(&g);
 
