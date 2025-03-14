@@ -236,32 +236,58 @@ void import_nodes(struct scene *s, unsigned int nmap[], struct gltfnode *nodes,
 	}
 }
 
-void import_anim(struct scene *s, struct gltfanim *a, unsigned int nmap[])
+void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
+                 unsigned int nmap[], unsigned int accmap[])
 {
+	unsigned int sofs = s->samplercnt; // Sampler offset
+
+	// Copy channels and translate data target enum
 	for (unsigned int i = 0; i < a->channelcnt; i++) {
 		struct gltfchan *c = &a->channels[i];
-		enum datatgt tgt;
+		enum tgttype tgt;
 		switch (c->target.path) {
-		case TRANSLATION:
-			tgt = DT_TRANS;
-		break;
-		case SCALE:
-			tgt = DT_SCALE;
-		break;
-		case ROTATION:
-			tgt = DT_ROT;
-		break;
-		case WEIGHTS: // Not yet supported
+		case PA_TRANSLATION:
+			tgt = TGT_TRANS;
+			break;
+		case PA_SCALE:
+			tgt = TGT_SCALE;
+			break;
+		case PA_ROTATION:
+			tgt = TGT_ROT;
+			break;
+		case PA_WEIGHTS: // Not yet supported
 		default:
 			eprintf("unknown animation target");
-			tgt = DT_TRANS;
+			tgt = TGT_TRANS;
 		};
-		scene_inittrack(s, scene_acquiretrack(s), c->sampler,
+		scene_inittrack(s, scene_acquiretrack(s), sofs + c->sampler,
 		  nmap[c->target.node], tgt);
 	}
 
+	// Copy samplers and referenced data
 	for (unsigned int i = 0; i < a->samplercnt; i++) {
-		// TODO Copy samplers and referenced data
+		struct gltfsampler *sa = &a->samplers[i];
+		struct gltfaccessor *ia = &g->accessors[sa->input];
+		enum interpmode interp;
+		switch (sa->interp) {
+		case IN_STEP:
+			interp = IM_STEP;
+			break;
+		case IN_LINEAR:
+			interp = IM_LINEAR;
+			break;
+		case IN_CUBIC:
+			interp = IM_CUBIC;
+			break;
+		default:
+			eprintf("unknown keyframe interpolation mode");
+			interp = IM_STEP;
+		};
+		// Find data len via keyframe cnt, track's tgt and interp mode,
+		// accmap already contains correct ofs into anim data buffer
+		scene_initsampler(s, scene_acquiresampler(s), ia->cnt,
+		  accmap[sa->input] / sizeof(float),
+		  accmap[sa->output] / sizeof(float), interp);
 	}
 }
 
@@ -276,15 +302,30 @@ int import_data(struct scene *s,
 
 	assert(g.meshcnt > 0 && g.rootcnt > 0 && g.nodecnt > 0);
 
-	unsigned int scnt = 0, tcnt = 0, animdatasz = 0;
-	for (unsigned int i = 0; i < g.animcnt; i++) {
-		scnt += g.anims[i].samplercnt;
-		tcnt += g.anims[i].channelcnt;
-		// TODO Calc animdata size
+	unsigned int animacc[g.accessorcnt]; // Anim data accessors
+	memset(animacc, 0, g.accessorcnt * sizeof(unsigned int));
+
+	unsigned int scnt = 0, tcnt = 0;
+	for (unsigned int j = 0; j < g.animcnt; j++) {
+		struct gltfanim *a = &g.anims[j];
+		scnt += a->samplercnt;
+		tcnt += a->channelcnt;
+		// Create a list of accessors that reference animation data
+		for (unsigned int i = 0; i < a->samplercnt; i++) {
+			struct gltfsampler *s = &a->samplers[i];
+			animacc[s->input] = 1;
+			animacc[s->output] = 1;
+		}
 	}
 
+	// Count bytes the animation data will need
+	unsigned int animbytes = 0;
+	for (unsigned int i = 0; i < g.accessorcnt; i++)
+		if (animacc[i] > 0)
+			animbytes += g.bufviews[g.accessors[i].bufview].bytelen;
+
 	scene_init(s, g.meshcnt, max(1, g.mtlcnt), max(1, g.camcnt),
-	  g.rootcnt, g.nodecnt, tcnt, scnt, animdatasz);
+	  g.rootcnt, g.nodecnt, tcnt, scnt, animbytes);
 
 	for (unsigned int i = 0; i < g.mtlcnt; i++)
 		import_mtl(s, &g.mtls[i]);
@@ -311,8 +352,20 @@ int import_data(struct scene *s,
 	for (unsigned int i = 0; i < g.rootcnt; i++)
 		import_nodes(s, nodemap, g.nodes, g.roots[i]);
 
+	// Copy raw animation data and map anim accessor to data ofs
+	unsigned int ofs = 0; // In bytes
+	for (unsigned int i = 0; i < g.accessorcnt; i++)
+		if (animacc[i] > 0) {
+			struct gltfbufview *bv =
+			  &g.bufviews[g.accessors[i].bufview];
+			memcpy((unsigned char *)s->animdata + ofs,
+			  binbuf + bv->byteofs, bv->bytelen);
+			animacc[i] = ofs; // Map accessor id to anim data byte ofs
+			ofs += bv->bytelen;
+		}
+
 	for (unsigned int i = 0; i < g.animcnt; i++)
-		import_anim(s, &g.anims[i], nodemap);
+		import_anim(s, &g.anims[i], &g, nodemap, animacc);
 
 	gltf_release(&g);
 

@@ -610,13 +610,13 @@ unsigned int read_target(struct gltftarget *ta, const char *s, jsmntok_t *t)
 		if (jsoneq(s, key, "path") == 0) {
 			char *path = toktostr(s, &t[j + 1]);
 			if (strstr(path, "translation"))
-				ta->path = TRANSLATION;
+				ta->path = PA_TRANSLATION;
 			else if (strstr(path, "rotation"))
-				ta->path = ROTATION;
+				ta->path = PA_ROTATION;
 			else if (strstr(path, "scale"))
-				ta->path = SCALE;
+				ta->path = PA_SCALE;
 			else if (strstr(path, "weights"))
-				ta->path = WEIGHTS;
+				ta->path = PA_WEIGHTS;
 			else
 				eprintf("Anim path of unknown type: %s\n",
 				  path);
@@ -691,11 +691,11 @@ unsigned int read_sampler(struct gltfsampler *sa, const char *s, jsmntok_t *t)
 		if (jsoneq(s, key, "interpolation") == 0) {
 			char *interp = toktostr(s, &t[j + 1]);
 			if (strstr(interp, "STEP"))
-				sa->interp = STEP;
+				sa->interp = IN_STEP;
 			else if (strstr(interp, "LINEAR"))
-				sa->interp = LINEAR;
+				sa->interp = IN_LINEAR;
 			else if (strstr(interp, "CUBICSPLINE"))
-				sa->interp = CUBICSPLINE;
+				sa->interp = IN_CUBIC;
 			else
 				eprintf("Interpolation mode of unknown type: %s\n",
 				  interp);

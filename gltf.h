@@ -50,10 +50,10 @@ struct gltfmesh {
 };
 
 enum gltfpath {
-	TRANSLATION,
-	ROTATION,
-	SCALE,
-	WEIGHTS
+	PA_TRANSLATION,
+	PA_ROTATION,
+	PA_SCALE,
+	PA_WEIGHTS
 };
 
 struct gltftarget {
@@ -67,9 +67,9 @@ struct gltfchan {
 };
 
 enum gltfinterp {
-	STEP,
-	LINEAR,
-	CUBICSPLINE
+	IN_STEP,
+	IN_LINEAR,
+	IN_CUBIC
 };
 
 struct gltfsampler {

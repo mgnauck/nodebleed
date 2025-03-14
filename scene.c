@@ -28,7 +28,7 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
                 unsigned int maxmtls, unsigned int maxcams,
                 unsigned int maxroots, unsigned int maxnodes,
                 unsigned int maxtracks, unsigned int maxsamplers,
-                unsigned int animdatasz)
+                unsigned int animdatabytes)
 {
 	s->meshmax = maxmeshes;
 	s->meshcnt = 0;
@@ -60,7 +60,7 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 	s->samplercnt = 0;
 	s->samplers = emalloc(maxsamplers * sizeof(*s->samplers));
 
-	s->animdata = emalloc(animdatasz * sizeof(float));
+	s->animdata = emalloc(animdatabytes);
 
 	s->names = emalloc((maxmtls + maxcams + maxnodes) *
 	                   NAME_MAX_LEN * sizeof(*s->names));
@@ -276,7 +276,7 @@ int scene_acquiretrack(struct scene *s)
 
 struct track *scene_inittrack(struct scene *s, unsigned int id,
                               unsigned int sid, unsigned int nid,
-                              enum datatgt tgt)
+                              enum tgttype tgt)
 {
 	struct track *t = scene_gettrack(s, id);
 	if (t)

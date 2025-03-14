@@ -61,16 +61,16 @@ struct obj {
 	unsigned int  flags;
 };
 
-enum datatgt { // Data target
-	DT_TRANS, // 3 floats
-	DT_ROT, // 4 floats (quat)
-	DT_SCALE // 3 floats
+enum tgttype { // Target type
+	TGT_TRANS, // 3 floats
+	TGT_ROT, // 4 floats (quat)
+	TGT_SCALE // 3 floats
 };
 
 struct track {
 	unsigned int  sid; // Sampler id
 	unsigned int  nid; // Node id
-	enum datatgt  tgt;
+	enum tgttype  tgt;
 };
 
 enum interpmode {
@@ -132,7 +132,7 @@ void              scene_init(struct scene *s, unsigned int maxmeshes,
                              unsigned int maxmtls, unsigned int maxcams,
                              unsigned int maxrnodes, unsigned int maxsnodes,
                              unsigned int maxtracks, unsigned int maxsamplers,
-                             unsigned int animdatasz);
+                             unsigned int animdatabytes);
 void              scene_release(struct scene *s);
 
 int               scene_acquiremtl(struct scene *s);
@@ -168,7 +168,7 @@ const char        *scene_getnodename(struct scene *s, unsigned int id);
 int               scene_acquiretrack(struct scene *s);
 struct track      *scene_inittrack(struct scene *s, unsigned int id,
                                    unsigned int sid, unsigned int nid,
-                                   enum datatgt tgt);
+                                   enum tgttype tgt);
 struct track      *scene_gettrack(struct scene *s, unsigned int id);
 
 int               scene_acquiresampler(struct scene *s);
