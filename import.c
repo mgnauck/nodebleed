@@ -220,19 +220,12 @@ void import_nodes(struct scene *s, unsigned int nmap[], struct gltfnode *nodes,
 			snids[spos++] = snofs + child; 
 		}
 
-		// Calc local node transform
-		float loc[16], scale[16], rot[16], trans[16];
-		mat4_scale(scale, (struct vec3){
-		  n->scale[0], n->scale[1], n->scale[2]});
-		mat4_fromquat(rot, n->rot[0], n->rot[1], n->rot[2], n->rot[3]);
-		mat4_trans(trans, (struct vec3){
-		  n->trans[0], n->trans[1], n->trans[2]});
-		mat4_mul(loc, rot, scale);
-		mat4_mul(loc, trans, loc);
-
 		// Set all data of scene node
 		scene_initnode(s, snid, n->name, objid, flags,
-		  loc, n->childcnt > 0 ? snofs : 0, n->childcnt);
+		  &(struct vec3){n->trans[0], n->trans[1], n->trans[2]},
+		  n->rot,
+		  &(struct vec3){n->scale[0], n->scale[1], n->scale[2]},
+		  n->childcnt > 0 ? snofs : 0, n->childcnt);
 	}
 }
 

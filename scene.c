@@ -222,7 +222,8 @@ int scene_acquirenode(struct scene *s, bool isroot)
 
 struct node *scene_initnode(struct scene *s, unsigned int id,
                     const char *name, int objid,
-                    unsigned int flags, float local[16],
+                    unsigned int flags, struct vec3 *trans,
+                    float rot[4], struct vec3 *scale,
                     unsigned int cofs, unsigned int ccnt)
 {
 	assert(strlen(name) < NAME_MAX_LEN);
@@ -235,7 +236,11 @@ struct node *scene_initnode(struct scene *s, unsigned int id,
 		*o = (struct obj){.objid = objid, .instid = -1, .flags = flags};
 
 		struct transform *t = scene_gettransform(s, id);
-		memcpy(t->loc, local, sizeof(t->loc));
+		t->trans = *trans;
+		memcpy(t->rot, rot, sizeof(t->rot));
+		t->scale = *scale;
+		combine_transform(t->loc, trans, rot, scale);
+		// Calc global later on
 
 		setname(s, name, /* ofs */ s->mtlmax + s->cammax + id);
 	}
@@ -353,4 +358,15 @@ void scene_updcams(struct scene *s)
 		struct cam *c = scene_getcam(s, i);
 		calc_cam(c, scene_gettransform(s, c->nodeid)->glob);
 	}
+}
+
+void combine_transform(float dst[16], struct vec3 *trans, float rot[4],
+                       struct vec3 *scale)
+{
+	float mscale[16], mrot[16], mtrans[16];
+	mat4_scale(mscale, *scale);
+	mat4_fromquat(mrot, rot[0], rot[1], rot[2], rot[3]);
+	mat4_trans(mtrans, *trans);
+	mat4_mul(dst, mrot, mscale);
+	mat4_mul(dst, mtrans, dst);
 }

@@ -51,8 +51,11 @@ struct node {
 };
 
 struct transform {
-	float  loc[16];
-	float  glob[16];
+	float        loc[16];
+	float        glob[16];
+	float        rot[4]; // Quat
+	struct vec3  trans;
+	struct vec3  scale;
 };
 
 struct obj {
@@ -157,7 +160,8 @@ struct mesh       *scene_getmesh(struct scene *s, unsigned int id);
 int               scene_acquirenode(struct scene *s, bool isroot);
 struct node       *scene_initnode(struct scene *s, unsigned int id,
                                   const char *name, int objid,
-                                  unsigned int flags, float local[16],
+                                  unsigned int flags, struct vec3 *trans,
+                                  float rot[4], struct vec3 *scale,
                                   unsigned int cofs, unsigned int ccnt);
 struct node       *scene_getnode(struct scene *s, unsigned int id);
 int               scene_findnode(struct scene *s, const char *name);
@@ -179,5 +183,8 @@ struct sampler    *scene_getsampler(struct scene *s, unsigned int id);
 
 void              scene_updtransforms(struct scene *s);
 void              scene_updcams(struct scene *s);
+
+void              combine_transform(float dst[16], struct vec3 *trans,
+                                    float rot[4], struct vec3 *scale);
 
 #endif
