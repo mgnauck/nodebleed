@@ -315,6 +315,18 @@ struct sampler *scene_getsampler(struct scene *s, unsigned int id)
 	return id < s->samplercnt ? &s->samplers[id] : NULL;
 }
 
+void scene_updanims(struct scene *s, float time)
+{
+	for (unsigned int i = 0; i < s->trackcnt; i++) {
+		struct track *tr = scene_gettrack(s, i);
+		struct sampler *sa = scene_getsampler(s, tr->sid);
+		assert(sa != NULL);
+		struct transform *tf = scene_gettransform(s, tr->nid);
+		assert(tf != NULL);
+		// TODO
+	}
+}
+
 void scene_updtransforms(struct scene *s)
 {
 #define STACK_SIZE  64

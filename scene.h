@@ -181,6 +181,7 @@ struct sampler    *scene_initsampler(struct scene *s, unsigned int id,
                                      unsigned int dofs, enum interpmode interp);
 struct sampler    *scene_getsampler(struct scene *s, unsigned int id);
 
+void              scene_updanims(struct scene *s, float time);
 void              scene_updtransforms(struct scene *s);
 void              scene_updcams(struct scene *s);
 

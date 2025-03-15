@@ -198,8 +198,9 @@ void init(struct scene *s, struct rdata *rd)
 	printf("Created blas in %ld ms\n", SDL_GetTicks() - last);
 }
 
-void update(struct rdata *rd, struct scene *s)
+void update(struct rdata *rd, struct scene *s, float time)
 {
+	scene_updanims(s, time);
 	scene_updtransforms(s);
 	scene_updcams(s);
 
@@ -245,8 +246,9 @@ int main(int argc, char *argv[])
 	struct rdata rd = { 0 };
 	init(&s, &rd);
 
+	long start, last;
 	bool quit = false;
-	long last = SDL_GetTicks64();
+	start = last = SDL_GetTicks64();
 	while (!quit) {
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
@@ -261,7 +263,7 @@ int main(int argc, char *argv[])
 		SDL_SetWindowTitle(win, title);
 		last = SDL_GetTicks64();
 
-		update(&rd, &s);
+		update(&rd, &s, (last - start) / 1000.0f);
 		rend_render(scr->pixels, &rd);
 
 		SDL_UpdateWindowSurface(win);
