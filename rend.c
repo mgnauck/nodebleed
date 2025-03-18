@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "aabb.h"
 #include "mat4.h"
@@ -9,8 +10,8 @@
 #include "types.h"
 #include "util.h"
 
-#define MIN_SPLIT_CNT  3
-#define INTERVAL_CNT  16
+#define MIN_SPLIT_CNT  1
+#define INTERVAL_CNT   8
 
 struct split {
 	float          cost;
@@ -32,8 +33,11 @@ struct tnode {
 
 struct ray {
 	struct vec3  ori;
+	float        pad0;
 	struct vec3  dir;
+	float        pad1;
 	struct vec3  idir;
+	float        oad2;
 };
 
 struct hit {
@@ -101,9 +105,9 @@ struct split find_intervalsplit(const struct bnode *n,
 		float delta = INTERVAL_CNT / (maxc - minc);
 		ip = &imap[n->sid];
 		for (unsigned int i = 0; i < n->cnt; i++) {
-			unsigned int iv_id  = (unsigned int)min(
-			  INTERVAL_CNT - 1,
-			  (vec3_getc(centers[*ip], axis) - minc) * delta);
+			unsigned int iv_id  = (unsigned int)max(0,
+			  min(INTERVAL_CNT - 1,
+			    (vec3_getc(centers[*ip], axis) - minc) * delta));
 			struct interval *iv = &ivs[iv_id];
 			struct aabb *iv_box = &iv->box;
 			const struct rtri *tri = &tris[*ip++];
@@ -162,7 +166,7 @@ void subdivide_node(struct bnode *n, struct bnode *blas,
 	struct split best = find_intervalsplit(n, tris, imap, centers);
 	float nosplit = n->cnt * aabb_calcarea(&(struct aabb){n->min, n->max});
 	if (nosplit <= best.cost) {
-		printf("no split of sid: %d, cnt: %d\n", n->sid, n->cnt);
+		//printf("no split of sid: %d, cnt: %d\n", n->sid, n->cnt);
 		return;
 	}
 
@@ -343,23 +347,37 @@ void build_tlas(struct tnode *nodes, struct rinst *insts, struct aabb *aabbs,
 float intersect_aabb(const struct ray *r, float tfar,
                      struct vec3 min_ext, struct vec3 max_ext)
 {
-	struct vec3 t0 = vec3_mul(vec3_sub(min_ext, r->ori), r->idir);
-	struct vec3 t1 = vec3_mul(vec3_sub(max_ext, r->ori), r->idir);
+	float tx0 = (min_ext.x - r->ori.x) * r->idir.x;
+	float tx1 = (max_ext.x - r->ori.x) * r->idir.x;
+	float tmin = min(tx0, tx1);
+	float tmax = max(tx0, tx1);
 
-	float tmin = max(vec3_maxc(vec3_min(t0, t1)), EPS);
-	float tmax = min(vec3_minc(vec3_max(t1, t0)), tfar);
+	float ty0 = (min_ext.y - r->ori.y) * r->idir.y;
+	float ty1 = (max_ext.y - r->ori.y) * r->idir.y;
+	tmin = max(tmin, min(ty0, ty1));
+	tmax = min(tmax, max(ty0, ty1));
 
-	return tmin <= tmax ? tmin : FLT_MAX;
+	float tz0 = (min_ext.z - r->ori.z) * r->idir.z;
+	float tz1 = (max_ext.z - r->ori.z) * r->idir.z;
+	tmin = max(tmin, min(tz0, tz1));
+	tmax = min(tmax, max(tz0, tz1));
+
+	if (tmin <= tmax && tmin < tfar && tmax >= 0.0f)
+		return tmin;
+	else
+		return FLT_MAX;
 }
 
-void intersect_tri(struct hit *h, const struct ray *r, const struct vec3 *v0,
-                   const struct vec3 *v1, const struct vec3 *v2, uint32_t id)
+void intersect_tri(struct hit *h, const struct ray *r, const struct rtri *tris,
+                   uint32_t triid, uint32_t instid)
 {
 	// Vectors of two edges sharing v0
-	const struct vec3 e0 = vec3_sub(*v1, *v0);
-	const struct vec3 e1 = vec3_sub(*v2, *v0);
+	const struct rtri *t = &tris[triid];
+	const struct vec3 v0 = t->v0;
+	const struct vec3 e0 = vec3_sub(t->v1, v0);
+	const struct vec3 e1 = vec3_sub(t->v2, v0);
 
-	// Calculate determinat and u param later on
+	// Calculate determinant
 	const struct vec3 pv = vec3_cross(r->dir, e1);
 	float det = vec3_dot(e0, pv);
 
@@ -370,7 +388,7 @@ void intersect_tri(struct hit *h, const struct ray *r, const struct vec3 *v0,
 	float idet = 1.0f / det;
 
 	// Distance v0 to origin
-	const struct vec3 tv = vec3_sub(r->ori, *v0);
+	const struct vec3 tv = vec3_sub(r->ori, v0);
 
 	// Calculate param u and test bounds
 	float u = vec3_dot(tv, pv) * idet;
@@ -387,11 +405,11 @@ void intersect_tri(struct hit *h, const struct ray *r, const struct vec3 *v0,
 
 	// Calculate dist
 	float dist = vec3_dot(e1, qv) * idet;
-	if (dist > EPS && dist < h->t) {
+	if (dist > 0.0f && dist < h->t) {
 		h->t = dist;
 		h->u = u;
 		h->v = v;
-		h->e = id;
+		h->e = triid << 16 | instid;
 	}
 }
 
@@ -409,13 +427,8 @@ void intersect_blas(struct hit *h, const struct ray *r,
 	while (true) {
 		if (n->cnt > 0) {
 			// Leaf, check triangles
-			const unsigned int *ip = &imap[n->sid];
-			for (unsigned int i = 0; i < n->cnt; i++) {
-				unsigned int triid = *ip++;
-				const struct rtri *t = &tris[triid];
-				intersect_tri(h, r, &t->v0, &t->v1, &t->v2,
-				  triid << 16 | instid);
-			}
+			for (unsigned int i = 0; i < n->cnt; i++)
+				intersect_tri(h, r, tris, imap[n->sid + i], instid);
 
 			// Pop next node of stack if something is left
 			if (spos > 0)
@@ -424,13 +437,22 @@ void intersect_blas(struct hit *h, const struct ray *r,
 				return;
 		} else {
 			// Interior node, check children, right child is + 1
-			const struct bnode *c = &blas[n->sid];
-			float dist[2] = {
-			  intersect_aabb(r, h->t, c[0].min, c[0].max),
-			  intersect_aabb(r, h->t, c[1].min, c[1].max)};
+			const struct bnode *c0 = &blas[n->sid];
+			const struct bnode *c1 = &blas[n->sid + 1];
+			float d0 = intersect_aabb(r, h->t, c0->min, c0->max);
+			float d1 = intersect_aabb(r, h->t, c1->min, c1->max);
 
-			unsigned char near = dist[1] > dist[0] ? 0 : 1;
-			if (dist[near] == FLT_MAX) {
+			if (d0 > d1) {
+				float t = d0;
+				d0 = d1;
+				d1 = t;
+
+				const struct bnode *tc = c0;
+				c0 = c1;
+				c1 = tc;
+			}
+
+			if (d0 == FLT_MAX) {
 				// Did not hit any child, try the stack
 				if (spos > 0)
 					n = stack[--spos];
@@ -438,10 +460,10 @@ void intersect_blas(struct hit *h, const struct ray *r,
 					return;
 			} else {
 				// Continue with nearer child node
-				n = &c[near]; 
-				if (dist[1 - near] < FLT_MAX)
+				n = c0;
+				if (d1 != FLT_MAX)
 					// Put farther child on stack
-					stack[spos++] = &c[1 - near];
+					stack[spos++] = c1;
 			}
 		}
 	}
@@ -480,15 +502,23 @@ void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
 				return;
 		} else {
 			// Interior node, check children
-			const struct tnode *c[2] = {
-			  &rd->tlas[n->children & 0xff],
-			  &rd->tlas[n->children >> 16]};
-			float dist[2] = {
-			  intersect_aabb(r, h->t, c[0]->min, c[0]->max),
-			  intersect_aabb(r, h->t, c[1]->min, c[1]->max)};
+			const struct tnode *c0 = &rd->tlas[n->children & 0xff];
+			const struct tnode *c1 = &rd->tlas[n->children >> 16];
 
-			unsigned char near = dist[1] > dist[0] ? 0 : 1;
-			if (dist[near] == FLT_MAX) {
+			float d0 = intersect_aabb(r, h->t, c0->min, c0->max);
+			float d1 = intersect_aabb(r, h->t, c1->min, c1->max);
+
+			if (d0 > d1) {
+				float t = d0;
+				d0 = d1;
+				d1 = t;
+
+				const struct tnode *tc = c0;
+				c0 = c1;
+				c1 = tc;
+			}
+
+			if (d0 == FLT_MAX) {
 				// Did not hit any child, try the stack
 				if (spos > 0)
 					n = stack[--spos];
@@ -496,14 +526,15 @@ void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
 					return;
 			} else {
 				// Continue with nearer child node
-				n = c[near];
-				if (dist[1 - near] < FLT_MAX)
+				n = c0;
+				if (d1 != FLT_MAX)
 					// Put farther child on stack
-					stack[spos++] = c[1 - near];
+					stack[spos++] = c1;
 			}
 		}
 	}
 }
+
 void rend_init(struct rdata *rd, unsigned int maxmtls,
                unsigned int maxtris, unsigned int maxinsts) 
 {
@@ -513,7 +544,8 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	rd->imap = malloc(maxtris * sizeof(*rd->imap));
 	rd->insts = malloc(maxinsts * sizeof(*rd->insts));
 	rd->aabbs = malloc(maxinsts * sizeof(*rd->aabbs));
-	rd->blas = calloc(2 * maxtris, sizeof(*rd->blas));
+	rd->blas = malloc(2 * maxtris * sizeof(*rd->blas)); // Align 64
+	memset(rd->blas, 0, 2 * maxtris * sizeof(*rd->blas));
 	rd->tlas = malloc(2 * maxinsts * sizeof(*rd->tlas));
 }
 
