@@ -348,6 +348,7 @@ void lerp(float *dst, float *s0, float *s1, float t)
 
 void spher_lerp(float *dst, float *s0, float *s1, float t)
 {
+	// For rotations only
 	float d = s0[0] * s1[0] + s0[1] * s1[1] + s0[2] * s1[2] + s0[3] * s1[3];
 	float s = fabsf(d);
 	float a = acosf(d);
