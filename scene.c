@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -315,15 +316,96 @@ struct sampler *scene_getsampler(struct scene *s, unsigned int id)
 	return id < s->samplercnt ? &s->samplers[id] : NULL;
 }
 
+unsigned int find_key(float *keys, unsigned int cnt, float time)
+{
+	for (int i = 0; i < (int)cnt - 1; i++)
+		if (time <= keys[i])
+			return max(0, i - 1);
+	return cnt - 2;
+}
+
+void step3(float *dst, float *s0, float *s1, float t)
+{
+	dst[0] = s0[0];
+	dst[1] = s0[1];
+	dst[2] = s0[2];
+}
+
+void step4(float *dst, float *s0, float *s1, float t)
+{
+	dst[0] = s0[0];
+	dst[1] = s0[1];
+	dst[2] = s0[2];
+	dst[3] = s0[3];
+}
+
+void lerp(float *dst, float *s0, float *s1, float t)
+{
+	dst[0] = (1.0f - t) * s0[0] + t * s1[0];
+	dst[1] = (1.0f - t) * s0[1] + t * s1[1];
+	dst[2] = (1.0f - t) * s0[2] + t * s1[2];
+}
+
+void spher_lerp(float *dst, float *s0, float *s1, float t)
+{
+	float d = s0[0] * s1[0] + s0[1] * s1[1] + s0[2] * s1[2] + s0[3] * s1[3];
+	float s = fabsf(d);
+	float a = acosf(d);
+	s = d / s;
+	float isina = 1.0f / sinf(a);
+	float sinat = sinf(a * t);
+	float sina1t = sinf(a * (1.0f - t));
+	dst[0] = sina1t * isina * s0[0] + s * sinat * isina * s1[0];
+	dst[1] = sina1t * isina * s0[1] + s * sinat * isina * s1[1];
+	dst[2] = sina1t * isina * s0[2] + s * sinat * isina * s1[2];
+}
+
+void cubic(float *dst, float *s0, float *s1, float t)
+{
+	// TODO Use in/out tangents to interpolate
+	dst[0] = dst[1] = dst[2] = 0.0f;
+}
+
 void scene_updanims(struct scene *s, float time)
 {
-	for (unsigned int i = 0; i < s->trackcnt; i++) {
-		struct track *tr = scene_gettrack(s, i);
+	for (unsigned int j = 0; j < s->trackcnt; j++) {
+		struct track *tr = scene_gettrack(s, j);
 		struct sampler *sa = scene_getsampler(s, tr->sid);
 		assert(sa != NULL);
+
+		float *keys = &s->animdata[sa->kofs];
+		// TODO Optimize by storing last key index
+		unsigned int n = find_key(keys, sa->kcnt, time);
+
+		float t0 = keys[n];
+		float t1 = keys[n + 1];
+		float tc = max(min(time, t1), t0); // Clamp to key time range
+		float t = (tc - t0) / (t1 - t0); 
+
+		unsigned int comp = tr->tgt == TGT_ROT ? 4 : 3; // Rot = quat
+		unsigned int elem = sa->interp == IM_CUBIC ? 3 : 1; // Tangents
+		float *v0 = &s->animdata[sa->dofs + elem * comp * n];
+		float *v1 = &s->animdata[sa->dofs + elem * comp * (n + 1)];
+		float v[comp];
+
+		void (*interpolate)(float *, float *, float *, float);
+		switch (sa->interp) {
+		case IM_LINEAR:
+			interpolate = (comp == 4) ? step4 : step3;
+			break;
+		case IM_STEP:
+			interpolate = (comp == 4) ? spher_lerp : lerp;
+			break;
+		case IM_CUBIC:
+			interpolate = cubic;
+		}
+
+		interpolate(v, v0, v1, t);
+		//printf("%6.3f (%d/%6.3f): %6.3f, %6.3f, %6.3f\n", time, n, t, v[0], v[1], v[2]);
+
+		// TODO Set value to node's local transform component
 		struct transform *tf = scene_gettransform(s, tr->nid);
 		assert(tf != NULL);
-		// TODO
 	}
 }
 
