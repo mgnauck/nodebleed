@@ -439,6 +439,7 @@ void intersect_blas(struct hit *h, const struct ray *r,
 			// Interior node, check children, right child is + 1
 			const struct bnode *c0 = &blas[n->sid];
 			const struct bnode *c1 = &blas[n->sid + 1];
+
 			float d0 = intersect_aabb(r, h->t, c0->min, c0->max);
 			float d1 = intersect_aabb(r, h->t, c1->min, c1->max);
 
@@ -544,9 +545,9 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	rd->imap = malloc(maxtris * sizeof(*rd->imap));
 	rd->insts = malloc(maxinsts * sizeof(*rd->insts));
 	rd->aabbs = malloc(maxinsts * sizeof(*rd->aabbs));
-	rd->blas = malloc(2 * maxtris * sizeof(*rd->blas)); // Align 64
+	rd->blas = malloc(2 * maxtris * sizeof(*rd->blas)); // Align 64?
 	memset(rd->blas, 0, 2 * maxtris * sizeof(*rd->blas));
-	rd->tlas = malloc(2 * maxinsts * sizeof(*rd->tlas));
+	rd->tlas = malloc(2 * maxinsts * sizeof(*rd->tlas)); // Align 64?
 }
 
 void rend_release(struct rdata *rd)
@@ -589,7 +590,7 @@ struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
 
 void rend_render(void *dst, struct rdata *rd)
 {
-#define BLK_SZ  16
+#define BLK_SZ  4
 	struct vec3 eye = rd->cam.eye;
 	struct vec3 dx = rd->view.dx;
 	struct vec3 dy = rd->view.dy;
@@ -629,8 +630,8 @@ void rend_render(void *dst, struct rdata *rd)
 				struct vec3 nrm = calc_nrm(h.u, h.v, rn, it);
 				nrm = vec3_scale(vec3_add(nrm,
 				  (struct vec3){1, 1, 1}), 0.5f);
-				//c = vec3_mul(nrm, rd->mtls[mtlid].col);
-				c = nrm;
+				c = vec3_mul(nrm, rd->mtls[mtlid].col);
+				//c = nrm;
 			}
 
 			unsigned int cr = min(255, (unsigned int)(255 * c.x));
