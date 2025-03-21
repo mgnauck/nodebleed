@@ -401,6 +401,15 @@ void scene_updanims(struct scene *s, float time)
 			break;
 		case IM_CUBIC:
 			cubic(v, v0, v1, t, du, comp);
+			if (comp == 4) {
+				// Normalize in case of rotation
+				float len = 1.0f / sqrtf(v[0] * v[0] +
+				  v[1] * v[1] + v[2] * v[2] + v[3] * v[3]);
+				v[0] *= len;
+				v[1] *= len;
+				v[2] *= len;
+				v[3] *= len;
+			}
 			break;
 		}
 
