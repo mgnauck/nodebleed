@@ -348,11 +348,13 @@ void lerp(float *dst, float *s0, float *s1, float t)
 
 void spher_lerp(float *dst, float *s0, float *s1, float t)
 {
-	// For rotations only
+	// Rotations only
 	float d = s0[0] * s1[0] + s0[1] * s1[1] + s0[2] * s1[2] + s0[3] * s1[3];
 	float a = acosf(d);
 	float isina = 1.0f / sinf(a);
 	float e = sinf(a * (1.0f - t)) * isina;
+	// Mul by dot prod sign ensures interpolation along shortest path of
+	// great circle of the two quats
 	float f = (d / fabsf(d)) * sinf(a * t) * isina;
 	dst[0] = e * s0[0] + f * s1[0];
 	dst[1] = e * s0[1] + f * s1[1];
