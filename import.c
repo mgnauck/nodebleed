@@ -303,10 +303,10 @@ int import_data(struct scene *s,
 		struct gltfanim *a = &g.anims[j];
 		scnt += a->samplercnt;
 		tcnt += a->channelcnt;
-		// Create a list of accessors that reference animation data
+		// Create a list of accessors which reference animation data
 		for (unsigned int i = 0; i < a->samplercnt; i++) {
 			struct gltfsampler *s = &a->samplers[i];
-			animacc[s->input] = 1;
+			animacc[s->input] = 1; // Will replace by data ofs later
 			animacc[s->output] = 1;
 		}
 	}
@@ -353,7 +353,7 @@ int import_data(struct scene *s,
 			  &g.bufviews[g.accessors[i].bufview];
 			memcpy((unsigned char *)s->animdata + ofs,
 			  binbuf + bv->byteofs, bv->bytelen);
-			animacc[i] = ofs; // Map accessor id to anim data byte ofs
+			animacc[i] = ofs; // Map acc id to anim data byte ofs
 			ofs += bv->bytelen;
 		}
 
