@@ -218,7 +218,6 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Store last key to optimize find_key()
 	// TODO Move loc transform components to separate struct
 	// TODO Find better name for struct obj
 	// TODO Replace agglomerative clustering tlas to blas-style build

@@ -306,8 +306,8 @@ struct sampler *scene_initsampler(struct scene *s, unsigned int id,
 {
 	struct sampler *sa = scene_getsampler(s, id);
 	if (sa)
-		*sa = (struct sampler){.kcnt = kcnt, .kofs = kofs, .dofs = dofs,
-		  .interp = interp};
+		*sa = (struct sampler){.kcnt = kcnt, .kofs = kofs,
+		  .dofs = dofs, .interp = interp};
 	return sa;
 }
 
@@ -316,10 +316,10 @@ struct sampler *scene_getsampler(struct scene *s, unsigned int id)
 	return id < s->samplercnt ? &s->samplers[id] : NULL;
 }
 
-unsigned int find_key(float *keys, unsigned int cnt, float time)
+unsigned int find_key(float *keys, unsigned int last, unsigned int cnt, float t)
 {
-	for (int i = 0; i < (int)cnt - 1; i++)
-		if (time <= keys[i])
+	for (int i = last; i < (int)cnt - 1; i++)
+		if (t <= keys[i])
 			return max(0, i - 1);
 	return cnt - 2;
 }
@@ -373,8 +373,8 @@ void scene_updanims(struct scene *s, float time)
 		assert(sa != NULL);
 
 		float *keys = &s->animdata[sa->kofs];
-		// TODO Optimize by storing last key index
-		unsigned int n = find_key(keys, sa->kcnt, time);
+		unsigned int n = find_key(keys, sa->klast, sa->kcnt, time);
+		sa->klast = n;
 
 		float t0 = keys[n];
 		float t1 = keys[n + 1];

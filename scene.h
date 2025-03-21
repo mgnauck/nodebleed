@@ -83,6 +83,7 @@ enum interpmode {
 };
 
 struct sampler {
+	unsigned int     klast; // Last keyframe used
 	unsigned int     kcnt; // Keyframe count
 	unsigned int     kofs; // Offset to keyframes (timestamps)
 	unsigned int     dofs; // Offset to keyframe data
