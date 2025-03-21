@@ -12,8 +12,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   320
-#define HEIGHT  240
+#define WIDTH   640
+#define HEIGHT  480
 
 void print_type_sizes(void)
 {
@@ -176,7 +176,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/animtest-spline.gltf", "../data/animtest-spline.bin")
+	if (import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin")
             != 0)
 		printf("Failed to import gltf\n");
 
@@ -218,8 +218,11 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
+	// TODO Store last key to optimize find_key()
+	// TODO Move loc transform components to separate struct
+	// TODO Find better name for struct obj
+	// TODO Replace agglomerative clustering tlas to blas-style build
 	// TODO Move code from main into some subsys
-	// TODO Animation test
 	// TODO Static/dyn separation of meshes in the node tree (incl. premul)
 
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
