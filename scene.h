@@ -59,8 +59,8 @@ struct transform {
 };
 
 struct obj {
-	int           objid;
-	int           instid; // TODO Remove?
+	int           objid; // Ref to mesh/cam
+	int           instid;
 	unsigned int  flags;
 };
 

@@ -241,7 +241,7 @@ struct node *scene_initnode(struct scene *s, unsigned int id,
 		memcpy(t->rot, rot, sizeof(t->rot));
 		t->scale = *scale;
 		combine_transform(t->loc, trans, rot, scale);
-		// Calc global later on
+		// Calc global later during node update
 
 		setname(s, name, /* ofs */ s->mtlmax + s->cammax + id);
 	}
@@ -391,10 +391,10 @@ void scene_updanims(struct scene *s, float time)
 
 		void (*interpolate)(float *, float *, float *, float);
 		switch (sa->interp) {
-		case IM_LINEAR:
+		case IM_STEP:
 			interpolate = (comp == 4) ? step4 : step3;
 			break;
-		case IM_STEP:
+		case IM_LINEAR:
 			interpolate = (comp == 4) ? spher_lerp : lerp;
 			break;
 		case IM_CUBIC:
@@ -402,11 +402,34 @@ void scene_updanims(struct scene *s, float time)
 		}
 
 		interpolate(v, v0, v1, t);
-		//printf("%6.3f (%d/%6.3f): %6.3f, %6.3f, %6.3f\n", time, n, t, v[0], v[1], v[2]);
+		/*printf("%6.3f (%d/%6.3f): %6.3f, %6.3f, %6.3f\n",
+		  time, n, t, v[0], v[1], v[2]);*/
 
-		// TODO Set value to node's local transform component
 		struct transform *tf = scene_gettransform(s, tr->nid);
 		assert(tf != NULL);
+
+		float *dst;
+		switch (tr->tgt) {
+		case TGT_TRANS:
+			dst = &tf->trans.x;
+			break;
+		case TGT_ROT:
+			dst = tf->rot;
+			break;
+		case TGT_SCALE:
+			dst = &tf->scale.x;
+			break;
+		}
+
+		for (unsigned int i = 0; i < comp; i++)
+			dst[i] = v[i];
+
+		// Skip local transform update if next track targets same node
+		/*if (j < s->trackcnt - 1 &&
+		  scene_gettrack(s, j + 1)->nid == tr->nid)
+			continue;*/
+
+		combine_transform(tf->loc, &tf->trans, tf->rot, &tf->scale);
 	}
 }
 
