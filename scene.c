@@ -350,15 +350,14 @@ void spher_lerp(float *dst, float *s0, float *s1, float t)
 {
 	// For rotations only
 	float d = s0[0] * s1[0] + s0[1] * s1[1] + s0[2] * s1[2] + s0[3] * s1[3];
-	float s = fabsf(d);
 	float a = acosf(d);
-	s = d / s;
 	float isina = 1.0f / sinf(a);
-	float sinat = sinf(a * t);
-	float sina1t = sinf(a * (1.0f - t));
-	dst[0] = sina1t * isina * s0[0] + s * sinat * isina * s1[0];
-	dst[1] = sina1t * isina * s0[1] + s * sinat * isina * s1[1];
-	dst[2] = sina1t * isina * s0[2] + s * sinat * isina * s1[2];
+	float e = sinf(a * (1.0f - t)) * isina;
+	float f = (d / fabsf(d)) * sinf(a * t) * isina;
+	dst[0] = e * s0[0] + f * s1[0];
+	dst[1] = e * s0[1] + f * s1[1];
+	dst[2] = e * s0[2] + f * s1[2];
+	dst[3] = e * s0[3] + f * s1[3];
 }
 
 void cubic(float *dst, float *s0, float *s1, float t)
@@ -425,9 +424,9 @@ void scene_updanims(struct scene *s, float time)
 			dst[i] = v[i];
 
 		// Skip local transform update if next track targets same node
-		/*if (j < s->trackcnt - 1 &&
+		if (j < s->trackcnt - 1 &&
 		  scene_gettrack(s, j + 1)->nid == tr->nid)
-			continue;*/
+			continue;
 
 		combine_transform(tf->loc, &tf->trans, tf->rot, &tf->scale);
 	}

@@ -176,7 +176,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin")
+	if (import_gltf(s, "../data/animtest.gltf", "../data/animtest.bin")
             != 0)
 		printf("Failed to import gltf\n");
 
