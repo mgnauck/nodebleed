@@ -51,6 +51,7 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 	s->nodecnt = 0;
 	s->nodes = emalloc(maxnodes * sizeof(*s->nodes));
 	s->objs = emalloc(maxnodes * sizeof(*s->objs));
+	s->loctranscomp = emalloc(maxnodes * sizeof(*s->loctranscomp));
 	s->transforms = emalloc(maxnodes * sizeof(*s->transforms));
 
 	s->trackmax = maxtracks;
@@ -92,6 +93,7 @@ void scene_release(struct scene *s)
 	s->trackcnt = 0;
 
 	free(s->transforms);
+	free(s->loctranscomp);
 	free(s->objs);
 	free(s->nodes);
 	s->nodecnt = s->nodemax = 0;
@@ -236,11 +238,12 @@ struct node *scene_initnode(struct scene *s, unsigned int id,
 		struct obj *o = scene_getobj(s, id);
 		*o = (struct obj){.objid = objid, .instid = -1, .flags = flags};
 
-		struct transform *t = scene_gettransform(s, id);
-		t->trans = *trans;
-		memcpy(t->rot, rot, sizeof(t->rot));
-		t->scale = *scale;
-		combine_transform(t->loc, trans, rot, scale);
+		struct loctranscomp *c = scene_getloctranscomp(s, id);
+		c->trans = *trans;
+		memcpy(c->rot, rot, sizeof(c->rot));
+		c->scale = *scale;
+		combine_transform(scene_gettransform(s, id)->loc,
+		  trans, rot, scale);
 		// Calc global later during node update
 
 		setname(s, name, /* ofs */ s->mtlmax + s->cammax + id);
@@ -262,6 +265,11 @@ int scene_findnode(struct scene *s, const char *name)
 struct obj *scene_getobj(struct scene *s, unsigned int id)
 {
 	return id < s->nodecnt ? &s->objs[id] : NULL;
+}
+
+struct loctranscomp *scene_getloctranscomp(struct scene *s, unsigned int id)
+{
+	return id < s->nodecnt ? &s->loctranscomp[id] : NULL; 
 }
 
 struct transform *scene_gettransform(struct scene *s, unsigned int id)
@@ -413,19 +421,19 @@ void scene_updanims(struct scene *s, float time)
 			break;
 		}
 
-		struct transform *tf = scene_gettransform(s, tr->nid);
-		assert(tf != NULL);
+		struct loctranscomp *ltc = scene_getloctranscomp(s, tr->nid);
+		assert(ltc != NULL);
 
 		float *dst;
 		switch (tr->tgt) {
 		case TGT_TRANS:
-			dst = &tf->trans.x;
+			dst = &ltc->trans.x;
 			break;
 		case TGT_ROT:
-			dst = tf->rot;
+			dst = ltc->rot;
 			break;
 		case TGT_SCALE:
-			dst = &tf->scale.x;
+			dst = &ltc->scale.x;
 			break;
 		}
 
@@ -437,7 +445,10 @@ void scene_updanims(struct scene *s, float time)
 		  scene_gettrack(s, j + 1)->nid == tr->nid)
 			continue;
 
-		combine_transform(tf->loc, &tf->trans, tf->rot, &tf->scale);
+		struct transform *tf = scene_gettransform(s, tr->nid);
+		assert(tf != NULL);
+
+		combine_transform(tf->loc, &ltc->trans, ltc->rot, &ltc->scale);
 	}
 }
 

@@ -50,12 +50,15 @@ struct node {
 	unsigned int  ccnt; // Child cnt
 };
 
-struct transform {
-	float        loc[16];
-	float        glob[16];
+struct loctranscomp { // Local transform components
 	float        rot[4]; // Quat
 	struct vec3  trans;
 	struct vec3  scale;
+};
+
+struct transform {
+	float        loc[16];
+	float        glob[16];
 };
 
 struct obj {
@@ -91,102 +94,106 @@ struct sampler {
 };
 
 struct scene {
-	unsigned int      meshmax;
-	unsigned int      meshcnt;
-	struct mesh       *meshes;
+	unsigned int         meshmax;
+	unsigned int         meshcnt;
+	struct mesh          *meshes;
 
-	unsigned int      mtlmax;
-	unsigned int      mtlcnt;
-	struct mtl        *mtls;
+	unsigned int         mtlmax;
+	unsigned int         mtlcnt;
+	struct mtl           *mtls;
 
-	unsigned int      cammax;
-	unsigned int      camcnt;
-	struct cam        *cams;
+	unsigned int         cammax;
+	unsigned int         camcnt;
+	struct cam           *cams;
 	
-	unsigned int      rootmax;
-	unsigned int      rootcnt;
-	unsigned int      *roots;
+	unsigned int         rootmax;
+	unsigned int         rootcnt;
+	unsigned int         *roots;
 	
-	unsigned int      nodemax;
-	unsigned int      nodecnt;
-	struct node       *nodes;
-	struct transform  *transforms;
-	struct obj        *objs;
+	unsigned int         nodemax;
+	unsigned int         nodecnt;
+	struct node          *nodes;
+	struct loctranscomp  *loctranscomp;
+	struct transform     *transforms;
+	struct obj           *objs;
 
-	unsigned int      trackmax;
-	unsigned int      trackcnt;
-	struct track      *tracks;
+	unsigned int         trackmax;
+	unsigned int         trackcnt;
+	struct track         *tracks;
 
-	unsigned int      samplermax;
-	unsigned int      samplercnt;
-	struct sampler    *samplers;
+	unsigned int         samplermax;
+	unsigned int         samplercnt;
+	struct sampler       *samplers;
 
-	float             *animdata;
+	float                *animdata;
 
-	char              *names;
+	char                 *names;
 
-	unsigned int      currcam;
+	unsigned int         currcam;
 
-	struct vec3       bgcol;
+	struct vec3          bgcol;
 
-	unsigned int      dirty;
+	unsigned int         dirty;
 };
 
-void              scene_init(struct scene *s, unsigned int maxmeshes,
-                             unsigned int maxmtls, unsigned int maxcams,
-                             unsigned int maxrnodes, unsigned int maxsnodes,
-                             unsigned int maxtracks, unsigned int maxsamplers,
-                             unsigned int animdatabytes);
-void              scene_release(struct scene *s);
+void                 scene_init(struct scene *s, unsigned int maxmeshes,
+                                unsigned int maxmtls, unsigned int maxcams,
+                                unsigned int maxrnodes, unsigned int maxsnodes,
+                                unsigned int maxtracks,
+                                unsigned int maxsamplers,
+                                unsigned int animdatabytes);
+void                 scene_release(struct scene *s);
 
-int               scene_acquiremtl(struct scene *s);
-struct mtl        *scene_initmtl(struct scene *s, unsigned int id,
-                                 const char *name, struct vec3 col);
-struct mtl        *scene_getmtl(struct scene *s, unsigned int id);
-int               scene_findmtl(struct scene *s, const char *name);
+int                  scene_acquiremtl(struct scene *s);
+struct mtl           *scene_initmtl(struct scene *s, unsigned int id,
+                                    const char *name, struct vec3 col);
+struct mtl           *scene_getmtl(struct scene *s, unsigned int id);
+int                  scene_findmtl(struct scene *s, const char *name);
 
-int               scene_acquirecam(struct scene *s);
-struct cam        *scene_initcam(struct scene *s, unsigned int id,
-                                 const char *name, float vfov, float focdist,
-                                 float focangle);
-struct cam        *scene_getcam(struct scene *s, unsigned int id);
-int               scene_findcam(struct scene *s, const char *name);
+int                  scene_acquirecam(struct scene *s);
+struct cam           *scene_initcam(struct scene *s, unsigned int id,
+                                    const char *name, float vfov, float focdist,
+                                    float focangle);
+struct cam           *scene_getcam(struct scene *s, unsigned int id);
+int                  scene_findcam(struct scene *s, const char *name);
 
-int               scene_acquiremesh(struct scene *s);
-struct mesh       *scene_initmesh(struct scene *s, unsigned int id,
-                                  unsigned int vcnt, unsigned int icnt,
-                                  unsigned int mcnt);
-struct mesh       *scene_getmesh(struct scene *s, unsigned int id);
+int                  scene_acquiremesh(struct scene *s);
+struct mesh          *scene_initmesh(struct scene *s, unsigned int id,
+                                     unsigned int vcnt, unsigned int icnt,
+                                     unsigned int mcnt);
+struct mesh          *scene_getmesh(struct scene *s, unsigned int id);
 
-int               scene_acquirenode(struct scene *s, bool isroot);
-struct node       *scene_initnode(struct scene *s, unsigned int id,
-                                  const char *name, int objid,
-                                  unsigned int flags, struct vec3 *trans,
-                                  float rot[4], struct vec3 *scale,
-                                  unsigned int cofs, unsigned int ccnt);
-struct node       *scene_getnode(struct scene *s, unsigned int id);
-int               scene_findnode(struct scene *s, const char *name);
-struct obj        *scene_getobj(struct scene *s, unsigned int id);
-struct transform  *scene_gettransform(struct scene *s, unsigned int id);
-const char        *scene_getnodename(struct scene *s, unsigned int id);
+int                  scene_acquirenode(struct scene *s, bool isroot);
+struct node          *scene_initnode(struct scene *s, unsigned int id,
+                                     const char *name, int objid,
+                                     unsigned int flags, struct vec3 *trans,
+                                     float rot[4], struct vec3 *scale,
+                                     unsigned int cofs, unsigned int ccnt);
+struct node          *scene_getnode(struct scene *s, unsigned int id);
+int                  scene_findnode(struct scene *s, const char *name);
+struct obj           *scene_getobj(struct scene *s, unsigned int id);
+struct loctranscomp  *scene_getloctranscomp(struct scene *s, unsigned int id);
+struct transform     *scene_gettransform(struct scene *s, unsigned int id);
+const char           *scene_getnodename(struct scene *s, unsigned int id);
 
-int               scene_acquiretrack(struct scene *s);
-struct track      *scene_inittrack(struct scene *s, unsigned int id,
-                                   unsigned int sid, unsigned int nid,
-                                   enum tgttype tgt);
-struct track      *scene_gettrack(struct scene *s, unsigned int id);
+int                  scene_acquiretrack(struct scene *s);
+struct track         *scene_inittrack(struct scene *s, unsigned int id,
+                                      unsigned int sid, unsigned int nid,
+                                      enum tgttype tgt);
+struct track         *scene_gettrack(struct scene *s, unsigned int id);
 
-int               scene_acquiresampler(struct scene *s);
-struct sampler    *scene_initsampler(struct scene *s, unsigned int id,
-                                     unsigned int kcnt, unsigned int kofs,
-                                     unsigned int dofs, enum interpmode interp);
-struct sampler    *scene_getsampler(struct scene *s, unsigned int id);
+int                  scene_acquiresampler(struct scene *s);
+struct sampler       *scene_initsampler(struct scene *s, unsigned int id,
+                                        unsigned int kcnt, unsigned int kofs,
+                                        unsigned int dofs,
+                                        enum interpmode interp);
+struct sampler       *scene_getsampler(struct scene *s, unsigned int id);
 
-void              scene_updanims(struct scene *s, float time);
-void              scene_updtransforms(struct scene *s);
-void              scene_updcams(struct scene *s);
+void                 scene_updanims(struct scene *s, float time);
+void                 scene_updtransforms(struct scene *s);
+void                 scene_updcams(struct scene *s);
 
-void              combine_transform(float dst[16], struct vec3 *trans,
-                                    float rot[4], struct vec3 *scale);
+void                 combine_transform(float dst[16], struct vec3 *trans,
+                                       float rot[4], struct vec3 *scale);
 
 #endif
