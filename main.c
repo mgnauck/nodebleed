@@ -221,6 +221,7 @@ int main(int argc, char *argv[])
 	// TODO Move loc transform components to separate struct
 	// TODO Find better name for struct obj
 	// TODO Replace agglomerative clustering tlas to blas-style build
+	// TODO Aligned alloc bvh nodes/scene nodes
 	// TODO Move code from main into some subsys
 	// TODO Static/dyn separation of meshes in the node tree (incl. premul)
 
