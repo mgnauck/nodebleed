@@ -240,7 +240,7 @@ unsigned int find_bestnode(struct tnode *nodes, unsigned int id,
                            unsigned int node_indices_cnt)
 {
 	float best_cost = FLT_MAX;
-	unsigned int best_id;
+	unsigned int best_id = id;
 
 	unsigned int cid = node_indices[id];
 	struct vec3 cmin = nodes[cid].min;

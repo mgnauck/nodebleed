@@ -435,6 +435,9 @@ void scene_updanims(struct scene *s, float time)
 		case TGT_SCALE:
 			dst = &ltc->scale.x;
 			break;
+		default:
+			eprintf("unknown animation target");
+			dst = NULL;
 		}
 
 		for (unsigned int i = 0; i < comp; i++)
