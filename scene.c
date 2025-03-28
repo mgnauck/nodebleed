@@ -49,9 +49,9 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 
 	s->nodemax = maxnodes;
 	s->nodecnt = 0;
-	s->nodes = emalloc(maxnodes * sizeof(*s->nodes));
+	s->prnts = emalloc(maxnodes * sizeof(*s->prnts));
 	s->objs = emalloc(maxnodes * sizeof(*s->objs));
-	s->loctranscomp = emalloc(maxnodes * sizeof(*s->loctranscomp));
+	s->loctranscomps = emalloc(maxnodes * sizeof(*s->loctranscomps));
 	s->transforms = emalloc(maxnodes * sizeof(*s->transforms));
 
 	s->trackmax = maxtracks;
@@ -93,9 +93,9 @@ void scene_release(struct scene *s)
 	s->trackcnt = 0;
 
 	free(s->transforms);
-	free(s->loctranscomp);
+	free(s->loctranscomps);
 	free(s->objs);
-	free(s->nodes);
+	free(s->prnts);
 	s->nodecnt = s->nodemax = 0;
 	
 	free(s->roots);
@@ -111,34 +111,24 @@ void scene_release(struct scene *s)
 	s->meshcnt = s->meshmax = 0;
 }
 
-int scene_acquiremtl(struct scene *s)
-{
-	return s->mtlcnt < s->mtlmax ? (int)s->mtlcnt++ : -1;
-}
-
-struct mtl *scene_initmtl(struct scene *s, unsigned int id,
-                  const char *name, struct vec3 col)
+int scene_initmtl(struct scene *s, const char *name, struct vec3 col)
 {
 	assert(strlen(name) < NAME_MAX_LEN);
 
-	struct mtl *m = scene_getmtl(s, id);
-	if (m) {
-		*m = (struct mtl){
-		  .col = col,
-		  .metallic = 0.0f,
-	 	 .roughness = 0.5f,
-	 	 .ior = 1.5f,
-		 .flags = 0};
+	if (s->mtlcnt >= s->mtlmax)
+		return -1;
 
-		setname(s, name, /* ofs */ 0);
-	}
+	int id = s->mtlcnt++;
+	s->mtls[id] = (struct mtl){
+	  .col = col,
+	  .metallic = 0.0f,
+	  .roughness = 0.5f,
+	  .ior = 1.5f,
+	  .flags = 0};
 
-	return m;
-}
+	setname(s, name, /* ofs */ 0);
 
-struct mtl *scene_getmtl(struct scene *s, unsigned int id)
-{
-	return id < s->mtlcnt ? &s->mtls[id] : NULL;
+	return id;
 }
 
 int scene_findmtl(struct scene *s, const char *name)
@@ -146,33 +136,22 @@ int scene_findmtl(struct scene *s, const char *name)
 	return findid(s, name, 0, s->mtlcnt);
 }
 
-int scene_acquirecam(struct scene *s)
-{
-	return s->camcnt < s->cammax ? (int)s->camcnt++ : -1;
-}
-
-struct cam *scene_initcam(struct scene *s, unsigned int id,
-                  const char *name, float vfov,
-                  float focdist, float focangle)
+int scene_initcam(struct scene *s, const char *name, float vfov,
+                  float focdist, float focangle, int nodeid)
 {
 	assert(strlen(name) < NAME_MAX_LEN);
 
-	struct cam *c = scene_getcam(s, id);
-	if (c) {
-		*c = (struct cam){
-		  .vfov = vfov,
-		  .focdist = focdist,
-		  .focangle = focangle};
+	if (s->camcnt >= s->cammax)
+		return -1;
 
-		setname(s, name, /* ofs */ s->mtlmax);
-	}
+	int id = s->camcnt++;
+	s->cams[id] = (struct cam){
+	  .vfov = vfov, .focdist = focdist,
+	  .focangle = focangle, .nid = nodeid};
 
-	return c;
-}
+	setname(s, name, /* ofs */ s->mtlmax);
 
-struct cam *scene_getcam(struct scene *s, unsigned int id)
-{
-	return id < s->camcnt ? &s->cams[id] : NULL;
+	return id;
 }
 
 int scene_findcam(struct scene *s, const char *name)
@@ -180,101 +159,75 @@ int scene_findcam(struct scene *s, const char *name)
 	return findid(s, name, s->mtlmax, s->camcnt);
 }
 
-int scene_acquiremesh(struct scene *s)
+int scene_initmesh(struct scene *s, unsigned int vcnt, unsigned int icnt,
+                   unsigned int mcnt)
 {
-	return s->meshcnt < s->meshmax ? (int)s->meshcnt++ : -1;
-}
-
-struct mesh *scene_initmesh(struct scene *s, unsigned int id,
-                   unsigned int vcnt, unsigned int icnt, unsigned int mcnt)
-{
-	struct mesh *m = scene_getmesh(s, id);
-	if (m) {
-		m->vrts = emalloc(vcnt * sizeof(*m->vrts));
-		m->nrms = emalloc(vcnt * sizeof(*m->nrms));
-		m->inds = emalloc(icnt * sizeof(*m->inds));
-		m->mtls = emalloc(mcnt * sizeof(*m->mtls));
-
-		m->vcnt = 0; // Nothing added yet
-		m->icnt = 0;
-		m->mcnt = 0;
-
-		m->flags = 0;
-	}
-
-	return m;
-}
-
-struct mesh *scene_getmesh(struct scene *s, unsigned int id)
-{
-	return id < s->meshcnt ? &s->meshes[id] : NULL;
-}
-
-int scene_acquirenode(struct scene *s, bool isroot)
-{
-	if (isroot && s->rootcnt >= s->rootmax)
+	if (s->meshcnt >= s->meshmax)
 		return -1;
 
-	int id = s->nodecnt < s->nodemax ? (int)s->nodecnt++ : -1;
+	int id = s->meshcnt++;
+	struct mesh *m = &s->meshes[id];
 
-	if (isroot && id >= 0)
-		s->roots[s->rootcnt++] = id;
+	m->vrts = emalloc(vcnt * sizeof(*m->vrts));
+	m->nrms = emalloc(vcnt * sizeof(*m->nrms));
+	m->inds = emalloc(icnt * sizeof(*m->inds));
+	m->mtls = emalloc(mcnt * sizeof(*m->mtls));
+
+	m->vcnt = 0; // Nothing added yet
+	m->icnt = 0;
+	m->mcnt = 0;
+
+	m->flags = 0;
 
 	return id;
 }
 
-struct node *scene_initnode(struct scene *s, unsigned int id,
-                    const char *name, int objid,
-                    unsigned int flags, struct vec3 *trans,
-                    float rot[4], struct vec3 *scale,
-                    unsigned int cofs, unsigned int ccnt)
+void combine_transform(float dst[16], struct vec3 *trans, float rot[4],
+                       struct vec3 *scale)
+{
+	float mscale[16], mrot[16], mtrans[16];
+	mat4_scale(mscale, *scale);
+	mat4_fromquat(mrot, rot[0], rot[1], rot[2], rot[3]);
+	mat4_trans(mtrans, *trans);
+	mat4_mul(dst, mrot, mscale);
+	mat4_mul(dst, mtrans, dst);
+}
+
+int scene_initnode(struct scene *s, const char *name,
+                   int prntid, int objid, unsigned int flags,
+                   struct vec3 *trans, float rot[4], struct vec3 *sca)
 {
 	assert(strlen(name) < NAME_MAX_LEN);
 
-	struct node *n = scene_getnode(s, id);
-	if (n) {
-		*n = (struct node){.cofs = cofs, .ccnt = ccnt};
+	if ((prntid < 0 && s->rootcnt >= s->rootmax) ||
+	  (s->nodecnt >= s->nodemax))
+		return -1;
 
-		struct obj *o = scene_getobj(s, id);
-		*o = (struct obj){.objid = objid, .instid = -1, .flags = flags};
+	int id = (int)s->nodecnt++;
 
-		struct loctranscomp *c = scene_getloctranscomp(s, id);
-		c->trans = *trans;
-		memcpy(c->rot, rot, sizeof(c->rot));
-		c->scale = *scale;
-		combine_transform(scene_gettransform(s, id)->loc,
-		  trans, rot, scale);
-		// Calc global later during node update
+	if (prntid < 0)
+		s->roots[s->rootcnt++] = id;
 
-		setname(s, name, /* ofs */ s->mtlmax + s->cammax + id);
-	}
+	s->prnts[id] = prntid;
 
-	return n;
-}
+	s->objs[id] = (struct obj){.objid = objid, .instid = -1,
+	  .flags = flags};
 
-struct node *scene_getnode(struct scene *s, unsigned int id)
-{
-	return id < s->nodecnt ? &s->nodes[id] : NULL;
+	struct loctranscomp *c = &s->loctranscomps[id];
+	c->trans = *trans;
+	memcpy(c->rot, rot, sizeof(c->rot));
+	c->scale = *sca;
+	combine_transform(s->transforms[id].loc, trans, rot, sca);
+	// Calc global later during node update
+
+	setname(s, name, /* ofs */ s->mtlmax + s->cammax + id);
+
+	return id;
 }
 
 int scene_findnode(struct scene *s, const char *name)
 {
 	return findid(s, name, s->mtlmax + s->cammax, s->nodecnt);
-}
-
-struct obj *scene_getobj(struct scene *s, unsigned int id)
-{
-	return id < s->nodecnt ? &s->objs[id] : NULL;
-}
-
-struct loctranscomp *scene_getloctranscomp(struct scene *s, unsigned int id)
-{
-	return id < s->nodecnt ? &s->loctranscomp[id] : NULL; 
-}
-
-struct transform *scene_gettransform(struct scene *s, unsigned int id)
-{
-	return id < s->nodecnt ? &s->transforms[id] : NULL;
 }
 
 const char *scene_getnodename(struct scene *s, unsigned int id)
@@ -283,45 +236,29 @@ const char *scene_getnodename(struct scene *s, unsigned int id)
 	  &s->names[(s->mtlmax + s->cammax + id) * NAME_MAX_LEN] : NULL;
 }
 
-int scene_acquiretrack(struct scene *s)
+int scene_inittrack(struct scene *s, unsigned int sid, unsigned int nid,
+                    enum tgttype tgt)
 {
-	return s->trackcnt < s->trackmax ? (int)s->trackcnt++ : -1;
+	if (s->trackcnt >= s->trackmax)
+		return -1;
+
+	int id = s->trackcnt++;
+	s->tracks[id] = (struct track){.sid = sid, .nid = nid, .tgt = tgt};
+
+	return id;
 }
 
-struct track *scene_inittrack(struct scene *s, unsigned int id,
-                              unsigned int sid, unsigned int nid,
-                              enum tgttype tgt)
+int scene_initsampler(struct scene *s, unsigned int kcnt, unsigned int kofs,
+                      unsigned int dofs, enum interpmode interp)
 {
-	struct track *t = scene_gettrack(s, id);
-	if (t)
-		*t = (struct track){.sid = sid, .nid = nid, .tgt = tgt};
-	return t;
-}
+	if (s->samplercnt >= s->samplermax)
+		return -1;
 
-struct track *scene_gettrack(struct scene *s, unsigned int id)
-{
-	return id < s->trackcnt ? &s->tracks[id] : NULL;
-}
+	int id = s->samplercnt++;
+	s->samplers[id] = (struct sampler){
+	  .kcnt = kcnt, .kofs = kofs, .dofs = dofs, .interp = interp};
 
-int scene_acquiresampler(struct scene *s)
-{
-	return s->samplercnt < s->samplermax ? (int)s->samplercnt++ : -1;
-}
-
-struct sampler *scene_initsampler(struct scene *s, unsigned int id,
-                                  unsigned int kcnt, unsigned int kofs,
-                                  unsigned int dofs, enum interpmode interp)
-{
-	struct sampler *sa = scene_getsampler(s, id);
-	if (sa)
-		*sa = (struct sampler){.kcnt = kcnt, .kofs = kofs,
-		  .dofs = dofs, .interp = interp};
-	return sa;
-}
-
-struct sampler *scene_getsampler(struct scene *s, unsigned int id)
-{
-	return id < s->samplercnt ? &s->samplers[id] : NULL;
+	return id;
 }
 
 unsigned int find_key(float *keys, unsigned int last, unsigned int cnt, float t)
@@ -376,8 +313,8 @@ void cubic(float *dst, float *s0, float *s1, float t, float dur, unsigned char c
 void scene_updanims(struct scene *s, float time)
 {
 	for (unsigned int j = 0; j < s->trackcnt; j++) {
-		struct track *tr = scene_gettrack(s, j);
-		struct sampler *sa = scene_getsampler(s, tr->sid);
+		struct track *tr = &s->tracks[j];
+		struct sampler *sa = &s->samplers[tr->sid];
 		assert(sa != NULL);
 
 		float *keys = &s->animdata[sa->kofs];
@@ -421,7 +358,7 @@ void scene_updanims(struct scene *s, float time)
 			break;
 		}
 
-		struct loctranscomp *ltc = scene_getloctranscomp(s, tr->nid);
+		struct loctranscomp *ltc = &s->loctranscomps[tr->nid];
 		assert(ltc != NULL);
 
 		float *dst;
@@ -445,10 +382,10 @@ void scene_updanims(struct scene *s, float time)
 
 		// Skip local transform update if next track targets same node
 		if (j < s->trackcnt - 1 &&
-		  scene_gettrack(s, j + 1)->nid == tr->nid)
+		  s->tracks[j + 1].nid == tr->nid)
 			continue;
 
-		struct transform *tf = scene_gettransform(s, tr->nid);
+		struct transform *tf = &s->transforms[tr->nid];
 		assert(tf != NULL);
 
 		combine_transform(tf->loc, &ltc->trans, ltc->rot, &ltc->scale);
@@ -457,30 +394,17 @@ void scene_updanims(struct scene *s, float time)
 
 void scene_updtransforms(struct scene *s)
 {
-#define STACK_SIZE  64
-	unsigned int stack[STACK_SIZE];
-	unsigned int spos;
-	struct node *nodes = s->nodes;
-	struct transform *transforms = s->transforms;
-	for (unsigned int j = 0; j < s->rootcnt; j++) {
-		unsigned int rid = s->roots[j];
-		stack[0] = rid;
-		spos = 1;
-		mat4_cpy(transforms[rid].glob, transforms[rid].loc);
-		// TODO Profile traversal, each node is fetched twice
-		while (spos > 0) {
-			unsigned int nid = stack[--spos];
-			struct node *n = &nodes[nid];
-			struct transform *nt = &transforms[nid];
-			unsigned int cid = n->cofs;
-			for (unsigned int i = 0; i < n->ccnt; i++) {
-				struct node *c = &nodes[cid];
-				struct transform *ct = &transforms[cid];
-				mat4_mul(ct->glob, nt->glob, ct->loc);
-				assert(spos < STACK_SIZE);
-				stack[spos++] = cid++;
-			}
-		}
+	int *p = s->prnts;
+	struct transform *tr = s->transforms;
+	struct transform *tp = tr;
+	for (unsigned int i = 0; i < s->nodecnt; i++) {
+		int prnt = *p++;
+		struct transform *t = tp++;
+		// TODO Use artificial root node with identity transform
+		if (prnt < 0)
+			mat4_cpy(t->glob, t->loc);
+		else
+			mat4_mul(t->glob, tr[prnt].glob, t->loc);
 	}
 }
 
@@ -495,18 +419,8 @@ void calc_cam(struct cam *c, float trans[16])
 void scene_updcams(struct scene *s)
 {
 	for (unsigned int i = 0; i < s->camcnt; i++) {
-		struct cam *c = scene_getcam(s, i);
-		calc_cam(c, scene_gettransform(s, c->nodeid)->glob);
+		struct cam *c = &s->cams[i];
+		calc_cam(c, s->transforms[c->nid].glob);
 	}
 }
 
-void combine_transform(float dst[16], struct vec3 *trans, float rot[4],
-                       struct vec3 *scale)
-{
-	float mscale[16], mrot[16], mtrans[16];
-	mat4_scale(mscale, *scale);
-	mat4_fromquat(mrot, rot[0], rot[1], rot[2], rot[3]);
-	mat4_trans(mtrans, *trans);
-	mat4_mul(dst, mrot, mscale);
-	mat4_mul(dst, mtrans, dst);
-}

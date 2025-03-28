@@ -25,14 +25,16 @@ unsigned int getmtlflags(struct gltfmtl *gm)
 
 void import_cam(struct scene *s, struct gltfcam *gc)
 {
-	scene_initcam(s, scene_acquirecam(s), gc->name,
-	  gc->vfov * 180.0f / PI, 10.0f, 0.0f);
+	scene_initcam(s, gc->name, gc->vfov * 180.0f / PI, 10.0f, 0.0f, -1);
 }
 
 void import_mtl(struct scene *s, struct gltfmtl *gm)
 {
-	struct mtl *m = scene_initmtl(s, scene_acquiremtl(s), gm->name,
+	int id = scene_initmtl(s, gm->name,
 	  (struct vec3){gm->col[0], gm->col[1], gm->col[2]});
+	if (id < 0)
+		eprintf("failed to create mtl");
+	struct mtl *m = &s->mtls[id];
 	m->metallic = gm->metallic;
 	m->roughness = gm->roughness;
 	m->flags = getmtlflags(gm);
@@ -58,8 +60,11 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		vcnt += a->cnt;
 	}
 
-	struct mesh *m = scene_initmesh(s, scene_acquiremesh(s),
-	  vcnt, icnt, gm->primcnt);
+	int id = scene_initmesh(s, vcnt, icnt, gm->primcnt);
+	if (id < 0)
+		eprintf("failed to create mesh");
+
+	struct mesh *m = &s->meshes[id];
 
 	for (unsigned int j = 0; j < gm->primcnt; j++) {
 		struct gltfprim *p = &gm->prims[j];
@@ -170,67 +175,40 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 	}
 }
 
-void import_nodes(struct scene *s, unsigned int nmap[], struct gltfnode *nodes,
-                  unsigned int rootid)
+void import_nodes(struct scene *s, unsigned int *nmap, struct gltfnode *nodes,
+                  unsigned int id, int prntid)
 {
-#define STACK_SIZE 64
-	unsigned int gnids[STACK_SIZE];
-	unsigned int snids[STACK_SIZE];
+	struct gltfnode *n = &nodes[id];
 
-	int id = scene_acquirenode(s, true);
-	if (id < 0)
-		eprintf("failed to acquire node: %s", nodes[rootid].name);
-	
-	gnids[0] = rootid;
-	snids[0] = id;
+	// Referenced object
+	int objid = n->camid < 0 ? n->meshid : n->camid;
+	unsigned int flags = 0;
+	if (n->camid >= 0)
+		setflags(&flags, CAM);
+	else if (n->meshid >= 0)
+		// Track mesh flags at mesh node
+		setflags(&flags, MESH | s->meshes[objid].flags);
 
-	unsigned int spos = 1;
+	int nid = scene_initnode(s, n->name, prntid, objid, flags,
+	  &(struct vec3){n->trans[0], n->trans[1], n->trans[2]},
+	  n->rot,
+	  &(struct vec3){n->scale[0], n->scale[1], n->scale[2]});
+	if (nid < 0)
+	  eprintf("failed to create node");
 
-	while (spos > 0) {
-		// Pop next gltf and scene node
-		unsigned int gnid = gnids[--spos];
-		unsigned int snid = snids[spos];
+	// Cam references its node for transform
+	if (n->camid >= 0)
+		s->cams[objid].nid = nid;
 
-		nmap[gnid] = snid; // Store for later
+	// Map gltf node id to scene node id
+	nmap[id] = nid;
 
-		struct gltfnode *n = &nodes[gnid];
-
-		// Obj reference and flags
-		int objid = n->camid < 0 ? n->meshid : n->camid;
-
-		unsigned int flags = 0;
-		if (n->camid >= 0) {
-			setflags(&flags, CAM);
-			// Cam references its node for transform
-			s->cams[objid].nodeid = snid;
-		} else if (n->meshid >= 0) {
-			// Track mesh flags at mesh node
-			setflags(&flags, MESH | s->meshes[n->meshid].flags);
-		}
-
-		// If any children, acquire and push to stack in reverse order
-		// Direct descendants will be next to each other in mem
-		unsigned int snofs = s->nodecnt;
-		for (unsigned int i = 0; i < n->childcnt; i++) {
-			if (scene_acquirenode(s, false) < 0)
-				eprintf("failed to acquire node: %s", n->name);
-			assert(spos < STACK_SIZE);
-			unsigned int child = n->childcnt - i - 1;
-			gnids[spos] = n->children[child];
-			snids[spos++] = snofs + child; 
-		}
-
-		// Set all data of scene node
-		scene_initnode(s, snid, n->name, objid, flags,
-		  &(struct vec3){n->trans[0], n->trans[1], n->trans[2]},
-		  n->rot,
-		  &(struct vec3){n->scale[0], n->scale[1], n->scale[2]},
-		  n->childcnt > 0 ? snofs : 0, n->childcnt);
-	}
+	for (unsigned int i = 0; i < n->childcnt; i++)
+		import_nodes(s, nmap, nodes, n->children[i], nid);
 }
 
 void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
-                 unsigned int nmap[], unsigned int accmap[])
+                 unsigned int *nmap, unsigned int *accmap)
 {
 	unsigned int sofs = s->samplercnt; // Sampler offset
 
@@ -253,8 +231,7 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 			eprintf("unknown animation target");
 			tgt = TGT_TRANS;
 		};
-		scene_inittrack(s, scene_acquiretrack(s), sofs + c->sampler,
-		  nmap[c->target.node], tgt);
+		scene_inittrack(s, sofs + c->sampler, nmap[c->target.node], tgt);
 	}
 
 	// Copy samplers and referenced data
@@ -278,8 +255,7 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 		};
 		// Find data len via keyframe cnt, track's tgt and interp mode,
 		// accmap already contains correct ofs into anim data buffer
-		scene_initsampler(s, scene_acquiresampler(s), ia->cnt,
-		  accmap[sa->input] / sizeof(float),
+		scene_initsampler(s, ia->cnt, accmap[sa->input] / sizeof(float),
 		  accmap[sa->output] / sizeof(float), interp);
 	}
 }
@@ -325,8 +301,7 @@ int import_data(struct scene *s,
 
 	if (g.mtlcnt == 0) {
 		dprintf("Found no materials. Creating default material.\n");
-		scene_initmtl(s, scene_acquiremtl(s), "FALLBACK", (struct vec3){
-		  1.0f, 0.0f, 0.0f});
+		scene_initmtl(s, "PROXY", (struct vec3){1.0f, 0.0f, 0.0f});
 	}
 
 	for (unsigned int i = 0; i < g.camcnt; i++)
@@ -334,8 +309,7 @@ int import_data(struct scene *s,
 
 	if (g.camcnt == 0) {
 		dprintf("Found no cameras. Creating default cam using transform of node 0.\n");
-		scene_initcam(s, scene_acquirecam(s), "FALLBACK",
-		  60.0f * 180.0f / PI, 10.0f, 0.0f)->nodeid = 0;
+		scene_initcam(s, "PROXY", 60.0f * 180.0f / PI, 10.0f, 0.0f, 0);
 	}
 
 	for (unsigned int i = 0; i < g.meshcnt; i++)
@@ -343,7 +317,7 @@ int import_data(struct scene *s,
 
 	unsigned int nodemap[g.nodecnt];
 	for (unsigned int i = 0; i < g.rootcnt; i++)
-		import_nodes(s, nodemap, g.nodes, g.roots[i]);
+		import_nodes(s, nodemap, g.nodes, g.roots[i], -1 /* no prnt */);
 
 	// Copy raw animation data and map anim accessor to data ofs
 	unsigned int ofs = 0; // In bytes

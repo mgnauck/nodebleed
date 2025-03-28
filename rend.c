@@ -416,7 +416,6 @@ void intersect_tri(struct hit *h, const struct ray *r, const struct rtri *tris,
 void intersect_blas(struct hit *h, const struct ray *r,
                     const struct bnode *blas, const struct rtri *tris,
                     const unsigned int *imap, unsigned int instid)
-                    
 {
 #define STACK_SIZE 64
 	const struct bnode *stack[STACK_SIZE];
@@ -539,15 +538,15 @@ void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
 void rend_init(struct rdata *rd, unsigned int maxmtls,
                unsigned int maxtris, unsigned int maxinsts) 
 {
-	rd->mtls = malloc(maxmtls * sizeof(*rd->mtls));
-	rd->tris = malloc(maxtris * sizeof(*rd->tris));
-	rd->nrms = malloc(maxtris * sizeof(*rd->nrms));
-	rd->imap = malloc(maxtris * sizeof(*rd->imap));
-	rd->insts = malloc(maxinsts * sizeof(*rd->insts));
-	rd->aabbs = malloc(maxinsts * sizeof(*rd->aabbs));
-	rd->blas = malloc(2 * maxtris * sizeof(*rd->blas)); // Align 64?
+	rd->mtls = emalloc(maxmtls * sizeof(*rd->mtls));
+	rd->tris = emalloc(maxtris * sizeof(*rd->tris));
+	rd->nrms = emalloc(maxtris * sizeof(*rd->nrms));
+	rd->imap = emalloc(maxtris * sizeof(*rd->imap));
+	rd->insts = emalloc(maxinsts * sizeof(*rd->insts));
+	rd->aabbs = emalloc(maxinsts * sizeof(*rd->aabbs));
+	rd->blas = emalloc(2 * maxtris * sizeof(*rd->blas));
 	memset(rd->blas, 0, 2 * maxtris * sizeof(*rd->blas));
-	rd->tlas = malloc(2 * maxinsts * sizeof(*rd->tlas)); // Align 64?
+	rd->tlas = emalloc(2 * maxinsts * sizeof(*rd->tlas));
 }
 
 void rend_release(struct rdata *rd)

@@ -56,7 +56,7 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 
 	// Copy meshes
 	for (unsigned int k = 0; k < s->meshcnt; k++) {
-		struct mesh *m = scene_getmesh(s, k);
+		struct mesh *m = &s->meshes[k];
 		unsigned int *ip = m->inds;
 		for (unsigned int j = 0; j < m->mcnt; j++) {
 			struct mtlref *mr = &m->mtls[j];
@@ -86,12 +86,12 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 
 	// Copy mtls
 	for (unsigned int i = 0; i < s->mtlcnt; i++)
-		memcpy(&rd->mtls[i], scene_getmtl(s, i), sizeof(*rd->mtls));
+		memcpy(&rd->mtls[i], &s->mtls[i], sizeof(*rd->mtls));
 
 	// Create instances from mesh nodes
 	unsigned int cnt = 0;
 	for (unsigned int i = 0; i < s->nodecnt; i++) {
-		struct obj *o = scene_getobj(s, i);
+		struct obj *o = &s->objs[i];
 		if (hasflags(o->flags, MESH)) {
 			rd->insts[cnt] = (struct rinst){
 			  .flags = o->flags,
@@ -109,12 +109,12 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 void upd_rinsts(struct rdata *rd, struct scene *s)
 {
 	for (unsigned int i = 0; i < s->nodecnt; i++) {
-		struct obj *o = scene_getobj(s, i);
+		struct obj *o = &s->objs[i];
 		if (!hasflags(o->flags, MESH))
 			continue;
 
 		// Update transforms
-		struct transform *t = scene_gettransform(s, i);
+		struct transform *t = &s->transforms[i];
 		struct rinst *ri = &rd->insts[o->instid];
 		float inv[16];
 		mat4_inv(inv, t->glob);
@@ -210,7 +210,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 	rend_prepdynamic(rd);
 	//printf("Created tlas in %ld ms\n", SDL_GetTicks() - last);
 
-	struct cam *c = scene_getcam(s, s->currcam);
+	struct cam *c = &s->cams[s->currcam];
 	upd_rcam(&rd->cam, c);
 
 	calc_view(&rd->view, WIDTH, HEIGHT, c);
@@ -218,8 +218,8 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Refactor scene, rename obj
-	// TODO Sort nodes DFS with parent link?
+	// TODO Introduce single root node with identity transform and scrap root node array
+	// TODO Refactor transforms in scene, rename obj
 	// TODO Replace agglomerative clustering tlas to blas-style build
 	// TODO Aligned alloc bvh nodes/scene nodes
 	// TODO Move code from main into some subsys
