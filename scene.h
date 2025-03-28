@@ -104,10 +104,6 @@ struct scene {
 	unsigned int         camcnt;
 	struct cam           *cams;
 	
-	unsigned int         rootmax;
-	unsigned int         rootcnt;
-	unsigned int         *roots;
-	
 	unsigned int         nodemax;
 	unsigned int         nodecnt;
 	int                  *prnts;
@@ -136,9 +132,8 @@ struct scene {
 
 void        scene_init(struct scene *s, unsigned int maxmeshes,
                        unsigned int maxmtls, unsigned int maxcams,
-                       unsigned int maxrnodes, unsigned int maxsnodes,
-                       unsigned int maxtracks, unsigned int maxsamplers,
-                       unsigned int animdatabytes);
+                       unsigned int maxnodes, unsigned int maxtracks,
+                       unsigned int maxsamplers, unsigned int animdatabytes);
 void        scene_release(struct scene *s);
 
 int         scene_initmtl(struct scene *s, const char *name, struct vec3 col);

@@ -27,9 +27,8 @@ void setname(struct scene *s, const char *name, unsigned int ofs)
 
 void scene_init(struct scene *s, unsigned int maxmeshes,
                 unsigned int maxmtls, unsigned int maxcams,
-                unsigned int maxroots, unsigned int maxnodes,
-                unsigned int maxtracks, unsigned int maxsamplers,
-                unsigned int animdatabytes)
+                unsigned int maxnodes, unsigned int maxtracks,
+                unsigned int maxsamplers, unsigned int animdatabytes)
 {
 	s->meshmax = maxmeshes;
 	s->meshcnt = 0;
@@ -42,10 +41,6 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 	s->cammax = maxcams;
 	s->camcnt = 0;
 	s->cams = emalloc(maxcams * sizeof(*s->cams));
-
-	s->rootmax = maxroots;
-	s->rootcnt = 0;
-	s->roots = emalloc(maxroots * sizeof(*s->roots));
 
 	s->nodemax = maxnodes;
 	s->nodecnt = 0;
@@ -98,9 +93,6 @@ void scene_release(struct scene *s)
 	free(s->prnts);
 	s->nodecnt = s->nodemax = 0;
 	
-	free(s->roots);
-	s->rootcnt = s->rootmax = 0;
-
 	free(s->cams);
 	s->camcnt = s->cammax = 0;
 
@@ -199,14 +191,10 @@ int scene_initnode(struct scene *s, const char *name,
 {
 	assert(strlen(name) < NAME_MAX_LEN);
 
-	if ((prntid < 0 && s->rootcnt >= s->rootmax) ||
-	  (s->nodecnt >= s->nodemax))
+	if (s->nodecnt >= s->nodemax)
 		return -1;
 
 	int id = (int)s->nodecnt++;
-
-	if (prntid < 0)
-		s->roots[s->rootcnt++] = id;
 
 	s->prnts[id] = prntid;
 
@@ -395,17 +383,16 @@ void scene_updanims(struct scene *s, float time)
 
 void scene_updtransforms(struct scene *s)
 {
-	// TODO Use common root node with identity transform, start trav at 1
-	int *p = s->prnts;
 	struct transform *tr = s->transforms;
-	struct transform *tp = tr;
-	for (unsigned int i = 0; i < s->nodecnt; i++) {
-		int prnt = *p++;
-		struct transform *t = tp++;
-		if (prnt < 0)
-			mat4_cpy(t->glob, t->loc);
-		else
-			mat4_mul(t->glob, tr[prnt].glob, t->loc);
+
+	// No parent for root node transform
+	mat4_cpy(tr->glob, tr->loc);
+
+	int *p = s->prnts + 1;
+	struct transform *tp = tr + 1;
+	for (unsigned int i = 1; i < s->nodecnt; i++) {
+		mat4_mul(tp->glob, tr[*p++].glob, tp->loc);
+		tp++;
 	}
 }
 

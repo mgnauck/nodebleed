@@ -194,7 +194,7 @@ void import_nodes(struct scene *s, unsigned int *nmap, struct gltfnode *nodes,
 	  n->rot,
 	  &(struct vec3){n->scale[0], n->scale[1], n->scale[2]});
 	if (nid < 0)
-	  eprintf("failed to create node");
+	  eprintf("failed to create node %s", n->name);
 
 	// Cam references its node for transform
 	if (n->camid >= 0)
@@ -295,7 +295,7 @@ int import_data(struct scene *s,
 			animbytes += g.bufviews[g.accessors[i].bufview].bytelen;
 
 	scene_init(s, g.meshcnt, max(1, g.mtlcnt), max(1, g.camcnt),
-	  g.rootcnt, g.nodecnt, tcnt, scnt, animbytes);
+	  1 + g.nodecnt, tcnt, scnt, animbytes);
 
 	for (unsigned int i = 0; i < g.mtlcnt; i++)
 		import_mtl(s, &g.mtls[i]);
@@ -316,9 +316,16 @@ int import_data(struct scene *s,
 	for (unsigned int i = 0; i < g.meshcnt; i++)
 		import_mesh(s, &g.meshes[i], &g, binbuf);
 
+	// Create single scene root node at id 0
+	if (scene_initnode(s, "ROOT", -1, -1, 0,
+	  &(struct vec3){0.0f, 0.0f, 0.0f},
+	  (float[4]){0.0f, 0.0f, 0.0f, 1.0f},
+	  &(struct vec3){1.0f, 1.0f, 1.0f}) != 0)
+		eprintf("failed to create root node");
+
 	unsigned int nodemap[g.nodecnt];
 	for (unsigned int i = 0; i < g.rootcnt; i++)
-		import_nodes(s, nodemap, g.nodes, g.roots[i], -1 /* no prnt */);
+		import_nodes(s, nodemap, g.nodes, g.roots[i], /* root */ 0);
 
 	// Copy raw animation data and map anim accessor to data ofs
 	unsigned int ofs = 0; // In bytes

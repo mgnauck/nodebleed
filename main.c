@@ -176,12 +176,12 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin")
+	if (import_gltf(s, "../data/animcube-spline.gltf", "../data/animcube-spline.bin")
             != 0)
 		printf("Failed to import gltf\n");
 
-	printf("Imported scene with %d meshes, %d mtls, %d cams, %d roots, %d nodes, %d tracks, %d samplers\n",
-	  s->meshcnt, s->mtlcnt, s->camcnt, s->rootcnt, s->nodecnt, s->trackcnt,
+	printf("Imported scene with %d meshes, %d mtls, %d cams, %d nodes, %d tracks, %d samplers\n",
+	  s->meshcnt, s->mtlcnt, s->camcnt, s->nodecnt, s->trackcnt,
 	  s->samplercnt);
 
 	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
@@ -218,7 +218,6 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Introduce single root node with identity transform and scrap root node array
 	// TODO Refactor transforms in scene, rename obj
 	// TODO Replace agglomerative clustering tlas to blas-style build
 	// TODO Aligned alloc bvh nodes/scene nodes
@@ -227,7 +226,8 @@ int main(int argc, char *argv[])
 
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
 	assert(sizeof(uint16_t) == sizeof(unsigned short int));
-	//print_type_sizes();
+
+	setprogname(argv[0]);
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		return 1;
