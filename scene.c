@@ -292,7 +292,8 @@ void spher_lerp(float *dst, float *s0, float *s1, float t)
 	dst[3] = e * s0[3] + f * s1[3];
 }
 
-void cubic(float *dst, float *s0, float *s1, float t, float dur, unsigned char cnt)
+void cubic(float *dst, float *s0, float *s1, float t, float dur,
+           unsigned char cnt)
 {
 	float t2 = t * t;
 	float t3 = t2 * t;
@@ -328,7 +329,7 @@ void scene_updanims(struct scene *s, float time)
 		float t = (tc - t0) / du;
 
 		unsigned char comp = tr->tgt == TGT_ROT ? /* Quat */ 4 : 3;
-		unsigned char elem = sa->interp == IM_CUBIC ? /* Tangents */ 3 : 1;
+		unsigned char elem = sa->interp == IM_CUBIC ? /* Tang */ 3 : 1;
 		float *v0 = &s->animdata[sa->dofs + elem * comp * n];
 		float *v1 = &s->animdata[sa->dofs + elem * comp * (n + 1)];
 		float v[comp];
@@ -394,13 +395,13 @@ void scene_updanims(struct scene *s, float time)
 
 void scene_updtransforms(struct scene *s)
 {
+	// TODO Use common root node with identity transform, start trav at 1
 	int *p = s->prnts;
 	struct transform *tr = s->transforms;
 	struct transform *tp = tr;
 	for (unsigned int i = 0; i < s->nodecnt; i++) {
 		int prnt = *p++;
 		struct transform *t = tp++;
-		// TODO Use artificial root node with identity transform
 		if (prnt < 0)
 			mat4_cpy(t->glob, t->loc);
 		else

@@ -427,9 +427,10 @@ void intersect_blas(struct hit *h, const struct ray *r,
 		if (n->cnt > 0) {
 			// Leaf, check triangles
 			for (unsigned int i = 0; i < n->cnt; i++)
-				intersect_tri(h, r, tris, imap[n->sid + i], instid);
+				intersect_tri(h, r, tris, imap[n->sid + i],
+				  instid);
 
-			// Pop next node of stack if something is left
+			// Pop next node from stack if something is left
 			if (spos > 0)
 				n = stack[--spos];
 			else
@@ -495,7 +496,7 @@ void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
 			intersect_blas(h, &ros, &rd->blas[o << 1], &rd->tris[o],
 			               &rd->imap[o], n->id);
 
-			// Pop next node of stack if something is left
+			// Pop next node from stack if something is left
 			if (spos > 0)
 				n = stack[--spos];
 			else

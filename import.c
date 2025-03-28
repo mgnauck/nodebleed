@@ -231,7 +231,8 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 			eprintf("unknown animation target");
 			tgt = TGT_TRANS;
 		};
-		scene_inittrack(s, sofs + c->sampler, nmap[c->target.node], tgt);
+		scene_inittrack(s, sofs + c->sampler,
+		  nmap[c->target.node], tgt);
 	}
 
 	// Copy samplers and referenced data
@@ -254,7 +255,7 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 			interp = IM_STEP;
 		};
 		// Find data len via keyframe cnt, track's tgt and interp mode,
-		// accmap already contains correct ofs into anim data buffer
+		// accmap already contains correct offset into anim data buffer
 		scene_initsampler(s, ia->cnt, accmap[sa->input] / sizeof(float),
 		  accmap[sa->output] / sizeof(float), interp);
 	}
