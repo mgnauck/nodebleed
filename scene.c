@@ -46,8 +46,8 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 	s->nodecnt = 0;
 	s->prnts = emalloc(maxnodes * sizeof(*s->prnts));
 	s->objs = emalloc(maxnodes * sizeof(*s->objs));
-	s->loctranscomps = emalloc(maxnodes * sizeof(*s->loctranscomps));
-	s->transforms = emalloc(maxnodes * sizeof(*s->transforms));
+	s->tfcomps = emalloc(maxnodes * sizeof(*s->tfcomps));
+	s->tfmats = emalloc(maxnodes * sizeof(*s->tfmats));
 
 	s->trackmax = maxtracks;
 	s->trackcnt = 0;
@@ -83,12 +83,12 @@ void scene_release(struct scene *s)
 
 	free(s->animdata);
 	free(s->samplers);
-	s->samplercnt = 0;
+	s->samplercnt = s->samplermax = 0;
 	free(s->tracks);
-	s->trackcnt = 0;
+	s->trackcnt = s->trackmax = 0;
 
-	free(s->transforms);
-	free(s->loctranscomps);
+	free(s->tfmats);
+	free(s->tfcomps);
 	free(s->objs);
 	free(s->prnts);
 	s->nodecnt = s->nodemax = 0;
@@ -174,7 +174,7 @@ int scene_initmesh(struct scene *s, unsigned int vcnt, unsigned int icnt,
 	return id;
 }
 
-void combine_transform(float dst[16], struct vec3 *trans, float rot[4],
+void combine_tfcomp(float dst[16], struct vec3 *trans, float rot[4],
                        struct vec3 *scale)
 {
 	float mscale[16], mrot[16], mtrans[16];
@@ -201,11 +201,11 @@ int scene_initnode(struct scene *s, const char *name,
 	s->objs[id] = (struct obj){.objid = objid, .instid = -1,
 	  .flags = flags};
 
-	struct loctranscomp *c = &s->loctranscomps[id];
+	struct tfcomp *c = &s->tfcomps[id];
 	c->trans = *trans;
 	memcpy(c->rot, rot, sizeof(c->rot));
 	c->scale = *sca;
-	combine_transform(s->transforms[id].loc, trans, rot, sca);
+	combine_tfcomp(s->tfmats[id].loc, trans, rot, sca);
 	// Calc global later during node update
 
 	setname(s, name, /* ofs */ s->mtlmax + s->cammax + id);
@@ -347,19 +347,19 @@ void scene_updanims(struct scene *s, float time)
 			break;
 		}
 
-		struct loctranscomp *ltc = &s->loctranscomps[tr->nid];
-		assert(ltc != NULL);
+		struct tfcomp *tfc = &s->tfcomps[tr->nid];
+		assert(tfc!= NULL);
 
 		float *dst;
 		switch (tr->tgt) {
 		case TGT_TRANS:
-			dst = &ltc->trans.x;
+			dst = &tfc->trans.x;
 			break;
 		case TGT_ROT:
-			dst = ltc->rot;
+			dst = tfc->rot;
 			break;
 		case TGT_SCALE:
-			dst = &ltc->scale.x;
+			dst = &tfc->scale.x;
 			break;
 		default:
 			eprintf("unknown animation target");
@@ -374,25 +374,25 @@ void scene_updanims(struct scene *s, float time)
 		  s->tracks[j + 1].nid == tr->nid)
 			continue;
 
-		struct transform *tf = &s->transforms[tr->nid];
-		assert(tf != NULL);
+		struct tfmat *tfm = &s->tfmats[tr->nid];
+		assert(tfm != NULL);
 
-		combine_transform(tf->loc, &ltc->trans, ltc->rot, &ltc->scale);
+		combine_tfcomp(tfm->loc, &tfc->trans, tfc->rot, &tfc->scale);
 	}
 }
 
 void scene_updtransforms(struct scene *s)
 {
-	struct transform *tr = s->transforms;
+	struct tfmat *m = s->tfmats;
 
 	// No parent for root node transform
-	mat4_cpy(tr->glob, tr->loc);
+	mat4_cpy(m->glob, m->loc);
 
 	int *p = s->prnts + 1;
-	struct transform *tp = tr + 1;
+	struct tfmat *mp = m + 1;
 	for (unsigned int i = 1; i < s->nodecnt; i++) {
-		mat4_mul(tp->glob, tr[*p++].glob, tp->loc);
-		tp++;
+		mat4_mul(mp->glob, m[*p++].glob, mp->loc);
+		mp++;
 	}
 }
 
@@ -408,7 +408,7 @@ void scene_updcams(struct scene *s)
 {
 	for (unsigned int i = 0; i < s->camcnt; i++) {
 		struct cam *c = &s->cams[i];
-		calc_cam(c, s->transforms[c->nid].glob);
+		calc_cam(c, s->tfmats[c->nid].glob);
 	}
 }
 

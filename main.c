@@ -114,7 +114,7 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 			continue;
 
 		// Update transforms
-		struct transform *t = &s->transforms[i];
+		struct tfmat *t = &s->tfmats[i];
 		struct rinst *ri = &rd->insts[o->instid];
 		float inv[16];
 		mat4_inv(inv, t->glob);
@@ -176,7 +176,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/animcube-spline.gltf", "../data/animcube-spline.bin")
+	if (import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin")
             != 0)
 		printf("Failed to import gltf\n");
 
@@ -218,7 +218,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Refactor transforms in scene, rename obj
+	// TODO Rename obj
 	// TODO Replace agglomerative clustering tlas to blas-style build
 	// TODO Aligned alloc bvh nodes/scene nodes
 	// TODO Move code from main into some subsys

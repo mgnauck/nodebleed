@@ -45,13 +45,13 @@ struct mesh {
 	unsigned int   flags;
 };
 
-struct loctranscomp { // Local transform components
+struct tfcomp { // Transform components
 	float        rot[4]; // Quat
 	struct vec3  trans;
 	struct vec3  scale;
 };
 
-struct transform {
+struct tfmat { // Transform matrices
 	float        loc[16];
 	float        glob[16];
 };
@@ -107,8 +107,8 @@ struct scene {
 	unsigned int         nodemax;
 	unsigned int         nodecnt;
 	int                  *prnts;
-	struct loctranscomp  *loctranscomps;
-	struct transform     *transforms;
+	struct tfcomp        *tfcomps;
+	struct tfmat         *tfmats;
 	struct obj           *objs;
 
 	unsigned int         trackmax;
