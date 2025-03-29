@@ -48,7 +48,9 @@ struct mesh {
 struct tfcomp { // Transform components
 	float        rot[4]; // Quat
 	struct vec3  trans;
+	float        pad0;
 	struct vec3  scale;
+	float        pad1;
 };
 
 struct tfmat { // Transform matrices
@@ -58,22 +60,22 @@ struct tfmat { // Transform matrices
 
 struct obj {
 	int           objid; // Ref to mesh/cam
-	int           instid;
+	int           instid; // Ref to rinst
 	unsigned int  flags;
-	// TODO pad for 64 byte align
+	unsigned int  pad0;
 };
 
 enum tgttype { // Target type
-	TGT_TRANS, // 3 floats
+	TGT_TRANS,
 	TGT_ROT, // 4 floats (quat)
-	TGT_SCALE // 3 floats
+	TGT_SCALE
 };
 
 struct track {
 	unsigned int  sid; // Sampler id
 	unsigned int  nid; // Node id
+	unsigned int  key; // Last used key
 	enum tgttype  tgt;
-	// TODO pad for 64 byte align
 };
 
 enum interpmode {
@@ -83,8 +85,6 @@ enum interpmode {
 };
 
 struct sampler {
-	// TODO Save klast in track?
-	unsigned int     klast; // Last keyframe used
 	unsigned int     kcnt; // Keyframe count
 	unsigned int     kofs; // Offset to keyframes (timestamps)
 	unsigned int     dofs; // Offset to keyframe data

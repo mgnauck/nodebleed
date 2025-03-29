@@ -5,7 +5,9 @@
 
 struct aabb {
 	struct vec3  min;
+	//float        pad0;
 	struct vec3  max;
+	//float        pad1;
 };
 
 void    aabb_init(struct aabb *a);

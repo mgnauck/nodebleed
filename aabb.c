@@ -7,8 +7,8 @@
 void aabb_init(struct aabb *a)
 {
 	*a = (struct aabb){
-	  (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX},
-	  (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX}};
+	  .min = (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX},
+	  .max = (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX}};
 }
 
 void aabb_combine(struct aabb *dst,
@@ -16,7 +16,7 @@ void aabb_combine(struct aabb *dst,
                   const struct aabb * b)
 {
 	*dst = (struct aabb){
-	  vec3_min(a->min, b->min), vec3_max(a->max, b->max)};
+	  .min = vec3_min(a->min, b->min), .max = vec3_max(a->max, b->max)};
 }
 
 void aabb_grow(struct aabb *a, struct vec3 v)

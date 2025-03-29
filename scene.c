@@ -307,8 +307,8 @@ void scene_updanims(struct scene *s, float time)
 		assert(sa != NULL);
 
 		float *keys = &s->animdata[sa->kofs];
-		unsigned int n = find_key(keys, sa->klast, sa->kcnt, time);
-		sa->klast = n;
+		unsigned int n = find_key(keys, tr->key, sa->kcnt, time);
+		tr->key= n;
 
 		float t0 = keys[n];
 		float t1 = keys[n + 1];

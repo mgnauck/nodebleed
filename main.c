@@ -218,7 +218,6 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Rename obj
 	// TODO Replace agglomerative clustering tlas to blas-style build
 	// TODO Aligned alloc bvh nodes/scene nodes
 	// TODO Move code from main into some subsys

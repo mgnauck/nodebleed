@@ -164,7 +164,8 @@ void subdivide_node(struct bnode *n, struct bnode *blas,
 {
 	// Calc if we need to split
 	struct split best = find_intervalsplit(n, tris, imap, centers);
-	float nosplit = n->cnt * aabb_calcarea(&(struct aabb){n->min, n->max});
+	float nosplit = n->cnt * aabb_calcarea(&(struct aabb){.min = n->min,
+	  .max = n->max});
 	if (nosplit <= best.cost) {
 		//printf("no split of sid: %d, cnt: %d\n", n->sid, n->cnt);
 		return;
@@ -252,7 +253,8 @@ unsigned int find_bestnode(struct tnode *nodes, unsigned int id,
 			unsigned int other_id = node_indices[i];
 			struct vec3 mi = vec3_min(cmin, nodes[other_id].min);
 			struct vec3 ma = vec3_max(cmax, nodes[other_id].max);
-			float cost = aabb_calcarea(&(struct aabb){mi, ma});
+			float cost = aabb_calcarea(&(struct aabb){.min = mi,
+			  .max = ma});
 			if (cost < best_cost) {
 				best_cost = cost;
 				best_id = i;
