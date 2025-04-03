@@ -69,12 +69,13 @@ struct rdata {
 	struct rmtl   *mtls;
 	struct rtri   *tris; // Tris of all meshes
 	struct rnrm   *nrms;
-	unsigned int  *imap; // Triangle indices mapping (blas)
+	unsigned int  *imap; // Indices mapping tris/insts
 	struct rinst  *insts;
-	struct aabb   *aabbs; // Instance aabbs 
+	struct aabb   *aabbs; // Instance aabbs world space
 	unsigned int  instcnt;
-	struct bnode  *blas; // One blas per mesh (tri buffer)
-	struct tnode  *tlas; // One tlas for all instances
+	unsigned int  tlasofs;
+	struct bnode  *blas;
+	struct tnode  *tlas;
 	struct rcam   cam;
 	struct rview  view;
 	struct vec3   bgcol;

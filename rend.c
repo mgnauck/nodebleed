@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
@@ -10,8 +11,7 @@
 #include "types.h"
 #include "util.h"
 
-#define MIN_SPLIT_CNT  1
-#define INTERVAL_CNT   8
+#define INTERVAL_CNT  8
 
 struct split {
 	float          cost;
@@ -47,48 +47,15 @@ struct hit {
 	uint32_t  e;
 };
 
-void update_bounds(struct bnode *n, const struct rtri *tris,
-                   const unsigned int *imap)
-{
-	struct aabb a;
-	aabb_init(&a);
-
-	const unsigned int *ip = &imap[n->sid];
-	for (unsigned int i = 0; i < n->cnt; i++) {
-		const struct rtri *t = &tris[*ip++];
-		aabb_grow(&a, t->v0);
-		aabb_grow(&a, t->v1);
-		aabb_grow(&a, t->v2);
-	}
-
-	aabb_pad(&a);
-	n->min = a.min;
-	n->max = a.max;
-
-	/*
-	printf("min: %6.3f, %6.3f, %6.3f\n", a.min.x, a.min.y, a.min.z);
-	printf("max: %6.3f, %6.3f, %6.3f\n", a.max.x, a.max.y, a.max.z);
-	printf("sid: %d, cnt: %d\n\n", n->sid, n->cnt);
-	*/
-}
-
 struct split find_intervalsplit(const struct bnode *n,
-                                const struct rtri *tris,
-                                const unsigned int *imap,
-                                const struct vec3 *centers)
+                                const struct aabb *aabbs,
+                                const unsigned int *imap)
 {
 	struct split best = {.cost = FLT_MAX};
 	for (unsigned char axis = 0; axis < 3; axis++) {
-		// Calc center bounds
-		float minc = FLT_MAX;
-		float maxc = -FLT_MAX;
-		const unsigned int *ip = &imap[n->sid];
-		for (unsigned int i = 0; i < n->cnt; i++) {
-			float c = vec3_getc(centers[*ip++], axis);
-			minc = min(minc, c);
-			maxc = max(maxc, c);
-		}
-
+		// Get axis bounds
+		float minc = vec3_getc(n->min, axis);
+		float maxc = vec3_getc(n->max, axis);
 		if (fabsf(maxc - minc) < EPS)
 			continue; // Skip empty axis
 
@@ -103,17 +70,17 @@ struct split find_intervalsplit(const struct bnode *n,
 
 		// Count objects per interval and find the combined bounds
 		float delta = INTERVAL_CNT / (maxc - minc);
-		ip = &imap[n->sid];
+		const unsigned int *ip = &imap[n->sid];
 		for (unsigned int i = 0; i < n->cnt; i++) {
+			const struct aabb *a = &aabbs[*ip++];
+			float c = 0.5f * (vec3_getc(a->min, axis) +
+			  vec3_getc(a->max, axis));
 			unsigned int iv_id  = (unsigned int)max(0,
-			  min(INTERVAL_CNT - 1,
-			    (vec3_getc(centers[*ip], axis) - minc) * delta));
+			  min(INTERVAL_CNT - 1, (c - minc) * delta));
 			struct interval *iv = &ivs[iv_id];
 			struct aabb *iv_box = &iv->box;
-			const struct rtri *tri = &tris[*ip++];
-			aabb_grow(iv_box, tri->v0);
-			aabb_grow(iv_box, tri->v1);
-			aabb_grow(iv_box, tri->v2);
+			aabb_grow(iv_box, a->min);
+			aabb_grow(iv_box, a->max);
 			iv->cnt++;
 		}
 
@@ -158,82 +125,110 @@ struct split find_intervalsplit(const struct bnode *n,
 	return best;
 }
 
-void subdivide_node(struct bnode *n, struct bnode *blas,
-                    const struct rtri *tris, unsigned int *imap,
-                    const struct vec3 *centers, unsigned int *ncnt)
+void build_blas(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
+                 unsigned int cnt, const struct aabb *root)
 {
-	// Calc if we need to split
-	struct split best = find_intervalsplit(n, tris, imap, centers);
-	float nosplit = n->cnt * aabb_calcarea(&(struct aabb){.min = n->min,
-	  .max = n->max});
-	if (nosplit <= best.cost) {
-		//printf("no split of sid: %d, cnt: %d\n", n->sid, n->cnt);
-		return;
-	}
+#define STACK_SIZE  64
+	struct bnode *stack[STACK_SIZE];
+	unsigned int spos = 0;
 
-	// Partition data into left and right of found split pos
-	int l = n->sid;
-	int r = l + n->cnt - 1;
-	while (l <= r) {
-		if (vec3_getc(centers[imap[l]], best.axis) < best.pos) {
-			l++;
-		} else {
-			unsigned int t = imap[l];
-			imap[l] = imap[r];
-			imap[r--] = t;
+	// Prepare root node
+	struct bnode *n = nodes;
+	n->min = root->min;
+	n->max = root->max;
+	n->sid = 0;
+	n->cnt = cnt;
+
+	// Node cnt is root + 1 empty node for cache alignment
+	unsigned int ncnt = 2;
+
+	while (n) {
+		/*// Split at longest axis
+		struct vec3 e = vec3_scale(vec3_sub(n->max, n->min), 0.5f);
+		unsigned char a = e.x > e.y && e.x > e.z ? 0 :
+		  (e.y > e.x && e.y > e.z ? 1 : 2); // Split axis
+		float s = vec3_getc(n->min, a) + vec3_getc(e, a); // Split pos
+		*/
+
+		// Find best split according to SAH
+		struct split best = find_intervalsplit(n, aabbs, imap);
+		float nosplit = n->cnt * aabb_calcarea(&(struct aabb){
+		  .min = n->min, .max = n->max});
+		if (nosplit <= best.cost) {
+			//printf("no split of sid: %d, cnt: %d\n",
+			//  n->sid, n->cnt);
+			if (spos > 0) {
+				n = stack[--spos];
+				continue;
+			} else {
+				break;
+			}
 		}
+
+		// Child bounds
+		struct vec3 lmin = {FLT_MAX, FLT_MAX, FLT_MAX};
+		struct vec3 lmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+		struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
+		struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+
+		// Partition in l and r of split axis
+		unsigned int l = n->sid;
+		unsigned int r = l + n->cnt;
+		for (unsigned int i = 0; i < n->cnt; i++) {
+			unsigned int id = imap[l];
+			struct aabb *b = &aabbs[id];
+			struct vec3 mi = b->min;
+			struct vec3 ma = b->max;
+			float c = 0.5f * (vec3_getc(mi, best.axis) +
+			  vec3_getc(ma, best.axis));
+			if (c < best.pos) {
+				l++;
+				lmin = vec3_min(lmin, mi);
+				lmax = vec3_max(lmax, ma);
+			} else {
+				// Wrong side, swap indices
+				imap[l] = imap[--r];
+				imap[r] = id;
+				rmin = vec3_min(rmin, mi);
+				rmax = vec3_max(rmax, ma);
+			}
+		}
+
+		unsigned int lcnt = l - n->sid;
+		if (lcnt == 0 || lcnt == n->cnt) {
+			//printf("one side of the partition was empty\n");
+			if (spos > 0) {
+				n = stack[--spos];
+				continue;
+			} else {
+				break;
+			}
+		}
+
+		// Init children
+		struct bnode *left = &nodes[ncnt];
+		left->sid = n->sid;
+		left->cnt = lcnt;
+		left->min = lmin;
+		left->max = lmax;
+
+		struct bnode *right = &nodes[ncnt + 1];
+		right->sid = r;
+		right->cnt = n->cnt - lcnt;
+		right->min = rmin;
+		right->max = rmax;
+
+		// Update current (interior) node's child link
+		n->sid = ncnt; // Right child is implicitly + 1
+		n->cnt = 0; // No leaf, no tris or instance
+
+		ncnt += 2; // Account for two new nodes
+
+		// Push right child on stack and continue with left
+		assert(spos < STACK_SIZE);
+		stack[spos++] = right;
+		n = left;
 	}
-
-	// Stop if one side of the partition is empty
-	unsigned int lcnt = l - n->sid;
-	if (l == 0 || lcnt == n->cnt)
-		return;
-
-	// Init children
-	struct bnode *left = &blas[*ncnt];
-	left->sid = n->sid;
-	left->cnt = lcnt;
-	update_bounds(left, tris, imap);
-
-	struct bnode *right = &blas[*ncnt + 1];
-	right->sid = l;
-	right->cnt = n->cnt - lcnt;
-	update_bounds(right, tris, imap);
-
-	// Update current (interior) node's child links
-	n->sid = *ncnt; // Right child is implicitly + 1
-	n->cnt = 0; // No leaf, no tris
-
-	*ncnt += 2; // Account for two new blas
-
-	if (lcnt > MIN_SPLIT_CNT)
-		subdivide_node(left, blas, tris, imap, centers, ncnt);
-	if (right->cnt > MIN_SPLIT_CNT)
-		subdivide_node(right, blas, tris, imap, centers, ncnt);
-}
-
-void build_blas(struct bnode *blas, const struct rtri *tris,
-               unsigned int *imap, unsigned int tricnt)
-{
-	struct vec3 centers[tricnt];
-
-	unsigned int *ip = imap;
-	struct vec3 *cp = centers;
-	const struct rtri *tp = tris;
-	for (unsigned int i = 0; i < tricnt; i++) {
-		*ip++ = i;
-		*cp++ = vec3_scale(vec3_add(tp->v0,
-		          vec3_add(tp->v1, tp->v2)), 0.3333f);
-		tp++;
-	}
-
-	// Root
-	blas->sid = 0;
-	blas->cnt = tricnt;
-	update_bounds(blas, tris, imap);
-
-	unsigned int ncnt = 2; // Root + 1 skipped node for mem alignment
-	subdivide_node(blas, blas, tris, imap, centers, &ncnt);
 }
 
 unsigned int find_bestnode(struct tnode *nodes, unsigned int id,
@@ -464,9 +459,11 @@ void intersect_blas(struct hit *h, const struct ray *r,
 			} else {
 				// Continue with nearer child node
 				n = c0;
-				if (d1 != FLT_MAX)
+				if (d1 != FLT_MAX) {
 					// Put farther child on stack
+					assert(spos < STACK_SIZE);
 					stack[spos++] = c1;
+				}
 			}
 		}
 	}
@@ -530,9 +527,11 @@ void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
 			} else {
 				// Continue with nearer child node
 				n = c0;
-				if (d1 != FLT_MAX)
+				if (d1 != FLT_MAX) {
 					// Put farther child on stack
+					assert(spos < STACK_SIZE);
 					stack[spos++] = c1;
+				}
 			}
 		}
 	}
@@ -550,6 +549,7 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	rd->blas = emalloc(2 * maxtris * sizeof(*rd->blas));
 	memset(rd->blas, 0, 2 * maxtris * sizeof(*rd->blas));
 	rd->tlas = emalloc(2 * maxinsts * sizeof(*rd->tlas));
+	rd->tlasofs = 2 * maxtris;
 }
 
 void rend_release(struct rdata *rd)
@@ -568,18 +568,54 @@ void rend_prepstatic(struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		struct rinst *ri = &rd->insts[j];
-		//printf("inst: %d, ofs: %d, cnt: %d\n",
-		//  j, ri->triofs, ri->tricnt);
-		unsigned int o = ri->triofs;
-		struct bnode *rn = &rd->blas[o << 1]; // Root node
-		if (rn->cnt + rn->sid == 0) // Not processed yet
-			build_blas(rn, &rd->tris[o], &rd->imap[o], ri->tricnt);
+		struct bnode *rn = &rd->blas[ri->triofs << 1]; // Root node
+		if (rn->cnt + rn->sid == 0) { // Not processed yet
+			printf("Creating blas for inst: %d, ofs: %d, cnt: %d\n",
+			  j, ri->triofs, ri->tricnt);
+			struct aabb root;
+			aabb_init(&root);
+			struct aabb aabbs[ri->tricnt];
+			struct aabb *ap = aabbs;
+			struct rtri *tp = &rd->tris[ri->triofs];
+			unsigned int *ip = &rd->imap[ri->triofs];
+			for (unsigned int i = 0; i < ri->tricnt; i++) {
+				ap->min = ap->max = tp->v0;
+				ap->min = vec3_min(ap->min, tp->v1);
+				ap->max = vec3_max(ap->max, tp->v1);
+				ap->min = vec3_min(ap->min, tp->v2);
+				ap->max = vec3_max(ap->max, tp->v2);
+				root.min = vec3_min(ap->min, root.min);
+				root.max = vec3_max(ap->max, root.max);
+				*ip++ = i;
+				ap++;
+				tp++;
+			}
+			build_blas(rn, aabbs, &rd->imap[ri->triofs],
+			  ri->tricnt, &root);
+		}
 	}
 }
 
 void rend_prepdynamic(struct rdata *rd)
 {
 	build_tlas(rd->tlas, rd->insts, rd->aabbs, rd->instcnt);
+}
+
+void rend_prepdynamic2(struct rdata *rd)
+{
+	struct aabb *ap = rd->aabbs; // World space aabbs of instances
+	struct aabb root;
+	aabb_init(&root);
+	unsigned int *ip = &rd->imap[rd->tlasofs];
+	for (unsigned int i = 0; i < rd->instcnt; i++) {
+		root.min = vec3_min(ap->min, root.min);
+		root.max = vec3_max(ap->max, root.max);
+		*ip++ = i;
+		ap++;
+	}
+
+	build_blas(&rd->blas[rd->tlasofs], rd->aabbs, &rd->imap[rd->tlasofs],
+	  rd->instcnt, &root);
 }
 
 struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
