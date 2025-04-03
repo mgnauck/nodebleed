@@ -4,16 +4,14 @@
 #include <stdint.h>
 #include "vec3.h"
 
-struct bnode { // blas
+struct bnode { // bvh node, 32 byte wide
 	struct vec3  min;
 	uint32_t     sid; // Start index or node id
 	struct vec3  max;
-	uint32_t     cnt; // Tri cnt
+	uint32_t     cnt; // Tri or inst cnt
 };
 
-struct tnode; // tlas
-
-struct rmtl {
+struct rmtl { // 32 byte
 	struct vec3  col;
 	float        metallic;
 	float        roughness;
@@ -22,7 +20,7 @@ struct rmtl {
 	uint32_t     pad0;
 };
 
-struct rtri {
+struct rtri { // 48 byte
 	struct vec3  v0;
 	float        pad0;
 	struct vec3  v1;
@@ -31,7 +29,7 @@ struct rtri {
 	float        pad2;
 };
 
-struct rnrm {
+struct rnrm { // 48 byte
 	struct vec3  n0;
 	uint32_t     mtlid;
 	struct vec3  n1;
@@ -40,7 +38,7 @@ struct rnrm {
 	uint32_t     pad1;
 };
 
-struct rinst {
+struct rinst { // 64 byte
 	float     globinv[12]; // Inverse transform 3x4
 	uint32_t  flags; // Disabled, emissive, no shadow etc.
 	uint32_t  triofs;
@@ -67,17 +65,21 @@ struct rview {
 
 struct rdata {
 	struct rmtl   *mtls;
+
 	struct rtri   *tris; // Tris of all meshes
 	struct rnrm   *nrms;
-	unsigned int  *imap; // Indices mapping tris/insts
-	struct rinst  *insts;
-	struct aabb   *aabbs; // Instance aabbs world space
+
 	unsigned int  instcnt;
+	struct rinst  *insts;
+	struct aabb   *aabbs; // World space instance aabbs
+
+	unsigned int  *imap; // Indices mapping tris/insts
+	struct bnode  *nodes; // All blas and one tlas
 	unsigned int  tlasofs;
-	struct bnode  *blas;
-	struct tnode  *tlas;
+
 	struct rcam   cam;
 	struct rview  view;
+
 	struct vec3   bgcol;
 };
 

@@ -11,6 +11,7 @@
 #include "types.h"
 #include "util.h"
 
+#define STACK_SIZE    64
 #define INTERVAL_CNT  8
 
 struct split {
@@ -22,13 +23,6 @@ struct split {
 struct interval {
 	struct aabb   box;
 	unsigned int  cnt;
-};
-
-struct tnode {
-	struct vec3   min;
-	uint32_t      id;
-	struct vec3   max;
-	uint32_t      children;
 };
 
 struct ray {
@@ -125,10 +119,9 @@ struct split find_intervalsplit(const struct bnode *n,
 	return best;
 }
 
-void build_blas(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
+void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
                  unsigned int cnt, const struct aabb *root)
 {
-#define STACK_SIZE  64
 	struct bnode *stack[STACK_SIZE];
 	unsigned int spos = 0;
 
@@ -231,116 +224,6 @@ void build_blas(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 	}
 }
 
-unsigned int find_bestnode(struct tnode *nodes, unsigned int id,
-                           unsigned int *node_indices,
-                           unsigned int node_indices_cnt)
-{
-	float best_cost = FLT_MAX;
-	unsigned int best_id = id;
-
-	unsigned int cid = node_indices[id];
-	struct vec3 cmin = nodes[cid].min;
-	struct vec3 cmax = nodes[cid].max;
-
-	// Find smallest combined aabb of current node and any other node
-	for (unsigned int i = 0; i < node_indices_cnt; i++) {
-		if (id != i) {
-			unsigned int other_id = node_indices[i];
-			struct vec3 mi = vec3_min(cmin, nodes[other_id].min);
-			struct vec3 ma = vec3_max(cmax, nodes[other_id].max);
-			float cost = aabb_calcarea(&(struct aabb){.min = mi,
-			  .max = ma});
-			if (cost < best_cost) {
-				best_cost = cost;
-				best_id = i;
-			}
-		}
-	}
-
-	return best_id;
-}
-
-// Walter et al: Fast Agglomerative Clustering for Rendering
-unsigned int cluster_nodes(struct tnode *nodes, unsigned int node_id,
-                           unsigned int *node_indices,
-                           unsigned int node_indices_cnt)
-{
-	unsigned int a = 0;
-	unsigned int b = find_bestnode(nodes, a, node_indices,
-	  node_indices_cnt);
-
-	while (node_indices_cnt > 1) {
-		unsigned int c = find_bestnode(nodes, b, node_indices,
-		  node_indices_cnt);
-		if (a == c) {
-			unsigned int id_a = node_indices[a];
-			unsigned int id_b = node_indices[b];
-
-			struct tnode *na = &nodes[id_a];
-			struct tnode *nb = &nodes[id_b];
-
-			// Claim new node which is combination of node A and B
-			struct tnode *nn = &nodes[node_id];
-			nn->min = vec3_min(na->min, nb->min);
-			nn->max = vec3_max(na->max, nb->max);
-
-			// Each child node index gets 16 bits
-			nn->children = (id_b << 16) | id_a;
-
-			// Replace node A with newly created combined node
-			node_indices[a] = node_id--;
-
-			// Remove node B by replacing its slot with last node
-			node_indices[b] = node_indices[--node_indices_cnt];
-
-			// Restart the loop for remaining nodes
-			b = find_bestnode(nodes, a, node_indices,
-			  node_indices_cnt);
-		} else {
-			// Best match B we found for A had a better match in C
-			// Hence, A and B are not best matches, try B and C
-			a = b;
-			b = c;
-		}
-	}
-
-	// Index of root node - 1
-	return node_id;
-}
-
-void build_tlas(struct tnode *nodes, struct rinst *insts, struct aabb *aabbs,
-                unsigned int instcnt)
-{
-	unsigned int node_indices[instcnt];
-	unsigned int node_indices_cnt = 0;
-
-	// Nodes will be placed beginning at the back of the array
-	unsigned int node_id = 2 * instcnt - 2;
-
-	// Construct a leaf node for each instance
-	for (unsigned int i = 0; i < instcnt; i++) {
-		if (!hasflags(insts[i].flags, DISABLED)) {
-			struct tnode *n = &nodes[node_id];
-
-			struct aabb *a = &aabbs[i];
-			n->min = a->min;
-			n->max = a->max;
-
-			// Interior nodes will have at least one child > 0
-			n->children = 0;
-			n->id = i;
-
-			node_indices[node_indices_cnt++] = node_id--;
-		}
-	}
-
-	node_id = cluster_nodes(nodes, node_id, node_indices, node_indices_cnt);
-
-	if(node_id + 1 > 0)
-		// Some leafs were not used, move root node to front
-		nodes[0] = nodes[node_id + 1];
-}
-
 float intersect_aabb(const struct ray *r, float tfar,
                      struct vec3 min_ext, struct vec3 max_ext)
 {
@@ -411,16 +294,15 @@ void intersect_tri(struct hit *h, const struct ray *r, const struct rtri *tris,
 }
 
 void intersect_blas(struct hit *h, const struct ray *r,
-                    const struct bnode *blas, const struct rtri *tris,
-                    const unsigned int *imap, unsigned int instid)
+                    const struct bnode *blas, const unsigned int *imap,
+                    const struct rtri *tris, unsigned int instid)
 {
-#define STACK_SIZE 64
 	const struct bnode *stack[STACK_SIZE];
 	unsigned int spos = 0;
 
 	const struct bnode *n = blas;
 
-	while (true) {
+	while (n) {
 		if (n->cnt > 0) {
 			// Leaf, check triangles
 			for (unsigned int i = 0; i < n->cnt; i++)
@@ -469,31 +351,39 @@ void intersect_blas(struct hit *h, const struct ray *r,
 	}
 }
 
-void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
+void intersect_tlas(struct hit *h, const struct ray *r,
+                    const struct bnode *nodes, const unsigned int *imap,
+                    const struct rinst *insts, const struct rtri *tris,
+                    unsigned int tlasofs)
 {
-#define STACK_SIZE 64
-	const struct tnode *stack[STACK_SIZE];
+	const struct bnode *stack[STACK_SIZE];
 	unsigned int spos = 0;
 
-	const struct tnode *n = rd->tlas;
+	const struct bnode *tlas = &nodes[tlasofs << 1];
+	const struct bnode *n = tlas;
+	const unsigned int *tlasimap = &imap[tlasofs];
 
-	while (true) {
-		if (n->children == 0) {
+	while (n) {
+		if (n->cnt > 0) {
 			// Leaf, check instance blas
-			const struct rinst *ri = &rd->insts[n->id];
+			const unsigned int *ip = &tlasimap[n->sid];
+			for (unsigned int i = 0; i < n->cnt; i++) {
+				unsigned int instid = *ip++;
+				const struct rinst *ri = &insts[instid];
 
-			// Transform ray into object space of instance
-			float inv[16];
-			mat4_from3x4(inv, ri->globinv);
-			struct ray ros = (struct ray){
-			  .ori = mat4_mulpos(inv, r->ori),
-			  .dir = mat4_muldir(inv, r->dir)};
-			ros.idir = (struct vec3){
-			  1.0f / ros.dir.x, 1.0f / ros.dir.y, 1.0f / ros.dir.z};
+				// Transform ray into object space of instance
+				float inv[16];
+				mat4_from3x4(inv, ri->globinv);
+				struct ray ros = (struct ray){
+				  .ori = mat4_mulpos(inv, r->ori),
+				  .dir = mat4_muldir(inv, r->dir)};
+				ros.idir = (struct vec3){1.0f / ros.dir.x,
+				  1.0f / ros.dir.y, 1.0f / ros.dir.z};
 
-			unsigned int o = ri->triofs;
-			intersect_blas(h, &ros, &rd->blas[o << 1], &rd->tris[o],
-			               &rd->imap[o], n->id);
+				unsigned int o = ri->triofs;
+				intersect_blas(h, &ros, &nodes[o << 1],
+				  &imap[o], &tris[o], instid);
+			}
 
 			// Pop next node from stack if something is left
 			if (spos > 0)
@@ -501,9 +391,9 @@ void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
 			else
 				return;
 		} else {
-			// Interior node, check children
-			const struct tnode *c0 = &rd->tlas[n->children & 0xff];
-			const struct tnode *c1 = &rd->tlas[n->children >> 16];
+			// Interior node, check children, right child is + 1
+			const struct bnode *c0 = &tlas[n->sid];
+			const struct bnode *c1 = &tlas[n->sid + 1];
 
 			float d0 = intersect_aabb(r, h->t, c0->min, c0->max);
 			float d1 = intersect_aabb(r, h->t, c1->min, c1->max);
@@ -513,7 +403,7 @@ void intersect_tlas(struct hit *h, const struct ray *r, const struct rdata *rd)
 				d0 = d1;
 				d1 = t;
 
-				const struct tnode *tc = c0;
+				const struct bnode *tc = c0;
 				c0 = c1;
 				c1 = tc;
 			}
@@ -541,24 +431,31 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
                unsigned int maxtris, unsigned int maxinsts) 
 {
 	rd->mtls = emalloc(maxmtls * sizeof(*rd->mtls));
+
 	rd->tris = emalloc(maxtris * sizeof(*rd->tris));
 	rd->nrms = emalloc(maxtris * sizeof(*rd->nrms));
-	rd->imap = emalloc(maxtris * sizeof(*rd->imap));
+
 	rd->insts = emalloc(maxinsts * sizeof(*rd->insts));
 	rd->aabbs = emalloc(maxinsts * sizeof(*rd->aabbs));
-	rd->blas = emalloc(2 * maxtris * sizeof(*rd->blas));
-	memset(rd->blas, 0, 2 * maxtris * sizeof(*rd->blas));
-	rd->tlas = emalloc(2 * maxinsts * sizeof(*rd->tlas));
-	rd->tlasofs = 2 * maxtris;
+
+	// Index map contains tri and instance ids
+	unsigned int idcnt = maxtris + maxinsts;
+	rd->imap = emalloc(idcnt * sizeof(*rd->imap));
+
+	// Bvh nodes for blas and tlas combined in one array
+	rd->nodes = emalloc(idcnt * 2 * sizeof(*rd->nodes));
+	memset(rd->nodes, 0, idcnt * 2 * sizeof(*rd->nodes));
+
+	// Start of tlas index map and tlas nodes * 2
+	rd->tlasofs = maxtris;
 }
 
 void rend_release(struct rdata *rd)
 {
-	free(rd->tlas);
-	free(rd->blas);
+	free(rd->nodes);
+	free(rd->imap);
 	free(rd->aabbs);
 	free(rd->insts);
-	free(rd->imap);
 	free(rd->nrms);
 	free(rd->tris);
 	free(rd->mtls);
@@ -568,7 +465,7 @@ void rend_prepstatic(struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		struct rinst *ri = &rd->insts[j];
-		struct bnode *rn = &rd->blas[ri->triofs << 1]; // Root node
+		struct bnode *rn = &rd->nodes[ri->triofs << 1]; // Root node
 		if (rn->cnt + rn->sid == 0) { // Not processed yet
 			printf("Creating blas for inst: %d, ofs: %d, cnt: %d\n",
 			  j, ri->triofs, ri->tricnt);
@@ -590,7 +487,7 @@ void rend_prepstatic(struct rdata *rd)
 				ap++;
 				tp++;
 			}
-			build_blas(rn, aabbs, &rd->imap[ri->triofs],
+			build_bvh(rn, aabbs, &rd->imap[ri->triofs],
 			  ri->tricnt, &root);
 		}
 	}
@@ -598,15 +495,11 @@ void rend_prepstatic(struct rdata *rd)
 
 void rend_prepdynamic(struct rdata *rd)
 {
-	build_tlas(rd->tlas, rd->insts, rd->aabbs, rd->instcnt);
-}
-
-void rend_prepdynamic2(struct rdata *rd)
-{
 	struct aabb *ap = rd->aabbs; // World space aabbs of instances
 	struct aabb root;
 	aabb_init(&root);
-	unsigned int *ip = &rd->imap[rd->tlasofs];
+	unsigned int tlasofs = rd->tlasofs;
+	unsigned int *ip = &rd->imap[tlasofs];
 	for (unsigned int i = 0; i < rd->instcnt; i++) {
 		root.min = vec3_min(ap->min, root.min);
 		root.max = vec3_max(ap->max, root.max);
@@ -614,7 +507,7 @@ void rend_prepdynamic2(struct rdata *rd)
 		ap++;
 	}
 
-	build_blas(&rd->blas[rd->tlasofs], rd->aabbs, &rd->imap[rd->tlasofs],
+	build_bvh(&rd->nodes[tlasofs << 1], rd->aabbs, &rd->imap[tlasofs],
 	  rd->instcnt, &root);
 }
 
@@ -648,7 +541,8 @@ void rend_render(void *dst, struct rdata *rd)
 			  1.0f / r.dir.x, 1.0f / r.dir.y, 1.0f / r.dir.z};
 
 			struct hit h = (struct hit){.t = FLT_MAX};
-			intersect_tlas(&h, &r, rd);
+			intersect_tlas(&h, &r, rd->nodes, rd->imap, rd->insts,
+			  rd->tris, rd->tlasofs);
 
 			struct vec3 c = rd->bgcol;
 			if (h.t < FLT_MAX) {

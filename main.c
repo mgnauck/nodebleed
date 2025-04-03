@@ -122,7 +122,7 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 
 		// Update instance aabbs, transform blas root to world
 		struct aabb *a = &rd->aabbs[o->instid];
-		struct bnode *n = &rd->blas[ri->triofs << 1];
+		struct bnode *n = &rd->nodes[ri->triofs << 1];
 		struct vec3 mi = n->min;
 		struct vec3 ma = n->max;
 		float *m = t->glob;
@@ -218,7 +218,6 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Replace agglomerative clustering tlas to blas-style build
 	// TODO Aligned alloc bvh nodes/scene nodes
 	// TODO Move code from main into some subsys
 	// TODO Static/dyn separation of meshes in the node tree (incl. premul)
