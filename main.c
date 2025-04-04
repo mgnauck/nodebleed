@@ -5,7 +5,6 @@
 
 #include <SDL.h>
 
-#include "aabb.h"
 #include "import.h"
 #include "mat4.h"
 #include "rend.h"
@@ -108,33 +107,36 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 
 void upd_rinsts(struct rdata *rd, struct scene *s)
 {
-	for (unsigned int i = 0; i < s->nodecnt; i++) {
-		struct obj *o = &s->objs[i];
+	for (unsigned int j = 0; j < s->nodecnt; j++) {
+		struct obj *o = &s->objs[j];
 		if (!hasflags(o->flags, MESH))
 			continue;
 
 		// Update transforms
-		struct tfmat *t = &s->tfmats[i];
+		struct tfmat *t = &s->tfmats[j];
 		struct rinst *ri = &rd->insts[o->instid];
 		float inv[16];
 		mat4_inv(inv, t->glob);
 		memcpy(ri->globinv, inv, sizeof(ri->globinv)); // 3x4
 
-		// Update instance aabbs, transform blas root to world
-		struct aabb *a = &rd->aabbs[o->instid];
-		struct bnode *n = &rd->nodes[ri->triofs << 1];
-		struct vec3 mi = n->min;
-		struct vec3 ma = n->max;
+		// Update instance aabbs by transforming blas root to world
 		float *m = t->glob;
-		aabb_init(a);
-		aabb_grow(a, mat4_mulpos(m, (struct vec3){mi.x, mi.y, mi.z}));
-		aabb_grow(a, mat4_mulpos(m, (struct vec3){ma.x, mi.y, mi.z}));
-		aabb_grow(a, mat4_mulpos(m, (struct vec3){mi.x, ma.y, mi.z}));
-		aabb_grow(a, mat4_mulpos(m, (struct vec3){mi.x, mi.y, ma.z}));
-		aabb_grow(a, mat4_mulpos(m, (struct vec3){ma.x, ma.y, mi.z}));
-		aabb_grow(a, mat4_mulpos(m, (struct vec3){ma.x, mi.y, ma.z}));
-		aabb_grow(a, mat4_mulpos(m, (struct vec3){mi.x, ma.y, ma.z}));
-		aabb_grow(a, mat4_mulpos(m, (struct vec3){ma.x, ma.y, ma.z}));
+		struct bnode *n = &rd->nodes[ri->triofs << 1];
+		struct vec3 nmi = n->min;
+		struct vec3 nma = n->max;
+		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
+		struct vec3 ma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+
+		for (unsigned char i = 0; i < 8; i++) {
+			struct vec3 v = mat4_mulpos(m, (struct vec3){
+			  i & 1 ? nmi.x : nma.x,
+			  i & 2 ? nmi.y : nma.y,
+			  i & 4 ? nmi.z : nma.z});
+			mi = vec3_min(mi, v);
+			ma = vec3_max(ma, v);
+		}
+
+		rd->aabbs[o->instid] = (struct aabb){mi, ma};
 	}
 }
 
@@ -176,7 +178,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin")
+	if (import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin")
             != 0)
 		printf("Failed to import gltf\n");
 

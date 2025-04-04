@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "aabb.h"
 #include "mat4.h"
 #include "rend.h"
 #include "types.h"
@@ -21,8 +20,10 @@ struct split {
 };
 
 struct interval {
-	struct aabb   box;
+	struct vec3   min;
 	unsigned int  cnt;
+	struct vec3   max;
+	// TODO Pad?
 };
 
 struct ray {
@@ -41,6 +42,12 @@ struct hit {
 	uint32_t  e;
 };
 
+float calc_area(struct vec3 min, struct vec3 max)
+{
+	struct vec3 d = vec3_sub(max, min);
+	return d.x * d.y + d.y * d.z + d.z * d.x;
+}
+
 struct split find_intervalsplit(const struct bnode *n,
                                 const struct aabb *aabbs,
                                 const unsigned int *imap)
@@ -55,12 +62,11 @@ struct split find_intervalsplit(const struct bnode *n,
 
 		// Init empty intervals
 		struct interval ivs[INTERVAL_CNT];
-		struct interval *ivp = ivs;
-		for (unsigned int i = 0; i < INTERVAL_CNT; i++) {
-			ivp->cnt = 0;
-			aabb_init(&ivp->box);
-			ivp++;
-		}
+		for (unsigned int i = 0; i < INTERVAL_CNT; i++)
+			ivs[i] = (struct interval){
+			  .cnt = 0,
+			  .min = (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX},
+			  .max = (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX}};
 
 		// Count objects per interval and find the combined bounds
 		float delta = INTERVAL_CNT / (maxc - minc);
@@ -72,9 +78,8 @@ struct split find_intervalsplit(const struct bnode *n,
 			unsigned int iv_id  = (unsigned int)max(0,
 			  min(INTERVAL_CNT - 1, (c - minc) * delta));
 			struct interval *iv = &ivs[iv_id];
-			struct aabb *iv_box = &iv->box;
-			aabb_grow(iv_box, a->min);
-			aabb_grow(iv_box, a->max);
+			iv->min = vec3_min(iv->min, a->min);
+			iv->max = vec3_max(iv->max, a->max);
 			iv->cnt++;
 		}
 
@@ -83,25 +88,27 @@ struct split find_intervalsplit(const struct bnode *n,
 		float rareas[INTERVAL_CNT - 1];
 		unsigned int lcnts[INTERVAL_CNT - 1];
 		unsigned int rcnts[INTERVAL_CNT - 1];
-		struct aabb lbox;
-		struct aabb rbox;
+		struct vec3 lmin = {FLT_MAX, FLT_MAX, FLT_MAX};
+		struct vec3 lmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+		struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
+		struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 		unsigned int ltotcnt = 0; // Total cnt
 		unsigned int rtotcnt = 0;
-		aabb_init(&lbox);
-		aabb_init(&rbox);
 		for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
 			// From left
 			struct interval *iv = &ivs[i];
 			ltotcnt += iv->cnt;
 			lcnts[i] = ltotcnt;
-			aabb_combine(&lbox, &lbox, &iv->box);
-			lareas[i] = aabb_calcarea(&lbox);
+			lmin = vec3_min(lmin, iv->min);
+			lmax = vec3_max(lmax, iv->max);
+			lareas[i] = calc_area(lmin, lmax);
 			// From right
 			iv = &ivs[INTERVAL_CNT - 1 - i];
 			rtotcnt += iv->cnt;
 			rcnts[INTERVAL_CNT - 2 - i] = rtotcnt;
-			aabb_combine(&rbox, &rbox, &iv->box);
-			rareas[INTERVAL_CNT - 2 - i] = aabb_calcarea(&rbox);
+			rmin = vec3_min(rmin, iv->min);
+			rmax = vec3_max(rmax, iv->max);
+			rareas[INTERVAL_CNT - 2 - i] = calc_area(rmin, rmax);
 		}
 
 		// Find best surface area cost for interval planes
@@ -120,15 +127,15 @@ struct split find_intervalsplit(const struct bnode *n,
 }
 
 void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
-                 unsigned int cnt, const struct aabb *root)
+                 unsigned int cnt, struct vec3 rmin, struct vec3 rmax)
 {
 	struct bnode *stack[STACK_SIZE];
 	unsigned int spos = 0;
 
 	// Prepare root node
 	struct bnode *n = nodes;
-	n->min = root->min;
-	n->max = root->max;
+	n->min = rmin;
+	n->max = rmax;
 	n->sid = 0;
 	n->cnt = cnt;
 
@@ -145,8 +152,7 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 
 		// Find best split according to SAH
 		struct split best = find_intervalsplit(n, aabbs, imap);
-		float nosplit = n->cnt * aabb_calcarea(&(struct aabb){
-		  .min = n->min, .max = n->max});
+		float nosplit = n->cnt * calc_area(n->min, n->max);
 		if (nosplit <= best.cost) {
 			//printf("no split of sid: %d, cnt: %d\n",
 			//  n->sid, n->cnt);
@@ -469,8 +475,8 @@ void rend_prepstatic(struct rdata *rd)
 		if (rn->cnt + rn->sid == 0) { // Not processed yet
 			printf("Creating blas for inst: %d, ofs: %d, cnt: %d\n",
 			  j, ri->triofs, ri->tricnt);
-			struct aabb root;
-			aabb_init(&root);
+			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
+			struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 			struct aabb aabbs[ri->tricnt];
 			struct aabb *ap = aabbs;
 			struct rtri *tp = &rd->tris[ri->triofs];
@@ -481,14 +487,14 @@ void rend_prepstatic(struct rdata *rd)
 				ap->max = vec3_max(ap->max, tp->v1);
 				ap->min = vec3_min(ap->min, tp->v2);
 				ap->max = vec3_max(ap->max, tp->v2);
-				root.min = vec3_min(ap->min, root.min);
-				root.max = vec3_max(ap->max, root.max);
+				rmin = vec3_min(rmin, ap->min);
+				rmax = vec3_max(rmax, ap->max);
 				*ip++ = i;
 				ap++;
 				tp++;
 			}
 			build_bvh(rn, aabbs, &rd->imap[ri->triofs],
-			  ri->tricnt, &root);
+			  ri->tricnt, rmin, rmax);
 		}
 	}
 }
@@ -496,19 +502,19 @@ void rend_prepstatic(struct rdata *rd)
 void rend_prepdynamic(struct rdata *rd)
 {
 	struct aabb *ap = rd->aabbs; // World space aabbs of instances
-	struct aabb root;
-	aabb_init(&root);
+	struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
+	struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 	unsigned int tlasofs = rd->tlasofs;
 	unsigned int *ip = &rd->imap[tlasofs];
 	for (unsigned int i = 0; i < rd->instcnt; i++) {
-		root.min = vec3_min(ap->min, root.min);
-		root.max = vec3_max(ap->max, root.max);
+		rmin = vec3_min(rmin, ap->min);
+		rmax = vec3_max(rmax, ap->max);
 		*ip++ = i;
 		ap++;
 	}
 
 	build_bvh(&rd->nodes[tlasofs << 1], rd->aabbs, &rd->imap[tlasofs],
-	  rd->instcnt, &root);
+	  rd->instcnt, rmin, rmax);
 }
 
 struct vec3 calc_nrm(float u, float v, struct rnrm *rn,

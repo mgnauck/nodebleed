@@ -11,6 +11,11 @@ struct bnode { // bvh node, 32 byte wide
 	uint32_t     cnt; // Tri or inst cnt
 };
 
+struct aabb {
+	struct vec3  min;
+	struct vec3  max;
+};
+
 struct rmtl { // 32 byte
 	struct vec3  col;
 	float        metallic;
