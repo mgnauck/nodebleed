@@ -11,8 +11,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   1024
-#define HEIGHT  768
+#define WIDTH   320
+#define HEIGHT  240
 
 void print_type_sizes(void)
 {
@@ -136,7 +136,7 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 			ma = vec3_max(ma, v);
 		}
 
-		rd->aabbs[o->instid] = (struct aabb){mi, ma};
+		rd->aabbs[o->instid] = (struct aabb){.min = mi, .max = ma};
 	}
 }
 
@@ -178,7 +178,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin")
+	if (import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin")
             != 0)
 		printf("Failed to import gltf\n");
 
@@ -220,9 +220,10 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Move code from main into some subsys
 	// TODO Static/dyn separation of meshes in the node tree (incl. premul)
+	// TODO Move code from main into some subsys
 
+	//print_type_sizes();
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
 	assert(sizeof(uint16_t) == sizeof(unsigned short int));
 

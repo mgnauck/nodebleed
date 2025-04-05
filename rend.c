@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <float.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +24,7 @@ struct interval {
 	struct vec3   min;
 	unsigned int  cnt;
 	struct vec3   max;
-	// TODO Pad?
+	unsigned int  pad0;
 };
 
 struct ray {
@@ -32,7 +33,7 @@ struct ray {
 	struct vec3  dir;
 	float        pad1;
 	struct vec3  idir;
-	float        oad2;
+	float        pad2;
 };
 
 struct hit {
@@ -42,9 +43,9 @@ struct hit {
 	uint32_t  e;
 };
 
-float calc_area(struct vec3 min, struct vec3 max)
+float calc_area(struct vec3 mi, struct vec3 ma)
 {
-	struct vec3 d = vec3_sub(max, min);
+	struct vec3 d = vec3_sub(ma, mi);
 	return d.x * d.y + d.y * d.z + d.z * d.x;
 }
 
@@ -231,20 +232,20 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 }
 
 float intersect_aabb(const struct ray *r, float tfar,
-                     struct vec3 min_ext, struct vec3 max_ext)
+                     struct vec3 mi, struct vec3 ma)
 {
-	float tx0 = (min_ext.x - r->ori.x) * r->idir.x;
-	float tx1 = (max_ext.x - r->ori.x) * r->idir.x;
+	float tx0 = (mi.x - r->ori.x) * r->idir.x;
+	float tx1 = (ma.x - r->ori.x) * r->idir.x;
 	float tmin = min(tx0, tx1);
 	float tmax = max(tx0, tx1);
 
-	float ty0 = (min_ext.y - r->ori.y) * r->idir.y;
-	float ty1 = (max_ext.y - r->ori.y) * r->idir.y;
+	float ty0 = (mi.y - r->ori.y) * r->idir.y;
+	float ty1 = (ma.y - r->ori.y) * r->idir.y;
 	tmin = max(tmin, min(ty0, ty1));
 	tmax = min(tmax, max(ty0, ty1));
 
-	float tz0 = (min_ext.z - r->ori.z) * r->idir.z;
-	float tz1 = (max_ext.z - r->ori.z) * r->idir.z;
+	float tz0 = (mi.z - r->ori.z) * r->idir.z;
+	float tz1 = (ma.z - r->ori.z) * r->idir.z;
 	tmin = max(tmin, min(tz0, tz1));
 	tmax = min(tmax, max(tz0, tz1));
 
@@ -255,8 +256,11 @@ float intersect_aabb(const struct ray *r, float tfar,
 }
 
 void intersect_tri(struct hit *h, const struct ray *r, const struct rtri *tris,
-                   uint32_t triid, uint32_t instid)
+                   unsigned int triid, unsigned int instid)
 {
+	assert(triid < USHRT_MAX);
+	assert(instid < USHRT_MAX);
+
 	// Vectors of two edges sharing v0
 	const struct rtri *t = &tris[triid];
 	const struct vec3 v0 = t->v0;
@@ -473,7 +477,7 @@ void rend_prepstatic(struct rdata *rd)
 		struct rinst *ri = &rd->insts[j];
 		struct bnode *rn = &rd->nodes[ri->triofs << 1]; // Root node
 		if (rn->cnt + rn->sid == 0) { // Not processed yet
-			printf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: %lu\n",
+			printf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: 0x%x\n",
 			  j, ri->triofs, ri->tricnt, (unsigned long)rn);
 			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
 			struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};

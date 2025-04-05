@@ -170,7 +170,8 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		setflags(&m->flags, s->mtls[p->mtlid].flags); 
 
 		// Primitive's material
-		m->mtls[j] = (struct mtlref){p->mtlid, iacc->cnt / 3};
+		m->mtls[j] = (struct mtlref){
+		  .mtlid = p->mtlid, .tricnt = iacc->cnt / 3};
 		m->mcnt++;
 	}
 }
