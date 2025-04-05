@@ -45,7 +45,7 @@ struct mesh {
 	unsigned int   flags;
 };
 
-struct tfcomp { // Transform components, 48 byte
+struct tfcomp { // Transform components, 48 bytes
 	float        rot[4]; // Quat
 	struct vec3  trans;
 	float        pad0;
@@ -53,12 +53,12 @@ struct tfcomp { // Transform components, 48 byte
 	float        pad1;
 };
 
-struct tfmat { // Transform matrices, 128 byte
+struct tfmat { // Transform matrices, 128 bytes
 	float        loc[16];
 	float        glob[16];
 };
 
-struct obj { // 16 byte
+struct obj { // 16 bytes
 	int           objid; // Ref to mesh/cam
 	int           instid; // Ref to rinst
 	unsigned int  flags;

@@ -233,6 +233,10 @@ int scene_inittrack(struct scene *s, unsigned int sid, unsigned int nid,
 	int id = s->trackcnt++;
 	s->tracks[id] = (struct track){.sid = sid, .nid = nid, .tgt = tgt};
 
+	// Mark target node as animated
+	setflags(&s->objs[nid].flags, DYNAMIC);
+	printf("Node '%s' is animated\n", scene_getnodename(s, nid));
+
 	return id;
 }
 
