@@ -220,7 +220,6 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Static/dyn separation of meshes in the node tree (incl. premul)
 	// TODO Move code from main into some subsys
 
 	//print_type_sizes();
