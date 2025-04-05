@@ -20,6 +20,9 @@ void      *emalloc(size_t n);
 void      setprogname(const char *name);
 char      *getprogname(void);
 
+void      *emalloc_align(size_t n, size_t alignment);
+void      free_align(void *ptr);
+
 void      pcg_srand(uint64_t seed, uint64_t seq);
 uint32_t  pcg_rand(void);
 float     pcg_randf(void);

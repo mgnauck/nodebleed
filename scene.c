@@ -44,10 +44,10 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 
 	s->nodemax = maxnodes;
 	s->nodecnt = 0;
-	s->prnts = emalloc(maxnodes * sizeof(*s->prnts));
-	s->objs = emalloc(maxnodes * sizeof(*s->objs));
-	s->tfcomps = emalloc(maxnodes * sizeof(*s->tfcomps));
-	s->tfmats = emalloc(maxnodes * sizeof(*s->tfmats));
+	s->prnts = emalloc_align(maxnodes * sizeof(*s->prnts), 64);
+	s->objs = emalloc_align(maxnodes * sizeof(*s->objs), 64);
+	s->tfcomps = emalloc_align(maxnodes * sizeof(*s->tfcomps), 64);
+	s->tfmats = emalloc_align(maxnodes * sizeof(*s->tfmats), 64);
 
 	s->trackmax = maxtracks;
 	s->trackcnt = 0;
@@ -87,10 +87,10 @@ void scene_release(struct scene *s)
 	free(s->tracks);
 	s->trackcnt = s->trackmax = 0;
 
-	free(s->tfmats);
-	free(s->tfcomps);
-	free(s->objs);
-	free(s->prnts);
+	free_align(s->tfmats);
+	free_align(s->tfcomps);
+	free_align(s->objs);
+	free_align(s->prnts);
 	s->nodecnt = s->nodemax = 0;
 	
 	free(s->cams);

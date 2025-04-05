@@ -65,6 +65,20 @@ char *getprogname(void)
 	return progname;
 }
 
+void *emalloc_align(size_t n, size_t alignment)
+{
+	size_t ofs = alignment - 1 + sizeof(void *);
+	void *p = emalloc(n + ofs);
+	void **a = (void **)(((size_t)p + ofs) & ~(alignment - 1));
+	a[-1] = p;
+	return a;
+}
+
+void free_align(void *ptr)
+{
+	free(((void **)ptr)[-1]);
+}
+
 // https://www.pcg-random.org
 uint32_t pcg32_random_r(pcg32_random_t *rng)
 {

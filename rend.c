@@ -436,20 +436,20 @@ void intersect_tlas(struct hit *h, const struct ray *r,
 void rend_init(struct rdata *rd, unsigned int maxmtls,
                unsigned int maxtris, unsigned int maxinsts) 
 {
-	rd->mtls = emalloc(maxmtls * sizeof(*rd->mtls));
+	rd->mtls = emalloc_align(maxmtls * sizeof(*rd->mtls), 64);
 
-	rd->tris = emalloc(maxtris * sizeof(*rd->tris));
-	rd->nrms = emalloc(maxtris * sizeof(*rd->nrms));
+	rd->tris = emalloc_align(maxtris * sizeof(*rd->tris), 64);
+	rd->nrms = emalloc_align(maxtris * sizeof(*rd->nrms), 64);
 
-	rd->insts = emalloc(maxinsts * sizeof(*rd->insts));
-	rd->aabbs = emalloc(maxinsts * sizeof(*rd->aabbs));
+	rd->insts = emalloc_align(maxinsts * sizeof(*rd->insts), 64);
+	rd->aabbs = emalloc_align(maxinsts * sizeof(*rd->aabbs), 64);
 
 	// Index map contains tri and instance ids
 	unsigned int idcnt = maxtris + maxinsts;
-	rd->imap = emalloc(idcnt * sizeof(*rd->imap));
+	rd->imap = emalloc_align(idcnt * sizeof(*rd->imap), 64);
 
 	// Bvh nodes for blas and tlas combined in one array
-	rd->nodes = emalloc(idcnt * 2 * sizeof(*rd->nodes));
+	rd->nodes = emalloc_align(idcnt * 2 * sizeof(*rd->nodes), 64);
 	memset(rd->nodes, 0, idcnt * 2 * sizeof(*rd->nodes));
 
 	// Start of tlas index map and tlas nodes * 2
@@ -458,13 +458,13 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 
 void rend_release(struct rdata *rd)
 {
-	free(rd->nodes);
-	free(rd->imap);
-	free(rd->aabbs);
-	free(rd->insts);
-	free(rd->nrms);
-	free(rd->tris);
-	free(rd->mtls);
+	free_align(rd->nodes);
+	free_align(rd->imap);
+	free_align(rd->aabbs);
+	free_align(rd->insts);
+	free_align(rd->nrms);
+	free_align(rd->tris);
+	free_align(rd->mtls);
 }
 
 void rend_prepstatic(struct rdata *rd)
@@ -473,8 +473,8 @@ void rend_prepstatic(struct rdata *rd)
 		struct rinst *ri = &rd->insts[j];
 		struct bnode *rn = &rd->nodes[ri->triofs << 1]; // Root node
 		if (rn->cnt + rn->sid == 0) { // Not processed yet
-			printf("Creating blas for inst: %d, ofs: %d, cnt: %d\n",
-			  j, ri->triofs, ri->tricnt);
+			printf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: %lu\n",
+			  j, ri->triofs, ri->tricnt, (unsigned long)rn);
 			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
 			struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 			struct aabb aabbs[ri->tricnt];

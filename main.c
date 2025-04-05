@@ -220,7 +220,6 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Aligned alloc bvh nodes/scene nodes
 	// TODO Move code from main into some subsys
 	// TODO Static/dyn separation of meshes in the node tree (incl. premul)
 
