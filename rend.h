@@ -11,6 +11,10 @@ struct bnode { // bvh node, 32 bytes wide
 	uint32_t     cnt; // Tri or inst cnt
 };
 
+struct b2node {
+	// TODO
+};
+
 struct aabb { // 32 bytes
 	struct vec3  min;
 	float        pad0;

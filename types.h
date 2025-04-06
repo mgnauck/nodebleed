@@ -3,9 +3,9 @@
 
 enum flags {
 	// Types
-	MESH         = 0x0001,
-	CAM          = 0x0002,
-	MTL          = 0x0004,
+	MESH        = 0x0001,
+	CAM         = 0x0002,
+	MTL         = 0x0004,
 
 	// State/behaviour
 	DISABLED    = 0x0100,
