@@ -178,7 +178,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin")
+	if (import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin")
             != 0)
 		printf("Failed to import gltf\n");
 
@@ -220,7 +220,6 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Combine ray and hit for 64 byte alignment
 	// TODO Conversion to GPU bvh node, i.e. incl. child aabbs
 	// TODO Move code from main into some subsys
 

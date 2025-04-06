@@ -67,9 +67,9 @@ struct split find_intervalsplit(const struct bnode *n,
 			const struct aabb *a = &aabbs[*ip++];
 			float c = 0.5f * (vec3_getc(a->min, axis) +
 			  vec3_getc(a->max, axis));
-			unsigned int iv_id  = (unsigned int)max(0,
+			unsigned int ivid  = (unsigned int)max(0,
 			  min(INTERVAL_CNT - 1, (c - minc) * delta));
-			struct interval *iv = &ivs[iv_id];
+			struct interval *iv = &ivs[ivid];
 			iv->min = vec3_min(iv->min, a->min);
 			iv->max = vec3_max(iv->max, a->max);
 			iv->cnt++;
