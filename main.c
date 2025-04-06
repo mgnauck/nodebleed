@@ -220,6 +220,8 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
+	// TODO Combine ray and hit for 64 byte alignment
+	// TODO Conversion to GPU bvh node, i.e. incl. child aabbs
 	// TODO Move code from main into some subsys
 
 	//print_type_sizes();

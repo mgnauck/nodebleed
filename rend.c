@@ -29,18 +29,12 @@ struct interval {
 
 struct ray {
 	struct vec3  ori;
-	float        pad0;
+	float        t;
 	struct vec3  dir;
-	float        pad1;
+	float        u;
 	struct vec3  idir;
-	float        pad2;
-};
-
-struct hit {
-	float     t;
-	float     u;
-	float     v;
-	uint32_t  e;
+	float        v;
+	uint32_t     e;
 };
 
 float calc_area(struct vec3 mi, struct vec3 ma)
@@ -255,7 +249,7 @@ float intersect_aabb(const struct ray *r, float tfar,
 		return FLT_MAX;
 }
 
-void intersect_tri(struct hit *h, const struct ray *r, const struct rtri *tris,
+void intersect_tri(struct ray *r, const struct rtri *tris,
                    unsigned int triid, unsigned int instid)
 {
 	assert(triid < USHRT_MAX);
@@ -295,15 +289,15 @@ void intersect_tri(struct hit *h, const struct ray *r, const struct rtri *tris,
 
 	// Calculate dist
 	float dist = vec3_dot(e1, qv) * idet;
-	if (dist > 0.0f && dist < h->t) {
-		h->t = dist;
-		h->u = u;
-		h->v = v;
-		h->e = triid << 16 | instid;
+	if (dist > 0.0f && dist < r->t) {
+		r->t = dist;
+		r->u = u;
+		r->v = v;
+		r->e = triid << 16 | instid;
 	}
 }
 
-void intersect_blas(struct hit *h, const struct ray *r,
+void intersect_blas(struct ray *r,
                     const struct bnode *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid)
 {
@@ -316,7 +310,7 @@ void intersect_blas(struct hit *h, const struct ray *r,
 		if (n->cnt > 0) {
 			// Leaf, check triangles
 			for (unsigned int i = 0; i < n->cnt; i++)
-				intersect_tri(h, r, tris, imap[n->sid + i],
+				intersect_tri(r, tris, imap[n->sid + i],
 				  instid);
 
 			// Pop next node from stack if something is left
@@ -329,8 +323,8 @@ void intersect_blas(struct hit *h, const struct ray *r,
 			const struct bnode *c0 = &blas[n->sid];
 			const struct bnode *c1 = &blas[n->sid + 1];
 
-			float d0 = intersect_aabb(r, h->t, c0->min, c0->max);
-			float d1 = intersect_aabb(r, h->t, c1->min, c1->max);
+			float d0 = intersect_aabb(r, r->t, c0->min, c0->max);
+			float d1 = intersect_aabb(r, r->t, c1->min, c1->max);
 
 			if (d0 > d1) {
 				float t = d0;
@@ -361,7 +355,7 @@ void intersect_blas(struct hit *h, const struct ray *r,
 	}
 }
 
-void intersect_tlas(struct hit *h, const struct ray *r,
+void intersect_tlas(struct ray *r,
                     const struct bnode *nodes, const unsigned int *imap,
                     const struct rinst *insts, const struct rtri *tris,
                     unsigned int tlasofs)
@@ -386,13 +380,19 @@ void intersect_tlas(struct hit *h, const struct ray *r,
 				mat4_from3x4(inv, ri->globinv);
 				struct ray ros = (struct ray){
 				  .ori = mat4_mulpos(inv, r->ori),
-				  .dir = mat4_muldir(inv, r->dir)};
+				  .dir = mat4_muldir(inv, r->dir),
+				  .t = r->t, .u = r->u, .v = r->v, .e = r->e};
 				ros.idir = (struct vec3){1.0f / ros.dir.x,
 				  1.0f / ros.dir.y, 1.0f / ros.dir.z};
 
 				unsigned int o = ri->triofs;
-				intersect_blas(h, &ros, &nodes[o << 1],
+				intersect_blas(&ros, &nodes[o << 1],
 				  &imap[o], &tris[o], instid);
+
+				r->t = ros.t;
+				r->u = ros.u;
+				r->v = ros.v;
+				r->e = ros.e;
 			}
 
 			// Pop next node from stack if something is left
@@ -405,8 +405,8 @@ void intersect_tlas(struct hit *h, const struct ray *r,
 			const struct bnode *c0 = &tlas[n->sid];
 			const struct bnode *c1 = &tlas[n->sid + 1];
 
-			float d0 = intersect_aabb(r, h->t, c0->min, c0->max);
-			float d1 = intersect_aabb(r, h->t, c1->min, c1->max);
+			float d0 = intersect_aabb(r, r->t, c0->min, c0->max);
+			float d1 = intersect_aabb(r, r->t, c1->min, c1->max);
 
 			if (d0 > d1) {
 				float t = d0;
@@ -537,6 +537,7 @@ void rend_render(void *dst, struct rdata *rd)
 	struct vec3 dy = rd->view.dy;
 	struct vec3 tl = rd->view.tl;
 
+	struct ray r;
 	uint32_t *buf = dst;
 	for (unsigned int j = 0; j < rd->view.h; j += BLK_SZ) {
 	  for (unsigned int i = 0; i < rd->view.w; i += BLK_SZ) {
@@ -545,19 +546,19 @@ void rend_render(void *dst, struct rdata *rd)
 			struct vec3 p = vec3_add(tl, vec3_add(
 			  vec3_scale(dx, i + x), vec3_scale(dy, j + y)));
 
-			struct ray r = (struct ray){.ori = eye,
-			  .dir = vec3_unit(vec3_sub(p, eye))};
+			r.ori = eye;
+			r.dir = vec3_unit(vec3_sub(p, eye));
 			r.idir = (struct vec3){
 			  1.0f / r.dir.x, 1.0f / r.dir.y, 1.0f / r.dir.z};
+			r.t = FLT_MAX;
 
-			struct hit h = (struct hit){.t = FLT_MAX};
-			intersect_tlas(&h, &r, rd->nodes, rd->imap, rd->insts,
+			intersect_tlas(&r, rd->nodes, rd->imap, rd->insts,
 			  rd->tris, rd->tlasofs);
 
 			struct vec3 c = rd->bgcol;
-			if (h.t < FLT_MAX) {
-				unsigned int instid = h.e & 0xffff;
-				unsigned int triid = h.e >> 16;
+			if (r.t < FLT_MAX) {
+				unsigned int instid = r.e & 0xffff;
+				unsigned int triid = r.e >> 16;
 				struct rinst *ri = &rd->insts[instid];
 				struct rnrm *rn = &rd->nrms[ri->triofs + triid];
 				unsigned int mtlid = rn->mtlid;
@@ -569,7 +570,7 @@ void rend_render(void *dst, struct rdata *rd)
 					for (int i = 0; i < 3; i++)
 						it[4 * j + i] = rt[4 * i + j];
 
-				struct vec3 nrm = calc_nrm(h.u, h.v, rn, it);
+				struct vec3 nrm = calc_nrm(r.u, r.v, rn, it);
 				nrm = vec3_scale(vec3_add(nrm,
 				  (struct vec3){1, 1, 1}), 0.5f);
 				c = vec3_mul(nrm, rd->mtls[mtlid].col);
