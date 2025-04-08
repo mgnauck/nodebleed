@@ -344,7 +344,7 @@ void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
                     const struct bnode *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid)
 {
-	const struct bnode *stack[32];
+	const struct bnode *stack[64];
 	unsigned int spos = 0;
 
 	const struct bnode *n = blas;
@@ -395,8 +395,73 @@ void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 				n = c0;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
-					assert(spos < 32);
+					assert(spos < 64);
 					stack[spos++] = c1;
+				}
+			}
+		}
+	}
+}
+
+void intersect_blas2(struct hit *h, const struct vec3 ori, const struct vec3 dir,
+                     const struct b2node *blas, const unsigned int *imap,
+                     const struct rtri *tris, unsigned int instid)
+{
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	unsigned int curr = 0;
+
+	struct vec3 idir = (struct vec3){
+	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
+
+	while (true) {
+		const struct b2node *n = &blas[curr];
+
+		if (n->cnt > 0) {
+			// Leaf, check triangles
+			for (unsigned int i = 0; i < n->cnt; i++)
+				intersect_tri(h, ori, dir, tris,
+				  imap[n->start + i], instid);
+
+			// Pop next node from stack if something is left
+			if (spos > 0)
+				curr = stack[--spos];
+			else
+				return;
+		} else {
+			// Interior node, check child aabbs
+			float d0 = intersect_aabb(ori, idir, h->t,
+			  n->lmin, n->lmax);
+			float d1 = intersect_aabb(ori, idir, h->t,
+			  n->rmin, n->rmax);
+
+			unsigned int l = n->l;
+			unsigned int r = n->r;
+
+			if (d0 > d1) {
+				float t = d0;
+				d0 = d1;
+				d1 = t;
+
+				unsigned int tc = r;
+				r = l;
+				l = tc;
+			}
+
+			if (d0 == FLT_MAX) {
+				// Did not hit any child, try the stack
+				if (spos > 0)
+					curr = stack[--spos];
+				else
+					return;
+			} else {
+				// Continue with nearer child node
+				curr = l;
+				if (d1 != FLT_MAX) {
+					// Put farther child on stack
+					assert(spos < 64);
+					stack[spos++] = r;
 				}
 			}
 		}
@@ -408,7 +473,7 @@ void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
                     const struct rinst *insts, const struct rtri *tris,
                     unsigned int tlasofs)
 {
-	const struct bnode *stack[32];
+	const struct bnode *stack[64];
 	unsigned int spos = 0;
 
 	const struct bnode *tlas = &nodes[tlasofs << 1];
@@ -472,8 +537,88 @@ void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 				n = c0;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
-					assert(spos < 32);
+					assert(spos < 64);
 					stack[spos++] = c1;
+				}
+			}
+		}
+	}
+}
+
+void intersect_tlas2(struct hit *h, const struct vec3 ori, const struct vec3 dir,
+                     const struct b2node *nodes, const unsigned int *imap,
+                     const struct rinst *insts, const struct rtri *tris,
+                     unsigned int tlasofs)
+{
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	unsigned int curr = 0;
+
+	const struct b2node *tlas = &nodes[tlasofs << 1];
+	const unsigned int *tlasimap = &imap[tlasofs];
+
+	struct vec3 idir = (struct vec3){
+	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
+
+	while (true) {
+		const struct b2node *n = &tlas[curr];
+
+		if (n->cnt > 0) {
+			// Leaf, check instance blas
+			const unsigned int *ip = &tlasimap[n->start];
+			for (unsigned int i = 0; i < n->cnt; i++) {
+				unsigned int instid = *ip++;
+				const struct rinst *ri = &insts[instid];
+
+				// Transform ray into object space of instance
+				float inv[16];
+				mat4_from3x4(inv, ri->globinv);
+
+				unsigned int o = ri->triofs;
+				intersect_blas2(h,
+				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
+				  &nodes[o << 1], &imap[o], &tris[o], instid);
+			}
+
+			// Pop next node from stack if something is left
+			if (spos > 0)
+				curr = stack[--spos];
+			else
+				return;
+		} else {
+			// Interior node, check child aabbs
+			float d0 = intersect_aabb(ori, idir, h->t,
+			  n->lmin, n->lmax);
+			float d1 = intersect_aabb(ori, idir, h->t,
+			  n->rmin, n->rmax);
+
+			unsigned int l = n->l;
+			unsigned int r = n->r;
+
+			if (d0 > d1) {
+				float t = d0;
+				d0 = d1;
+				d1 = t;
+
+				unsigned int tc = r;
+				r = l;
+				l = tc;
+			}
+
+			if (d0 == FLT_MAX) {
+				// Did not hit any child, try the stack
+				if (spos > 0)
+					curr = stack[--spos];
+				else
+					return;
+			} else {
+				// Continue with nearer child node
+				curr = l;
+				if (d1 != FLT_MAX) {
+					// Put farther child on stack
+					assert(spos < 64);
+					stack[spos++] = r;
 				}
 			}
 		}
@@ -596,7 +741,7 @@ void rend_render(void *dst, struct rdata *rd)
 			struct vec3 dir = vec3_unit(vec3_sub(p, eye));
 			h.t = FLT_MAX;
 
-			intersect_tlas(&h, eye, dir, rd->nodes, rd->imap,
+			intersect_tlas2(&h, eye, dir, rd->nodes2, rd->imap,
 			  rd->insts, rd->tris, rd->tlasofs);
 
 			struct vec3 c = rd->bgcol;
