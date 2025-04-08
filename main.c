@@ -11,8 +11,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   1024
-#define HEIGHT  768
+#define WIDTH   320
+#define HEIGHT  240
 
 void print_type_sizes(void)
 {
@@ -121,9 +121,9 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 
 		// Update instance aabbs by transforming blas root to world
 		float *m = t->glob;
-		struct bnode *n = &rd->nodes[ri->triofs << 1];
-		struct vec3 nmi = n->min;
-		struct vec3 nma = n->max;
+		struct b2node *n = &rd->nodes2[ri->triofs << 1];
+		struct vec3 nmi = vec3_min(n->lmin, n->rmin);
+		struct vec3 nma = vec3_max(n->lmax, n->rmax);
 		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
 		struct vec3 ma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 
@@ -178,7 +178,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin")
+	if (import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin")
             != 0)
 		printf("Failed to import gltf\n");
 
@@ -196,7 +196,7 @@ void init(struct scene *s, struct rdata *rd)
 	  s->mtlmax, trimax, instmax);
 
 	long last = SDL_GetTicks();
-	rend_prepstatic(rd);
+	rend_prepstatic2(rd);
 	printf("Created blas in %ld ms\n", SDL_GetTicks() - last);
 }
 
@@ -209,7 +209,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 	upd_rinsts(rd, s);
 
 	//long last = SDL_GetTicks();
-	rend_prepdynamic(rd);
+	rend_prepdynamic2(rd);
 	//printf("Created tlas in %ld ms\n", SDL_GetTicks() - last);
 
 	struct cam *c = &s->cams[s->currcam];
