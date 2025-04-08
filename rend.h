@@ -5,14 +5,21 @@
 #include "vec3.h"
 
 struct bnode { // bvh node, 32 bytes wide
-	struct vec3  min;
-	uint32_t     sid; // Start index or node id
-	struct vec3  max;
+	struct vec3  min; // Aabb min of this node
+	uint32_t     sid; // Start index or left child node id
+	struct vec3  max; // Aabb max of this node
 	uint32_t     cnt; // Tri or inst cnt
 };
 
-struct b2node {
-	// TODO
+struct b2node { // bvh node for gpu rendering, 64 byte wide
+	struct vec3  lmin; // Aabb min of left child node
+	uint32_t     l; // Left child index
+	struct vec3  lmax; // Aabb max of left child node
+	uint32_t     r; // Right child index
+	struct vec3  rmin; // Aabb min of right child node
+	uint32_t     start; // Start index of tri or inst
+	struct vec3  rmax; // Aabb max of right child node
+	uint32_t     cnt; // Tri or inst cnt
 };
 
 struct aabb { // 32 bytes
@@ -86,6 +93,7 @@ struct rdata {
 
 	unsigned int  *imap; // Indices mapping tris/insts
 	struct bnode  *nodes; // All blas and one tlas
+	struct b2node *nodes2; // Nodes for GPU rendering
 	unsigned int  tlasofs;
 
 	struct rcam   cam;

@@ -11,7 +11,6 @@
 #include "types.h"
 #include "util.h"
 
-#define STACK_SIZE    64
 #define INTERVAL_CNT  8
 
 struct split {
@@ -121,20 +120,22 @@ struct split find_intervalsplit(const struct bnode *n,
 void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
                  unsigned int cnt, struct vec3 rmin, struct vec3 rmax)
 {
-	struct bnode *stack[STACK_SIZE];
+	unsigned int stack[64];
 	unsigned int spos = 0;
 
 	// Prepare root node
-	struct bnode *n = nodes;
-	n->min = rmin;
-	n->max = rmax;
-	n->sid = 0;
-	n->cnt = cnt;
+	struct bnode *r = nodes;
+	r->min = rmin;
+	r->max = rmax;
+	r->sid = 0;
+	r->cnt = cnt;
 
-	// Node cnt is root + 1 empty node for cache alignment
-	unsigned int ncnt = 2;
+	unsigned int ncnt = 2; // Root + 1 empty node for cache alignment
+	unsigned int nid = 0; // Start with root node
 
-	while (n) {
+	while (true) {
+		struct bnode *n = &nodes[nid];
+
 		/*// Split at longest axis
 		struct vec3 e = vec3_scale(vec3_sub(n->max, n->min), 0.5f);
 		unsigned char a = e.x > e.y && e.x > e.z ? 0 :
@@ -149,7 +150,7 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 			//printf("no split of sid: %d, cnt: %d\n",
 			//  n->sid, n->cnt);
 			if (spos > 0) {
-				n = stack[--spos];
+				nid = stack[--spos];
 				continue;
 			} else {
 				break;
@@ -189,7 +190,7 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 		if (lcnt == 0 || lcnt == n->cnt) {
 			//printf("one side of the partition was empty\n");
 			if (spos > 0) {
-				n = stack[--spos];
+				nid = stack[--spos];
 				continue;
 			} else {
 				break;
@@ -213,12 +214,56 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 		n->sid = ncnt; // Right child is implicitly + 1
 		n->cnt = 0; // No leaf, no tris or instance
 
-		ncnt += 2; // Account for two new nodes
-
 		// Push right child on stack and continue with left
-		assert(spos < STACK_SIZE);
-		stack[spos++] = right;
-		n = left;
+		assert(spos < 64);
+		stack[spos++] = ncnt + 1;
+		nid = ncnt;
+
+		ncnt += 2; // Account for two new nodes
+	}
+}
+
+void convert_bvh(struct b2node *tgt, struct bnode *src)
+{
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	// Current src and tgt node indices
+	unsigned int sn = 0;
+	unsigned int tn = 0;
+
+	while (true) {
+		struct bnode *s = &src[sn];
+		struct b2node *t = &tgt[tn++];
+
+		if (s->cnt > 0) {
+			t->start = s->sid;
+			t->cnt = s->cnt;
+
+			if (spos > 0) {
+				// Assign tgt prnt's right index
+				tgt[stack[--spos]].r = tn;
+				sn = stack[--spos];
+			} else
+				return;
+		} else {
+			sn = s->sid; // Left child
+
+			struct bnode *lc = &src[sn];
+			t->l = tn; // Left is next node in tgt
+			t->lmin = lc->min;
+			t->lmax = lc->max;
+
+			struct bnode *rc = &src[sn + 1]; // Right = left + 1
+			t->rmin = rc->min;
+			t->rmax = rc->max;
+			// Set tgt's right child index when it gets off stack
+
+			t->cnt = 0; // Mark as interior node
+
+			stack[spos++] = sn + 1; // Right src node
+			stack[spos++] = tn - 1; // Curr tgt (prnt of right)
+		}
 	}
 }
 
@@ -299,7 +344,7 @@ void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
                     const struct bnode *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid)
 {
-	const struct bnode *stack[STACK_SIZE];
+	const struct bnode *stack[32];
 	unsigned int spos = 0;
 
 	const struct bnode *n = blas;
@@ -350,7 +395,7 @@ void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 				n = c0;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
-					assert(spos < STACK_SIZE);
+					assert(spos < 32);
 					stack[spos++] = c1;
 				}
 			}
@@ -363,7 +408,7 @@ void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
                     const struct rinst *insts, const struct rtri *tris,
                     unsigned int tlasofs)
 {
-	const struct bnode *stack[STACK_SIZE];
+	const struct bnode *stack[32];
 	unsigned int spos = 0;
 
 	const struct bnode *tlas = &nodes[tlasofs << 1];
@@ -427,7 +472,7 @@ void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 				n = c0;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
-					assert(spos < STACK_SIZE);
+					assert(spos < 32);
 					stack[spos++] = c1;
 				}
 			}
@@ -453,6 +498,7 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	// Bvh nodes for blas and tlas combined in one array
 	rd->nodes = emalloc_align(idcnt * 2 * sizeof(*rd->nodes), 64);
 	memset(rd->nodes, 0, idcnt * 2 * sizeof(*rd->nodes));
+	rd->nodes2 = emalloc_align(idcnt * 2 * sizeof(*rd->nodes2), 64); // GPU
 
 	// Start of tlas index map and tlas nodes * 2
 	rd->tlasofs = maxtris;
@@ -460,6 +506,7 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 
 void rend_release(struct rdata *rd)
 {
+	free_align(rd->nodes2);
 	free_align(rd->nodes);
 	free_align(rd->imap);
 	free_align(rd->aabbs);
@@ -497,6 +544,7 @@ void rend_prepstatic(struct rdata *rd)
 			}
 			build_bvh(rn, aabbs, &rd->imap[ri->triofs],
 			  ri->tricnt, rmin, rmax);
+			convert_bvh(&rd->nodes2[ri->triofs << 1], rn);
 		}
 	}
 }
@@ -517,6 +565,7 @@ void rend_prepdynamic(struct rdata *rd)
 
 	build_bvh(&rd->nodes[tlasofs << 1], rd->aabbs, &rd->imap[tlasofs],
 	  rd->instcnt, rmin, rmax);
+	convert_bvh(&rd->nodes2[tlasofs << 1], &rd->nodes[tlasofs << 1]);
 }
 
 struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
