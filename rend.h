@@ -4,13 +4,13 @@
 #include <stdint.h>
 #include "vec3.h"
 
-struct b2node { // bvh node for gpu rendering, 64 byte wide
+struct b2node { // bvh node, 64 bytes
 	struct vec3  lmin;
 	uint32_t     l;
 	struct vec3  lmax;
-	uint32_t     r;
-	struct vec3  rmin;
 	uint32_t     start; // Start index of tri or inst
+	struct vec3  rmin;
+	uint32_t     r;
 	struct vec3  rmax;
 	uint32_t     cnt; // Tri or inst cnt
 };
@@ -85,8 +85,7 @@ struct rdata {
 	struct aabb   *aabbs; // World space instance aabbs
 
 	unsigned int  *imap; // Indices mapping tris/insts
-	//struct bnode  *nodes; // All blas and one tlas
-	struct b2node *nodes2; // Nodes for GPU rendering
+	struct b2node *nodes; // Bvh nodes all blas and tlas
 	unsigned int  tlasofs;
 
 	struct rcam   cam;
@@ -99,10 +98,8 @@ void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
                 unsigned int maxinsts);
 void  rend_release(struct rdata *rd);
 
-//void  rend_prepstatic(struct rdata *rd);
-void  rend_prepstatic2(struct rdata *rd);
-//void  rend_prepdynamic(struct rdata *rd);
-void  rend_prepdynamic2(struct rdata *rd);
+void  rend_prepstatic(struct rdata *rd);
+void  rend_prepdynamic(struct rdata *rd);
 void  rend_render(void *dst, struct rdata *rd);
 
 #endif

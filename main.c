@@ -11,8 +11,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   320
-#define HEIGHT  240
+#define WIDTH   1024
+#define HEIGHT  768
 
 void print_type_sizes(void)
 {
@@ -121,7 +121,7 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 
 		// Update instance aabbs by transforming blas root to world
 		float *m = t->glob;
-		struct b2node *n = &rd->nodes2[ri->triofs << 1];
+		struct b2node *n = &rd->nodes[ri->triofs << 1];
 		struct vec3 nmi = vec3_min(n->lmin, n->rmin);
 		struct vec3 nma = vec3_max(n->lmax, n->rmax);
 		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
@@ -196,7 +196,7 @@ void init(struct scene *s, struct rdata *rd)
 	  s->mtlmax, trimax, instmax);
 
 	long last = SDL_GetTicks();
-	rend_prepstatic2(rd);
+	rend_prepstatic(rd);
 	printf("Created blas in %ld ms\n", SDL_GetTicks() - last);
 }
 
@@ -209,7 +209,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 	upd_rinsts(rd, s);
 
 	//long last = SDL_GetTicks();
-	rend_prepdynamic2(rd);
+	rend_prepdynamic(rd);
 	//printf("Created tlas in %ld ms\n", SDL_GetTicks() - last);
 
 	struct cam *c = &s->cams[s->currcam];
@@ -220,7 +220,6 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Conversion to GPU bvh node, i.e. incl. child aabbs
 	// TODO Move code from main into some subsys
 
 	//print_type_sizes();
