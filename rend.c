@@ -589,58 +589,78 @@ struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
 	return vec3_unit(mat4_muldir(inv_transpose, nrm));
 }
 
-void rend_render(void *dst, struct rdata *rd)
+int rend_render(void *d)
 {
-#define BLK_SZ  4
+	struct rdata *rd = d;
+
 	struct vec3 eye = rd->cam.eye;
 	struct vec3 dx = rd->view.dx;
 	struct vec3 dy = rd->view.dy;
 	struct vec3 tl = rd->view.tl;
 
-	struct hit h;
-	uint32_t *buf = dst;
-	for (unsigned int j = 0; j < rd->view.h; j += BLK_SZ) {
-	  for (unsigned int i = 0; i < rd->view.w; i += BLK_SZ) {
-	    for (unsigned int y = 0; y < BLK_SZ; y++) {
-	      for (unsigned x = 0; x < BLK_SZ; x++) {
-			struct vec3 p = vec3_add(tl, vec3_add(
-			  vec3_scale(dx, i + x), vec3_scale(dy, j + y)));
+	unsigned int blksx = rd->view.w / rd->blksz;
+	unsigned int blksy = rd->view.h / rd->blksz;
+	unsigned int blkcnt = blksx * blksy;
 
-			struct vec3 dir = vec3_unit(vec3_sub(p, eye));
-			h.t = FLT_MAX;
+	uint32_t *buf = rd->buf;
+	unsigned int w = rd->view.w;
+	unsigned int h = rd->view.h;
+	unsigned int bs = rd->blksz;
 
-			intersect_tlas(&h, eye, dir, rd->nodes, rd->imap,
-			  rd->insts, rd->tris, rd->tlasofs);
+	while (true) {
+		unsigned int blk = rd->blknum++;
+		if (blk >= blkcnt)
+			return 0;
 
-			struct vec3 c = rd->bgcol;
-			if (h.t < FLT_MAX) {
-				unsigned int instid = h.id & 0xffff;
-				unsigned int triid = h.id >> 16;
-				struct rinst *ri = &rd->insts[instid];
-				struct rnrm *rn = &rd->nrms[ri->triofs + triid];
-				unsigned int mtlid = rn->mtlid;
+		unsigned int bx = (blk % blksx) * bs;
+		unsigned int by = (blk / blksx) * bs;
+		for (unsigned int j = 0; j < bs; j++) {
+			unsigned int y = by + j;
+			unsigned int yofs = w * y;
+			for (unsigned int i = 0; i < bs; i++) {
+				unsigned int x = bx + i;
+				struct vec3 p = vec3_add(tl, vec3_add(
+				  vec3_scale(dx, x), vec3_scale(dy, y)));
+				struct vec3 dir = vec3_unit(vec3_sub(p, eye));
 
-				// Inverse transpose, dir mul can be 3x4 only
-				float it[16];
-				float *rt = ri->globinv;
-				for (int j = 0; j < 4; j++)
-					for (int i = 0; i < 3; i++)
-						it[4 * j + i] = rt[4 * i + j];
+				struct hit h = {.t = FLT_MAX};
+				intersect_tlas(&h, eye, dir, rd->nodes,
+				  rd->imap, rd->insts, rd->tris, rd->tlasofs);
 
-				struct vec3 nrm = calc_nrm(h.u, h.v, rn, it);
-				nrm = vec3_scale(vec3_add(nrm,
-				  (struct vec3){1, 1, 1}), 0.5f);
-				c = vec3_mul(nrm, rd->mtls[mtlid].col);
-				//c = nrm;
+				struct vec3 c = rd->bgcol;
+				if (h.t < FLT_MAX) {
+					unsigned int instid = h.id & 0xffff;
+					unsigned int triid = h.id >> 16;
+					struct rinst *ri = &rd->insts[instid];
+					struct rnrm *rn =
+					  &rd->nrms[ri->triofs + triid];
+					unsigned int mtlid = rn->mtlid;
+
+					// Inverse transpose, dir mul is 3x4
+					float it[16];
+					float *rt = ri->globinv;
+					for (int j = 0; j < 4; j++)
+						for (int i = 0; i < 3; i++)
+							it[4 * j + i] =
+							  rt[4 * i + j];
+
+					struct vec3 nrm =
+					  calc_nrm(h.u, h.v, rn, it);
+					nrm = vec3_scale(vec3_add(nrm,
+					  (struct vec3){1, 1, 1}), 0.5f);
+					c = vec3_mul(nrm, rd->mtls[mtlid].col);
+					//c = nrm;
+				}
+
+				unsigned int cr =
+				  min(255, (unsigned int)(255 * c.x));
+				unsigned int cg =
+				  min(255, (unsigned int)(255 * c.y));
+				unsigned int cb =
+				  min(255, (unsigned int)(255 * c.z));
+				buf[yofs + x] =
+				  0xff << 24 | cr << 16 | cg << 8 | cb;
 			}
-
-			unsigned int cr = min(255, (unsigned int)(255 * c.x));
-			unsigned int cg = min(255, (unsigned int)(255 * c.y));
-			unsigned int cb = min(255, (unsigned int)(255 * c.z));
-			buf[rd->view.w * (j + y) + (i + x)] =
-			  0xff << 24 | cr << 16 | cg << 8 | cb;
-	      }
-	    }
-	  }
+		}
 	}
 }

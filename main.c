@@ -1,7 +1,10 @@
 #include <assert.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <threads.h>
+#include <unistd.h>
 
 #include <SDL.h>
 
@@ -11,8 +14,8 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   1024
-#define HEIGHT  768
+#define WIDTH   1920
+#define HEIGHT  1080
 
 void print_type_sizes(void)
 {
@@ -179,6 +182,7 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 void init(struct scene *s, struct rdata *rd)
 {
 	if (import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin")
+	//if (import_gltf(s, "../raynin/data/good_8.gltf", "../raynin/data/good_8.bin")
             != 0)
 		printf("Failed to import gltf\n");
 
@@ -228,6 +232,9 @@ int main(int argc, char *argv[])
 
 	setprogname(argv[0]);
 
+	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
+	printf("_SC_NPROCESSORS_ONLN: %d\n", thrdcnt);
+
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		return 1;
 
@@ -248,6 +255,11 @@ int main(int argc, char *argv[])
 	struct rdata rd = { 0 };
 	init(&s, &rd);
 
+	rd.blksz = 20;
+	rd.buf = scr->pixels;
+
+	thrd_t thrds[thrdcnt];
+
 	long start, last;
 	bool quit = false;
 	start = last = SDL_GetTicks64();
@@ -266,9 +278,16 @@ int main(int argc, char *argv[])
 		last = SDL_GetTicks64();
 
 		update(&rd, &s, (last - start) / 1000.0f);
-		rend_render(scr->pixels, &rd);
+		//rend_render(&rd);
+
+		for (unsigned int i = 0; i < thrdcnt; i++)
+			thrd_create(&thrds[i], rend_render, &rd);
+		for (unsigned int i = 0; i < thrdcnt; i++)
+			thrd_join(thrds[i], NULL);
 
 		SDL_UpdateWindowSurface(win);
+
+		rd.blknum = 0;
 	}
 
 	rend_release(&rd);
