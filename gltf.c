@@ -6,10 +6,11 @@
 
 #include "ext/jsmn.h"
 #include "gltf.h"
-#include "util.h"
 
 //#define dprintf printf
 #define dprintf(...)
+
+#define eprintf printf
 
 // Fixed buffer for temporary string storage
 #define SBUF_LEN 1024
@@ -239,7 +240,7 @@ unsigned int read_mtls(struct gltf *g, const char *s, jsmntok_t *t)
 	dprintf("> mtls\n");
 
 	g->mtlcnt = t->size;
-	g->mtls = emalloc(g->mtlcnt * sizeof(*g->mtls));
+	g->mtls = malloc(g->mtlcnt * sizeof(*g->mtls));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -345,7 +346,7 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 				dprintf("children: ");
 				n->childcnt = t[j + 1].size;
 				n->children =
-				  emalloc(n->childcnt * sizeof(*n->children));
+				  malloc(n->childcnt * sizeof(*n->children));
 				for (unsigned int k = 0; k < n->childcnt; k++) {
 					n->children[k] = atoi(
 					  toktostr(s, &t[j + 2 + k]));
@@ -370,7 +371,7 @@ unsigned int read_nodes(struct gltf *g, const char *s, jsmntok_t *t)
 	dprintf("> nodes\n");
 
 	g->nodecnt = t->size;
-	g->nodes = emalloc(g->nodecnt * sizeof(*g->nodes));
+	g->nodes = malloc(g->nodecnt * sizeof(*g->nodes));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -444,7 +445,7 @@ unsigned int read_cams(struct gltf *g, const char *s, jsmntok_t *t)
 	dprintf("> cams\n");
 
 	g->camcnt = t->size;
-	g->cams = emalloc(g->camcnt * sizeof(*g->cams));
+	g->cams = malloc(g->camcnt * sizeof(*g->cams));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -526,7 +527,7 @@ unsigned int read_primitives(struct gltfmesh *m, const char *s, jsmntok_t *t)
 	dprintf("> primitives\n");
 
 	m->primcnt = t->size;
-	m->prims = emalloc(m->primcnt * sizeof(*m->prims));
+	m->prims = malloc(m->primcnt * sizeof(*m->prims));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -579,7 +580,7 @@ unsigned int read_meshes(struct gltf *g, const char *s, jsmntok_t *t)
 	dprintf("> meshes\n");
 
 	g->meshcnt = t->size;
-	g->meshes = emalloc(g->meshcnt * sizeof(*g->meshes));
+	g->meshes = malloc(g->meshcnt * sizeof(*g->meshes));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -660,7 +661,7 @@ unsigned int read_channels(struct gltfanim *a, const char *s, jsmntok_t *t)
 	dprintf("> channels\n");
 
 	a->channelcnt = t->size;
-	a->channels = emalloc(a->channelcnt * sizeof(*a->channels));
+	a->channels = malloc(a->channelcnt * sizeof(*a->channels));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -722,7 +723,7 @@ unsigned int read_samplers(struct gltfanim *a, const char *s, jsmntok_t *t)
 	dprintf("> samplers\n");
 
 	a->samplercnt = t->size;
-	a->samplers = emalloc(a->samplercnt * sizeof(*a->samplers));
+	a->samplers = malloc(a->samplercnt * sizeof(*a->samplers));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -786,7 +787,7 @@ unsigned int read_anims(struct gltf *g, const char *s, jsmntok_t *t)
 	dprintf("> anims\n");
 
 	g->animcnt = t->size;
-	g->anims = emalloc(g->animcnt * sizeof(*g->anims));
+	g->anims = malloc(g->animcnt * sizeof(*g->anims));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -869,7 +870,7 @@ unsigned int read_accessors(struct gltf *g, const char *s, jsmntok_t *t)
 	dprintf("> accessors\n");
 
 	g->accessorcnt = t->size;
-	g->accessors = emalloc(g->accessorcnt * sizeof(*g->accessors));
+	g->accessors = malloc(g->accessorcnt * sizeof(*g->accessors));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -932,7 +933,7 @@ unsigned int read_bufviews(struct gltf *g, const char *s, jsmntok_t *t)
 	dprintf("> bufviews\n");
 
 	g->bufviewcnt = t->size;
-	g->bufviews = emalloc(g->bufviewcnt * sizeof(*g->bufviews));
+	g->bufviews = malloc(g->bufviewcnt * sizeof(*g->bufviews));
 
 	unsigned int cnt = 0;
 	unsigned int j = 1;
@@ -958,7 +959,7 @@ unsigned int read_scene(struct gltf *g, const char *s, jsmntok_t *t)
 				dprintf("root nodes: ");
 				g->rootcnt = t[j + 1].size;
 				g->roots =
-				  emalloc(g->rootcnt * sizeof(*g->roots));
+				  malloc(g->rootcnt * sizeof(*g->roots));
 				for (unsigned int k = 0; k < g->rootcnt; k++) {
 					g->roots[k] = atoi(
 					  toktostr(s, &t[j + 2 + k]));
@@ -1018,7 +1019,7 @@ int gltf_init(struct gltf *g, const char *buf)
 	}
 
 	// Parse all tokens
-	jsmntok_t *t = emalloc(cnt * sizeof(*t));
+	jsmntok_t *t = malloc(cnt * sizeof(*t));
 	jsmn_init(&parser);
 	cnt = jsmn_parse(&parser, buf, sz, t, cnt);
 	if (cnt < 0) {

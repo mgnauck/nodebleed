@@ -17,67 +17,19 @@ typedef struct pcg_state_setseq_64 {
 static pcg32_random_t pcg32_global = {
   0x853c49e6748fea9bULL, 0xda3e39cb94b95bdbULL};
 
-// Kernighan, Pike: The Practive of Programming
-void eprintf(const char *fmt, ...)
-{
-	fflush(stdout);
-
-	if (getprogname() != NULL)
-		fprintf(stderr, "%s: ", getprogname());
-
-	va_list args;
-
-	va_start(args, fmt);
-	vfprintf(stderr, fmt, args);
-	va_end(args);
-
-	if (fmt[0] != '\0' && fmt[strlen(fmt) - 1] == ':')
-		fprintf(stderr, " %s", strerror(errno));
-	fprintf(stderr, "\n");
-
-	exit(2);
-}
-
-char *estrdup(const char *s)
-{
-	char *t = malloc(strlen(s) + 1);
-	if (t == NULL)
-		eprintf("estrdup(\"%.20s\") failed:", s);
-	strcpy(t, s);
-	return t;
-}
-
-void *emalloc(size_t n)
-{
-	void *p = malloc(n);
-	if (p == NULL)
-		eprintf("malloc of %u bytes failed:", n);
-	return p;
-}
-
-void setprogname(const char *name)
-{
-	progname = estrdup(name);
-}
-
-char *getprogname(void)
-{
-	return progname;
-}
-
-void *emalloc_align(size_t n, size_t alignment)
+/*void *aligned_alloc(size_t alignment, size_t n)
 {
 	size_t ofs = alignment - 1 + sizeof(void *);
-	void *p = emalloc(n + ofs);
+	void *p = malloc(n + ofs);
 	void **a = (void **)(((size_t)p + ofs) & ~(alignment - 1));
 	a[-1] = p;
 	return a;
 }
 
-void free_align(void *ptr)
+void aligned_free(void *ptr)
 {
 	free(((void **)ptr)[-1]);
-}
+}*/
 
 // https://www.pcg-random.org
 uint32_t pcg32_random_r(pcg32_random_t *rng)

@@ -13,6 +13,9 @@
 #define dprintf printf
 //#define dprintf(...)
 
+#define eprintf(...) { printf(__VA_ARGS__); exit(1); }
+//#define eprintf(...) exit(1);
+
 unsigned int getmtlflags(struct gltfmtl *gm)
 {
 	unsigned int flags = 0;
@@ -33,7 +36,7 @@ void import_mtl(struct scene *s, struct gltfmtl *gm)
 	int id = scene_initmtl(s, gm->name,
 	  (struct vec3){gm->col[0], gm->col[1], gm->col[2]});
 	if (id < 0)
-		eprintf("failed to create mtl");
+		eprintf("Failed to create mtl\n");
 	struct mtl *m = &s->mtls[id];
 	m->metallic = gm->metallic;
 	m->roughness = gm->roughness;
@@ -62,7 +65,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 
 	int id = scene_initmesh(s, vcnt, icnt, gm->primcnt);
 	if (id < 0)
-		eprintf("failed to create mesh");
+		eprintf("Failed to create mesh\n");
 
 	struct mesh *m = &s->meshes[id];
 
@@ -195,7 +198,7 @@ void import_nodes(struct scene *s, unsigned int *nmap, struct gltfnode *nodes,
 	  n->rot,
 	  &(struct vec3){n->scale[0], n->scale[1], n->scale[2]});
 	if (nid < 0)
-	  eprintf("failed to create node %s", n->name);
+	  eprintf("Failed to create node %s\n", n->name);
 
 	// Cam references its node for transform
 	if (n->camid >= 0)
@@ -229,7 +232,7 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 			break;
 		case PA_WEIGHTS: // Not yet supported
 		default:
-			eprintf("unknown animation target");
+			eprintf("Unknown animation target\n");
 			tgt = TGT_TRANS;
 		};
 		scene_inittrack(s, sofs + c->sampler,
@@ -252,7 +255,7 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 			interp = IM_CUBIC;
 			break;
 		default:
-			eprintf("unknown keyframe interpolation mode");
+			eprintf("Unknown keyframe interpolation mode\n");
 			interp = IM_STEP;
 		};
 		// Find data len via keyframe cnt, track's tgt and interp mode,
@@ -262,14 +265,12 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 	}
 }
 
-int import_data(struct scene *s,
+void import_data(struct scene *s,
                 const char *gltfbuf, const unsigned char *binbuf)
 {
 	struct gltf g = { 0 };
-	if (gltf_init(&g, gltfbuf) != 0) {
-		gltf_release(&g);
-		return 1;
-	}
+	if (gltf_init(&g, gltfbuf) != 0)
+		eprintf("Failed to initialize gltf\n");
 
 	assert(g.meshcnt > 0 && g.rootcnt > 0 && g.nodecnt > 0);
 
@@ -322,7 +323,7 @@ int import_data(struct scene *s,
 	  &(struct vec3){0.0f, 0.0f, 0.0f},
 	  (float[4]){0.0f, 0.0f, 0.0f, 1.0f},
 	  &(struct vec3){1.0f, 1.0f, 1.0f}) != 0)
-		eprintf("failed to create root node");
+		eprintf("Failed to create root node\n");
 
 	unsigned int nodemap[g.nodecnt];
 	for (unsigned int i = 0; i < g.rootcnt; i++)
@@ -344,54 +345,43 @@ int import_data(struct scene *s,
 		import_anim(s, &g.anims[i], &g, nodemap, animacc);
 
 	gltf_release(&g);
-
-	return 0;
 }
 
-int import_gltf(struct scene *s, const char *gltfname, const char *binname)
+void import_gltf(struct scene *s, const char *gltfname, const char *binname)
 {
 	FILE *f = fopen(gltfname, "rt");
-	if (f == NULL)
-		eprintf("failed to open %s:", gltfname);
+	if (!f)
+		eprintf("Failed to open %s\n", gltfname);
 
 	fseek(f, 0L, SEEK_END);
 	size_t gltfsz = ftell(f);
 	fseek(f, 0L, SEEK_SET);
 
-	char *gltf = emalloc(gltfsz + 1);
+	char *gltf = malloc(gltfsz + 1);
 	
- 	if (fread(gltf, sizeof(*gltf), gltfsz, f) != gltfsz) {
- 		fclose(f);
-		free(gltf);
-		eprintf("failed to read %u bytes:", gltfsz);
- 	}
+	if (fread(gltf, sizeof(*gltf), gltfsz, f) != gltfsz)
+		eprintf("Failed to read %zu bytes\n", gltfsz);
 	gltf[gltfsz] = '\0';
 
  	fclose(f);
 
  	f = fopen(binname, "rb");
 	if (f == NULL)
-		eprintf("failed to open %s:", binname);
+		eprintf("Failed to open %s\n", binname);
 
 	fseek(f, 0L, SEEK_END);
 	size_t binsz = ftell(f);
 	fseek(f, 0L, SEEK_SET);
 
-	unsigned char *bin = emalloc(binsz);
+	unsigned char *bin = malloc(binsz);
 
-	if (fread(bin, sizeof(*bin), binsz, f) != binsz) {
-		fclose(f);
-		free(bin);
-		free(gltf);
-		eprintf("failed to read %u bytes:", binsz);
-	}
+	if (fread(bin, sizeof(*bin), binsz, f) != binsz)
+		eprintf("Failed to read %zu bytes\n", binsz);
 
 	fclose(f);
 
-	int err = import_data(s, gltf, bin);
+	import_data(s, gltf, bin);
 
 	free(bin);
 	free(gltf);
-
-	return err;
 }

@@ -3,6 +3,6 @@
 
 struct scene;
 
-int import_gltf(struct scene *s, const char *gltfname, const char *binname);
+void import_gltf(struct scene *s, const char *gltfname, const char *binname);
 
 #endif

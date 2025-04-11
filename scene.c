@@ -34,34 +34,34 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 {
 	s->meshmax = maxmeshes;
 	s->meshcnt = 0;
-	s->meshes = emalloc(maxmeshes * sizeof(*s->meshes));
+	s->meshes = malloc(maxmeshes * sizeof(*s->meshes));
 
 	s->mtlmax = maxmtls;
 	s->mtlcnt = 0;
-	s->mtls = emalloc(maxmtls * sizeof(*s->mtls));
+	s->mtls = malloc(maxmtls * sizeof(*s->mtls));
 
 	s->cammax = maxcams;
 	s->camcnt = 0;
-	s->cams = emalloc(maxcams * sizeof(*s->cams));
+	s->cams = malloc(maxcams * sizeof(*s->cams));
 
 	s->nodemax = maxnodes;
 	s->nodecnt = 0;
-	s->prnts = emalloc_align(maxnodes * sizeof(*s->prnts), 64);
-	s->objs = emalloc_align(maxnodes * sizeof(*s->objs), 64);
-	s->tfcomps = emalloc_align(maxnodes * sizeof(*s->tfcomps), 64);
-	s->tfmats = emalloc_align(maxnodes * sizeof(*s->tfmats), 64);
+	s->prnts = aligned_alloc(64, maxnodes * sizeof(*s->prnts));
+	s->objs = aligned_alloc(64, maxnodes * sizeof(*s->objs));
+	s->tfcomps = aligned_alloc(64, maxnodes * sizeof(*s->tfcomps));
+	s->tfmats = aligned_alloc(64, maxnodes * sizeof(*s->tfmats));
 
 	s->trackmax = maxtracks;
 	s->trackcnt = 0;
-	s->tracks = emalloc(maxtracks * sizeof(*s->tracks));
+	s->tracks = malloc(maxtracks * sizeof(*s->tracks));
 
 	s->samplermax = maxsamplers;
 	s->samplercnt = 0;
-	s->samplers = emalloc(maxsamplers * sizeof(*s->samplers));
+	s->samplers = malloc(maxsamplers * sizeof(*s->samplers));
 
-	s->animdata = emalloc(animdatabytes);
+	s->animdata = malloc(animdatabytes);
 
-	s->names = emalloc((maxmtls + maxcams + maxnodes) *
+	s->names = malloc((maxmtls + maxcams + maxnodes) *
 	                   NAME_MAX_LEN * sizeof(*s->names));
 	
 	s->currcam = 0;
@@ -89,10 +89,10 @@ void scene_release(struct scene *s)
 	free(s->tracks);
 	s->trackcnt = s->trackmax = 0;
 
-	free_align(s->tfmats);
-	free_align(s->tfcomps);
-	free_align(s->objs);
-	free_align(s->prnts);
+	free(s->tfmats);
+	free(s->tfcomps);
+	free(s->objs);
+	free(s->prnts);
 	s->nodecnt = s->nodemax = 0;
 	
 	free(s->cams);
@@ -162,10 +162,10 @@ int scene_initmesh(struct scene *s, unsigned int vcnt, unsigned int icnt,
 	int id = s->meshcnt++;
 	struct mesh *m = &s->meshes[id];
 
-	m->vrts = emalloc(vcnt * sizeof(*m->vrts));
-	m->nrms = emalloc(vcnt * sizeof(*m->nrms));
-	m->inds = emalloc(icnt * sizeof(*m->inds));
-	m->mtls = emalloc(mcnt * sizeof(*m->mtls));
+	m->vrts = malloc(vcnt * sizeof(*m->vrts));
+	m->nrms = malloc(vcnt * sizeof(*m->nrms));
+	m->inds = malloc(icnt * sizeof(*m->inds));
+	m->mtls = malloc(mcnt * sizeof(*m->mtls));
 
 	m->vcnt = 0; // Nothing added yet
 	m->icnt = 0;
@@ -354,7 +354,7 @@ void scene_updanims(struct scene *s, float time)
 		}
 
 		struct tfcomp *tfc = &s->tfcomps[tr->nid];
-		assert(tfc!= NULL);
+		assert(tfc != NULL);
 
 		float *dst;
 		switch (tr->tgt) {
@@ -368,9 +368,10 @@ void scene_updanims(struct scene *s, float time)
 			dst = &tfc->scale.x;
 			break;
 		default:
-			eprintf("unknown animation target");
 			dst = NULL;
 		}
+
+		assert(dst && "Invalid animation target");
 
 		for (unsigned int i = 0; i < comp; i++)
 			dst[i] = v[i];

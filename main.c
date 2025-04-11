@@ -17,18 +17,8 @@
 #define WIDTH   1920
 #define HEIGHT  1080
 
-void print_type_sizes(void)
-{
-	printf("sizeof(char): %ld\n", sizeof(char));
-	printf("sizeof(short int): %ld\n", sizeof(short int));
-	printf("sizeof(int): %ld\n", sizeof(int));
-	printf("sizeof(long int): %ld\n", sizeof(long int));
-	printf("sizeof(long long int): %ld\n", sizeof(long long int));
-	printf("sizeof(void *): %ld\n", sizeof(void *));
-	printf("sizeof(float): %ld\n", sizeof(float));
-	printf("sizeof(double): %ld\n", sizeof(double));
-	printf("\n");
-}
+#define dprintf printf
+//#define dprintf(...)
 
 unsigned int get_max_tris(struct mesh *meshes, unsigned int meshcnt)
 {
@@ -181,12 +171,11 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	if (import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin")
-	//if (import_gltf(s, "../raynin/data/good_8.gltf", "../raynin/data/good_8.bin")
-            != 0)
-		printf("Failed to import gltf\n");
+	import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
+	//import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
+	//import_gltf(s, "../raynin/data/good_8.gltf", "../raynin/data/good_8.bin");
 
-	printf("Imported scene with %d meshes, %d mtls, %d cams, %d nodes, %d tracks, %d samplers\n",
+	dprintf("Imported scene with %d meshes, %d mtls, %d cams, %d nodes, %d tracks, %d samplers\n",
 	  s->meshcnt, s->mtlcnt, s->camcnt, s->nodecnt, s->trackcnt,
 	  s->samplercnt);
 
@@ -196,12 +185,12 @@ void init(struct scene *s, struct rdata *rd)
 	rend_init(rd, s->mtlmax, trimax, instmax);
 	cpy_rdata(rd, s);
 
-	printf("Created render data with %d mtls, %d tris, %d insts\n",
+	dprintf("Created render data with %d mtls, %d tris, %d insts\n",
 	  s->mtlmax, trimax, instmax);
 
 	long last = SDL_GetTicks();
 	rend_prepstatic(rd);
-	printf("Created blas in %ld ms\n", SDL_GetTicks() - last);
+	dprintf("Created blas in %ld ms\n", SDL_GetTicks() - last);
 }
 
 void update(struct rdata *rd, struct scene *s, float time)
@@ -214,7 +203,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 	//long last = SDL_GetTicks();
 	rend_prepdynamic(rd);
-	//printf("Created tlas in %ld ms\n", SDL_GetTicks() - last);
+	//dprintf("Created tlas in %ld ms\n", SDL_GetTicks() - last);
 
 	struct cam *c = &s->cams[s->currcam];
 	upd_rcam(&rd->cam, c);
@@ -225,15 +214,14 @@ void update(struct rdata *rd, struct scene *s, float time)
 int main(int argc, char *argv[])
 {
 	// TODO Bvh node with register friendly layout of min/max
-	// TODO Remove usage of emalloc, eprintf etc. (size estimation)
 	// TODO Move code from main into some subsys
 
-	//print_type_sizes();
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
+	assert(sizeof(uint32_t) == sizeof(float));
 	assert(sizeof(uint16_t) == sizeof(unsigned short int));
 
 	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
-	printf("_SC_NPROCESSORS_ONLN: %d\n", thrdcnt);
+	dprintf("_SC_NPROCESSORS_ONLN: %d\n", thrdcnt);
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		return 1;
@@ -260,9 +248,9 @@ int main(int argc, char *argv[])
 
 	thrd_t thrds[thrdcnt];
 
-	long start, last;
+	long start;
 	bool quit = false;
-	start = last = SDL_GetTicks64();
+	start = SDL_GetTicks64();
 	while (!quit) {
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
@@ -272,10 +260,7 @@ int main(int argc, char *argv[])
 				quit = true;
 		}
 
-		char title[64];
-		snprintf(title, 64, "%ld ms", SDL_GetTicks64() - last);
-		SDL_SetWindowTitle(win, title);
-		last = SDL_GetTicks64();
+		long last = SDL_GetTicks64();
 
 		update(&rd, &s, (last - start) / 1000.0f);
 		//rend_render(&rd);
@@ -286,6 +271,10 @@ int main(int argc, char *argv[])
 			thrd_join(thrds[i], NULL);
 
 		SDL_UpdateWindowSurface(win);
+
+		char title[64];
+		snprintf(title, 64, "%ld ms", SDL_GetTicks64() - last);
+		SDL_SetWindowTitle(win, title);
 
 		rd.blknum = 0;
 	}

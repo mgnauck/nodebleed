@@ -12,6 +12,7 @@
 #include "util.h"
 
 #define dprintf printf
+//#define dprintf(...)
 
 #define INTERVAL_CNT  8
 
@@ -497,20 +498,20 @@ void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 void rend_init(struct rdata *rd, unsigned int maxmtls,
                unsigned int maxtris, unsigned int maxinsts) 
 {
-	rd->mtls = emalloc_align(maxmtls * sizeof(*rd->mtls), 64);
+	rd->mtls = aligned_alloc(64, maxmtls * sizeof(*rd->mtls));
 
-	rd->tris = emalloc_align(maxtris * sizeof(*rd->tris), 64);
-	rd->nrms = emalloc_align(maxtris * sizeof(*rd->nrms), 64);
+	rd->tris = aligned_alloc(64, maxtris * sizeof(*rd->tris));
+	rd->nrms = aligned_alloc(64, maxtris * sizeof(*rd->nrms));
 
-	rd->insts = emalloc_align(maxinsts * sizeof(*rd->insts), 64);
-	rd->aabbs = emalloc_align(maxinsts * sizeof(*rd->aabbs), 64);
+	rd->insts = aligned_alloc(64, maxinsts * sizeof(*rd->insts));
+	rd->aabbs = aligned_alloc(64, maxinsts * sizeof(*rd->aabbs));
 
 	// Index map contains tri and instance ids
 	unsigned int idcnt = maxtris + maxinsts;
-	rd->imap = emalloc_align(idcnt * sizeof(*rd->imap), 64);
+	rd->imap = aligned_alloc(64, idcnt * sizeof(*rd->imap));
 
 	// Bvh nodes for blas and tlas combined in one array
-	rd->nodes = emalloc_align(idcnt * 2 * sizeof(*rd->nodes), 64);
+	rd->nodes = aligned_alloc(64, idcnt * 2 * sizeof(*rd->nodes));
 	memset(rd->nodes, 0, idcnt * 2 * sizeof(*rd->nodes));
 
 	// Start of tlas index map and tlas nodes * 2
@@ -519,13 +520,13 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 
 void rend_release(struct rdata *rd)
 {
-	free_align(rd->nodes);
-	free_align(rd->imap);
-	free_align(rd->aabbs);
-	free_align(rd->insts);
-	free_align(rd->nrms);
-	free_align(rd->tris);
-	free_align(rd->mtls);
+	free(rd->nodes);
+	free(rd->imap);
+	free(rd->aabbs);
+	free(rd->insts);
+	free(rd->nrms);
+	free(rd->tris);
+	free(rd->mtls);
 }
 
 void rend_prepstatic(struct rdata *rd)

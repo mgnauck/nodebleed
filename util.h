@@ -14,14 +14,8 @@
 
 #define arrsz(a) (sizeof(a)/sizeof((a)[0]))
 
-void      eprintf(const char *fmt, ...);
-char      *estrdup(const char *s);
-void      *emalloc(size_t n);
-void      setprogname(const char *name);
-char      *getprogname(void);
-
-void      *emalloc_align(size_t n, size_t alignment);
-void      free_align(void *ptr);
+//void      *aligned_alloc(size_t alignment, size_t n);
+//void      aligned_free(void *ptr);
 
 void      pcg_srand(uint64_t seed, uint64_t seq);
 uint32_t  pcg_rand(void);
