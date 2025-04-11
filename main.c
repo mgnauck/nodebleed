@@ -225,6 +225,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 int main(int argc, char *argv[])
 {
 	// TODO Bvh node with register friendly layout of min/max
+	// TODO Remove usage of emalloc, eprintf etc. (size estimation)
 	// TODO Move code from main into some subsys
 
 	//print_type_sizes();
