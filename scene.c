@@ -8,6 +8,8 @@
 #include "scene.h"
 #include "util.h"
 
+#define dprintf printf
+
 int findid(struct scene *s, const char *name,
            unsigned int ofs, unsigned int cnt)
 {
@@ -235,7 +237,7 @@ int scene_inittrack(struct scene *s, unsigned int sid, unsigned int nid,
 
 	// Mark target node as animated
 	setflags(&s->objs[nid].flags, DYNAMIC);
-	//printf("Node '%s' is animated\n", scene_getnodename(s, nid));
+	//dprintf("Node '%s' is animated\n", scene_getnodename(s, nid));
 
 	return id;
 }

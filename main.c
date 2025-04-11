@@ -224,13 +224,12 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
+	// TODO Bvh node with register friendly layout of min/max
 	// TODO Move code from main into some subsys
 
 	//print_type_sizes();
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
 	assert(sizeof(uint16_t) == sizeof(unsigned short int));
-
-	setprogname(argv[0]);
 
 	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	printf("_SC_NPROCESSORS_ONLN: %d\n", thrdcnt);

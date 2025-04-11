@@ -11,6 +11,8 @@
 #include "types.h"
 #include "util.h"
 
+#define dprintf printf
+
 #define INTERVAL_CNT  8
 
 struct split {
@@ -154,7 +156,7 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 		struct split best = find_intervalsplit(n, aabbs, imap);
 		float nosplit = n->cnt * calc_area(n->min, n->max);
 		if (nosplit <= best.cost) {
-			//printf("no split of sid: %d, cnt: %d\n",
+			//dprintf("no split of sid: %d, cnt: %d\n",
 			//  n->sid, n->cnt);
 			if (spos > 0) {
 				nid = stack[--spos];
@@ -195,7 +197,7 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 
 		unsigned int lcnt = l - n->sid;
 		if (lcnt == 0 || lcnt == n->cnt) {
-			//printf("one side of the partition was empty\n");
+			//dprintf("one side of the partition was empty\n");
 			if (spos > 0) {
 				nid = stack[--spos];
 				continue;
@@ -532,7 +534,7 @@ void rend_prepstatic(struct rdata *rd)
 		struct rinst *ri = &rd->insts[j];
 		struct b2node *rn = &rd->nodes[ri->triofs << 1]; // Root node
 		if (rn->start + rn->cnt == 0) { // Not processed yet
-			printf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: 0x%lx\n",
+			dprintf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: 0x%lx\n",
 			  j, ri->triofs, ri->tricnt, (unsigned long)rn);
 			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
 			struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
@@ -589,6 +591,36 @@ struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
 	return vec3_unit(mat4_muldir(inv_transpose, nrm));
 }
 
+struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
+{
+	struct hit h = {.t = FLT_MAX};
+	intersect_tlas(&h, o, d, rd->nodes, rd->imap, rd->insts,
+	  rd->tris, rd->tlasofs);
+
+	struct vec3 c = rd->bgcol;
+	if (h.t < FLT_MAX) {
+		unsigned int instid = h.id & 0xffff;
+		unsigned int triid = h.id >> 16;
+		struct rinst *ri = &rd->insts[instid];
+		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+		unsigned int mtlid = rn->mtlid;
+
+		// Inverse transpose, dir mul is 3x4
+		float it[16];
+		float *rt = ri->globinv;
+		for (int j = 0; j < 4; j++)
+			for (int i = 0; i < 3; i++)
+				it[4 * j + i] = rt[4 * i + j];
+
+		struct vec3 nrm = calc_nrm(h.u, h.v, rn, it);
+		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
+		c = vec3_mul(nrm, rd->mtls[mtlid].col);
+		//c = nrm;
+	}
+
+	return c;
+}
+
 int rend_render(void *d)
 {
 	struct rdata *rd = d;
@@ -611,7 +643,6 @@ int rend_render(void *d)
 		unsigned int blk = rd->blknum++;
 		if (blk >= blkcnt)
 			return 0;
-
 		unsigned int bx = (blk % blksx) * bs;
 		unsigned int by = (blk / blksx) * bs;
 		for (unsigned int j = 0; j < bs; j++) {
@@ -621,45 +652,14 @@ int rend_render(void *d)
 				unsigned int x = bx + i;
 				struct vec3 p = vec3_add(tl, vec3_add(
 				  vec3_scale(dx, x), vec3_scale(dy, y)));
-				struct vec3 dir = vec3_unit(vec3_sub(p, eye));
 
-				struct hit h = {.t = FLT_MAX};
-				intersect_tlas(&h, eye, dir, rd->nodes,
-				  rd->imap, rd->insts, rd->tris, rd->tlasofs);
+				struct vec3 c =
+				  trace(eye, vec3_unit(vec3_sub(p, eye)), rd);
 
-				struct vec3 c = rd->bgcol;
-				if (h.t < FLT_MAX) {
-					unsigned int instid = h.id & 0xffff;
-					unsigned int triid = h.id >> 16;
-					struct rinst *ri = &rd->insts[instid];
-					struct rnrm *rn =
-					  &rd->nrms[ri->triofs + triid];
-					unsigned int mtlid = rn->mtlid;
-
-					// Inverse transpose, dir mul is 3x4
-					float it[16];
-					float *rt = ri->globinv;
-					for (int j = 0; j < 4; j++)
-						for (int i = 0; i < 3; i++)
-							it[4 * j + i] =
-							  rt[4 * i + j];
-
-					struct vec3 nrm =
-					  calc_nrm(h.u, h.v, rn, it);
-					nrm = vec3_scale(vec3_add(nrm,
-					  (struct vec3){1, 1, 1}), 0.5f);
-					c = vec3_mul(nrm, rd->mtls[mtlid].col);
-					//c = nrm;
-				}
-
-				unsigned int cr =
-				  min(255, (unsigned int)(255 * c.x));
-				unsigned int cg =
-				  min(255, (unsigned int)(255 * c.y));
-				unsigned int cb =
+				buf[yofs + x] = 0xff << 24 |
+				  min(255, (unsigned int)(255 * c.x)) << 16 |
+				  min(255, (unsigned int)(255 * c.y)) <<  8 |
 				  min(255, (unsigned int)(255 * c.z));
-				buf[yofs + x] =
-				  0xff << 24 | cr << 16 | cg << 8 | cb;
 			}
 		}
 	}
