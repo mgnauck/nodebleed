@@ -11,6 +11,7 @@
 #define dprintf(...)
 
 #define eprintf printf
+//#define eprintf(...)
 
 // Fixed buffer for temporary string storage
 #define SBUF_LEN 1024
