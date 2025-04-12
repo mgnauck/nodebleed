@@ -239,6 +239,7 @@ int main(int argc, char *argv[])
 	SDL_Surface *scr = SDL_GetWindowSurface(win);
 	if (!scr) {
 		SDL_DestroyWindow(win);
+		SDL_Quit();
 		return 1;
 	}
 
