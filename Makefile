@@ -7,9 +7,8 @@ CPPFLAGS =
 CFLAGS = -std=c11 -O2 -Wall -Wextra -pedantic -Wno-unused-parameter -Wno-unused-variable
 CFLAGS += -flto
 CFLAGS += $(shell sdl2-config --cflags)
-#CFLAGS += -Wunsupported
-#DBGFLAGS = -g
-DBGFLAGS =
+DBGFLAGS = -g
+#DBGFLAGS = -DNDEBUG
 LIBS = -lm
 LIBS += $(shell sdl2-config --libs)
 LDFLAGS = -s

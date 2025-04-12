@@ -11,8 +11,11 @@
 #include "types.h"
 #include "util.h"
 
+#ifndef NDEBUG
 #define dprintf printf
-//#define dprintf(...)
+#else
+#define dprintf(...)
+#endif
 
 #define INTERVAL_CNT  8
 

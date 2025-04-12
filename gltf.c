@@ -7,11 +7,15 @@
 #include "ext/jsmn.h"
 #include "gltf.h"
 
-//#define dprintf printf
-#define dprintf(...)
+// Output trace
+//#define tprintf printf
+#define tprintf(...)
 
+#ifndef NDEBUG
 #define eprintf printf
-//#define eprintf(...)
+#else
+#define eprintf(...)
+#endif
 
 // Fixed buffer for temporary string storage
 #define SBUF_LEN 1024
@@ -49,7 +53,7 @@ unsigned int dump(const char *s, jsmntok_t *t)
 {
 	if (t->type == JSMN_PRIMITIVE || t->type == JSMN_STRING) {
 		// Print ignored items
-		//dprintf("// %.*s\n", t->end - t->start, s + t->start);
+		//tprintf("// %.*s\n", t->end - t->start, s + t->start);
 		return 1;
 	}
 
@@ -93,7 +97,7 @@ unsigned int read_mtl_extensions(struct gltfmtl *m, const char *s,
 			if (jsoneq(s, t + j + 2, "emissiveStrength") == 0) {
 				*emissivestrength =
 				  atof(toktostr(s, t + j + 3));
-				dprintf("emissiveStrength: %f\n",
+				tprintf("emissiveStrength: %f\n",
 				  *emissivestrength);
 				j += 4;
 				continue;
@@ -103,7 +107,7 @@ unsigned int read_mtl_extensions(struct gltfmtl *m, const char *s,
 		if (jsoneq(s, key, "KHR_materials_transmission") == 0) {
 			if (jsoneq(s, t + j + 2, "transmissionFactor") == 0) {
 				m->refractive = atof(toktostr(s, t + j + 3));
-				dprintf("transmissionFactor (refractive): %f\n",
+				tprintf("transmissionFactor (refractive): %f\n",
 				  m->refractive);
 				j += 4;
 				continue;
@@ -113,7 +117,7 @@ unsigned int read_mtl_extensions(struct gltfmtl *m, const char *s,
 		if (jsoneq(s, key, "KHR_materials_ior") == 0) {
 			if (jsoneq(s, t + j + 2, "ior") == 0) {
 				m->ior = atof(toktostr(s, t + j + 3));
-				dprintf("ior: %f\n", m->ior);
+				tprintf("ior: %f\n", m->ior);
 				j += 4;
 				continue;
 			}
@@ -150,7 +154,7 @@ unsigned int read_pbr_metallic_roughness(struct gltfmtl *m, const char *s,
 		if (jsoneq(s, key, "metallicFactor") == 0) {
 			if (t[j + 1].type == JSMN_PRIMITIVE) {
 				m->metallic = atof(toktostr(s, &t[j + 1]));
-				dprintf("metallicFactor: %f\n", m->metallic);
+				tprintf("metallicFactor: %f\n", m->metallic);
 				j += 2;
 				continue;
 			} else {
@@ -161,7 +165,7 @@ unsigned int read_pbr_metallic_roughness(struct gltfmtl *m, const char *s,
 		if (jsoneq(s, key, "roughnessFactor") == 0) {
 			if (t[j + 1].type == JSMN_PRIMITIVE) {
 				m->roughness = atof(toktostr(s, &t[j + 1]));
-				dprintf("roughnessFactor: %f\n", m->roughness);
+				tprintf("roughnessFactor: %f\n", m->roughness);
 				j += 2;
 				continue;
 			} else {
@@ -196,7 +200,7 @@ unsigned int read_mtl(struct gltfmtl *m, const char *s, jsmntok_t *t)
 			char *name = toktostr(s, &t[j + 1]);
 			strncpyl(m->name, name, t[j + 1].end - t[j + 1].start,
 			  NAME_MAX_LEN);
-			dprintf("name: %s\n", m->name);
+			tprintf("name: %s\n", m->name);
 			j += 2;
 			continue;
 		}
@@ -238,7 +242,7 @@ unsigned int read_mtl(struct gltfmtl *m, const char *s, jsmntok_t *t)
 
 unsigned int read_mtls(struct gltf *g, const char *s, jsmntok_t *t)
 {
-	dprintf("> mtls\n");
+	tprintf("> mtls\n");
 
 	g->mtlcnt = t->size;
 	g->mtls = malloc(g->mtlcnt * sizeof(*g->mtls));
@@ -246,12 +250,12 @@ unsigned int read_mtls(struct gltf *g, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> mtl %i\n", i);
+		tprintf("> mtl %i\n", i);
 		j += read_mtl(&g->mtls[cnt++], s, t + j);
-		dprintf("< mtl %i\n", i);
+		tprintf("< mtl %i\n", i);
 	}
 
-	dprintf("< mtls (total: %i)\n", cnt);
+	tprintf("< mtls (total: %i)\n", cnt);
 
 	return j;
 }
@@ -274,21 +278,21 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 			char *name = toktostr(s, &t[j + 1]);
 			strncpyl(n->name, name, t[j + 1].end - t[j + 1].start,
 			  NAME_MAX_LEN);
-			dprintf("name: %s\n", name);
+			tprintf("name: %s\n", name);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "mesh") == 0) {
 			n->meshid = atoi(toktostr(s, &t[j + 1]));
-			dprintf("mesh: %i\n", n->meshid);
+			tprintf("mesh: %i\n", n->meshid);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "camera") == 0) {
 			n->camid = atoi(toktostr(s, &t[j + 1]));
-			dprintf("camera: %i\n", n->camid);
+			tprintf("camera: %i\n", n->camid);
 			j += 2;
 			continue;
 		}
@@ -300,7 +304,7 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 				  atof(toktostr(s, &t[j + 3])),
 				  atof(toktostr(s, &t[j + 4]))},
 				  3 * sizeof(*n->trans));
-				dprintf("translation: %f, %f, %f\n",
+				tprintf("translation: %f, %f, %f\n",
 				  n->trans[0], n->trans[1], n->trans[2]);
 				j += 5;
 				continue;
@@ -316,7 +320,7 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 				  atof(toktostr(s, &t[j + 3])),
 				  atof(toktostr(s, &t[j + 4]))},
 				  3 * sizeof(*n->scale));
-				dprintf("scale: %f, %f, %f\n",
+				tprintf("scale: %f, %f, %f\n",
 				  n->scale[0], n->scale[1], n->scale[2]);
 				j += 5;
 				continue;
@@ -333,7 +337,7 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 				  atof(toktostr(s, &t[j + 4])),
 				  atof(toktostr(s, &t[j + 5]))},
 				  4 * sizeof(*n->rot));
-				dprintf("rotation: %f, %f, %f, %f\n",
+				tprintf("rotation: %f, %f, %f, %f\n",
 				  n->rot[0], n->rot[1], n->rot[2], n->rot[3]);
 				j += 6;
 				continue;
@@ -344,16 +348,16 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "children") == 0) {
 			if (t[j + 1].type == JSMN_ARRAY) {
-				dprintf("children: ");
+				tprintf("children: ");
 				n->childcnt = t[j + 1].size;
 				n->children =
 				  malloc(n->childcnt * sizeof(*n->children));
 				for (unsigned int k = 0; k < n->childcnt; k++) {
 					n->children[k] = atoi(
 					  toktostr(s, &t[j + 2 + k]));
-					dprintf("%d ", n->children[k]);
+					tprintf("%d ", n->children[k]);
 				}
-				dprintf("\n");
+				tprintf("\n");
 				j += 2 + n->childcnt;
 				continue;
 			} else {
@@ -369,7 +373,7 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 
 unsigned int read_nodes(struct gltf *g, const char *s, jsmntok_t *t)
 {
-	dprintf("> nodes\n");
+	tprintf("> nodes\n");
 
 	g->nodecnt = t->size;
 	g->nodes = malloc(g->nodecnt * sizeof(*g->nodes));
@@ -377,7 +381,7 @@ unsigned int read_nodes(struct gltf *g, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> node %i\n", i);
+		tprintf("> node %i\n", i);
 
 		struct gltfnode *n = &g->nodes[cnt++];
 		j += read_node(n, s, t + j);
@@ -385,10 +389,10 @@ unsigned int read_nodes(struct gltf *g, const char *s, jsmntok_t *t)
 		if (n->camid >= 0)
 			g->camnodecnt++;
 
-		dprintf("< node %i\n", i);
+		tprintf("< node %i\n", i);
 	}
 
-	dprintf("< nodes (total: %i)\n", cnt);
+	tprintf("< nodes (total: %i)\n", cnt);
 
 	return j;
 }
@@ -402,7 +406,7 @@ unsigned int read_cam_perspective(struct gltfcam *c, const char *s,
 
 		if (jsoneq(s, key, "yfov") == 0) {
 			c->vfov = atof(toktostr(s, &t[j + 1]));
-			dprintf("yfov: %f\n", c->vfov);
+			tprintf("yfov: %f\n", c->vfov);
 			j += 2;
 			continue;
 		}
@@ -425,7 +429,7 @@ unsigned int read_cam(struct gltfcam *c, const char *s, jsmntok_t *t)
 			char *name = toktostr(s, &t[j + 1]);
 			strncpyl(c->name, name, t[j + 1].end - t[j + 1].start,
 			  NAME_MAX_LEN);
-			dprintf("name: %s\n", c->name);
+			tprintf("name: %s\n", c->name);
 			j += 2;
 			continue;
 		}
@@ -443,7 +447,7 @@ unsigned int read_cam(struct gltfcam *c, const char *s, jsmntok_t *t)
 
 unsigned int read_cams(struct gltf *g, const char *s, jsmntok_t *t)
 {
-	dprintf("> cams\n");
+	tprintf("> cams\n");
 
 	g->camcnt = t->size;
 	g->cams = malloc(g->camcnt * sizeof(*g->cams));
@@ -451,12 +455,12 @@ unsigned int read_cams(struct gltf *g, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> cam %i\n", i);
+		tprintf("> cam %i\n", i);
 		j += read_cam(&g->cams[cnt++], s, t + j);
-		dprintf("< cam %i\n", i);
+		tprintf("< cam %i\n", i);
 	}
 
-	dprintf("< cams (total: %i)\n", cnt);
+	tprintf("< cams (total: %i)\n", cnt);
 
 	return j;
 }
@@ -469,14 +473,14 @@ unsigned int read_attributes(struct gltfprim *p, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "POSITION") == 0) {
 			p->posid = atoi(toktostr(s, &t[j + 1]));
-			dprintf("position: %i\n", p->posid);
+			tprintf("position: %i\n", p->posid);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "NORMAL") == 0) {
 			p->nrmid = atoi(toktostr(s, &t[j + 1]));
-			dprintf("normal: %i\n", p->nrmid);
+			tprintf("normal: %i\n", p->nrmid);
 			j += 2;
 			continue;
 		}
@@ -505,14 +509,14 @@ unsigned int read_primitive(struct gltfprim *p, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "indices") == 0) {
 			p->indid = atoi(toktostr(s, &t[j + 1]));
-			dprintf("indices: %i\n", p->indid);
+			tprintf("indices: %i\n", p->indid);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "material") == 0) {
 			p->mtlid = atoi(toktostr(s, &t[j + 1]));
-			dprintf("material: %i\n", p->mtlid);
+			tprintf("material: %i\n", p->mtlid);
 			j += 2;
 			continue;
 		}
@@ -525,7 +529,7 @@ unsigned int read_primitive(struct gltfprim *p, const char *s, jsmntok_t *t)
 
 unsigned int read_primitives(struct gltfmesh *m, const char *s, jsmntok_t *t)
 {
-	dprintf("> primitives\n");
+	tprintf("> primitives\n");
 
 	m->primcnt = t->size;
 	m->prims = malloc(m->primcnt * sizeof(*m->prims));
@@ -533,12 +537,12 @@ unsigned int read_primitives(struct gltfmesh *m, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> primitive %i\n", i);
+		tprintf("> primitive %i\n", i);
 		j += read_primitive(&m->prims[cnt++], s, &t[j]);
-		dprintf("< primitive %i\n", i);
+		tprintf("< primitive %i\n", i);
 	}
 
-	dprintf("< primitives (total: %i)\n", cnt);
+	tprintf("< primitives (total: %i)\n", cnt);
 
 	return j;
 }
@@ -556,7 +560,7 @@ unsigned int read_mesh(struct gltfmesh *m, const char *s, jsmntok_t *t)
 			char *name = toktostr(s, &t[j + 1]);
 			strncpyl(m->name, name,
 			  t[j + 1].end - t[j + 1].start, NAME_MAX_LEN);
-			dprintf("name: %s\n", name);
+			tprintf("name: %s\n", name);
 			j += 2;
 			continue;
 		}
@@ -578,7 +582,7 @@ unsigned int read_mesh(struct gltfmesh *m, const char *s, jsmntok_t *t)
 
 unsigned int read_meshes(struct gltf *g, const char *s, jsmntok_t *t)
 {
-	dprintf("> meshes\n");
+	tprintf("> meshes\n");
 
 	g->meshcnt = t->size;
 	g->meshes = malloc(g->meshcnt * sizeof(*g->meshes));
@@ -586,12 +590,12 @@ unsigned int read_meshes(struct gltf *g, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> mesh %i\n", i);
+		tprintf("> mesh %i\n", i);
 		j += read_mesh(&g->meshes[cnt++], s, t + j);
-		dprintf("< mesh %i\n", i);
+		tprintf("< mesh %i\n", i);
 	}
 
-	dprintf("< meshes (total: %i)\n", cnt);
+	tprintf("< meshes (total: %i)\n", cnt);
 
 	return j;
 }
@@ -604,7 +608,7 @@ unsigned int read_target(struct gltftarget *ta, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "node") == 0) {
 			ta->node = atoi(toktostr(s, &t[j + 1]));
-			dprintf("node: %i\n", ta->node);
+			tprintf("node: %i\n", ta->node);
 			j += 2;
 			continue;
 		}
@@ -622,7 +626,7 @@ unsigned int read_target(struct gltftarget *ta, const char *s, jsmntok_t *t)
 			else
 				eprintf("Anim path of unknown type: %s\n",
 				  path);
-			dprintf("path: %i (%s)\n", ta->path, path);
+			tprintf("path: %i (%s)\n", ta->path, path);
 			j += 2;
 			continue;
 		}
@@ -646,7 +650,7 @@ unsigned int read_channel(struct gltfchan *c, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "sampler") == 0) {
 			c->sampler = atoi(toktostr(s, &t[j + 1]));
-			dprintf("sampler: %i\n", c->sampler);
+			tprintf("sampler: %i\n", c->sampler);
 			j += 2;
 			continue;
 		}
@@ -659,7 +663,7 @@ unsigned int read_channel(struct gltfchan *c, const char *s, jsmntok_t *t)
 
 unsigned int read_channels(struct gltfanim *a, const char *s, jsmntok_t *t)
 {
-	dprintf("> channels\n");
+	tprintf("> channels\n");
 
 	a->channelcnt = t->size;
 	a->channels = malloc(a->channelcnt * sizeof(*a->channels));
@@ -667,12 +671,12 @@ unsigned int read_channels(struct gltfanim *a, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> channel %i\n", i);
+		tprintf("> channel %i\n", i);
 		j += read_channel(&a->channels[cnt++], s, &t[j]);
-		dprintf("< channel %i\n", i);
+		tprintf("< channel %i\n", i);
 	}
 
-	dprintf("< channels (total: %i)\n", cnt);
+	tprintf("< channels (total: %i)\n", cnt);
 
 	return j;
 }
@@ -685,7 +689,7 @@ unsigned int read_sampler(struct gltfsampler *sa, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "input") == 0) {
 			sa->input = atoi(toktostr(s, &t[j + 1]));
-			dprintf("input: %i\n", sa->input);
+			tprintf("input: %i\n", sa->input);
 			j += 2;
 			continue;
 		}
@@ -701,14 +705,14 @@ unsigned int read_sampler(struct gltfsampler *sa, const char *s, jsmntok_t *t)
 			else
 				eprintf("Interpolation mode of unknown type: %s\n",
 				  interp);
-			dprintf("interp: %i (%s)\n", sa->interp, interp);
+			tprintf("interp: %i (%s)\n", sa->interp, interp);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "output") == 0) {
 			sa->output = atoi(toktostr(s, &t[j + 1]));
-			dprintf("output: %i\n", sa->output);
+			tprintf("output: %i\n", sa->output);
 			j += 2;
 			continue;
 		}
@@ -721,7 +725,7 @@ unsigned int read_sampler(struct gltfsampler *sa, const char *s, jsmntok_t *t)
 
 unsigned int read_samplers(struct gltfanim *a, const char *s, jsmntok_t *t)
 {
-	dprintf("> samplers\n");
+	tprintf("> samplers\n");
 
 	a->samplercnt = t->size;
 	a->samplers = malloc(a->samplercnt * sizeof(*a->samplers));
@@ -729,12 +733,12 @@ unsigned int read_samplers(struct gltfanim *a, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> sampler %i\n", i);
+		tprintf("> sampler %i\n", i);
 		j += read_sampler(&a->samplers[cnt++], s, &t[j]);
-		dprintf("< sampler %i\n", i);
+		tprintf("< sampler %i\n", i);
 	}
 
-	dprintf("< samplers (total: %i)\n", cnt);
+	tprintf("< samplers (total: %i)\n", cnt);
 
 	return j;
 }
@@ -754,7 +758,7 @@ unsigned int read_anim(struct gltfanim *a, const char *s, jsmntok_t *t)
 			char *name = toktostr(s, &t[j + 1]);
 			strncpyl(a->name, name,
 			  t[j + 1].end - t[j + 1].start, NAME_MAX_LEN);
-			dprintf("name: %s\n", name);
+			tprintf("name: %s\n", name);
 			j += 2;
 			continue;
 		}
@@ -785,7 +789,7 @@ unsigned int read_anim(struct gltfanim *a, const char *s, jsmntok_t *t)
 
 unsigned int read_anims(struct gltf *g, const char *s, jsmntok_t *t)
 {
-	dprintf("> anims\n");
+	tprintf("> anims\n");
 
 	g->animcnt = t->size;
 	g->anims = malloc(g->animcnt * sizeof(*g->anims));
@@ -793,12 +797,12 @@ unsigned int read_anims(struct gltf *g, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> anim %i\n", i);
+		tprintf("> anim %i\n", i);
 		j += read_anim(&g->anims[cnt++], s, t + j);
-		dprintf("< anim %i\n", i);
+		tprintf("< anim %i\n", i);
 	}
 
-	dprintf("< anims (total: %i)\n", cnt);
+	tprintf("< anims (total: %i)\n", cnt);
 
 	return j;
 }
@@ -814,28 +818,28 @@ unsigned int read_accessor(struct gltfaccessor *a, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "bufferView") == 0) {
 			a->bufview = atoi(toktostr(s, &t[j + 1]));
-			dprintf("bufferView: %i\n", a->bufview);
+			tprintf("bufferView: %i\n", a->bufview);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "count") == 0) {
 			a->cnt = atoi(toktostr(s, &t[j + 1]));
-			dprintf("count: %i\n", a->cnt);
+			tprintf("count: %i\n", a->cnt);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "byteOffset") == 0) {
 			a->byteofs = atoi(toktostr(s, &t[j + 1]));
-			dprintf("byteOffset: %i\n", a->byteofs);
+			tprintf("byteOffset: %i\n", a->byteofs);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "componentType") == 0) {
 			a->comptype = atoi(toktostr(s, &t[j + 1]));
-			dprintf("componentType: %i\n", a->comptype);
+			tprintf("componentType: %i\n", a->comptype);
 			j += 2;
 			continue;
 		}
@@ -852,7 +856,7 @@ unsigned int read_accessor(struct gltfaccessor *a, const char *s, jsmntok_t *t)
 				a->datatype = DT_UNKNOWN;
 				eprintf("Accessor with unknown data type: %s\n", type);
 			}
-			dprintf("type: %i (%s)\n", a->datatype, type);
+			tprintf("type: %i (%s)\n", a->datatype, type);
 			j += 2;
 			continue;
 		}
@@ -868,7 +872,7 @@ unsigned int read_accessor(struct gltfaccessor *a, const char *s, jsmntok_t *t)
 
 unsigned int read_accessors(struct gltf *g, const char *s, jsmntok_t *t)
 {
-	dprintf("> accessors\n");
+	tprintf("> accessors\n");
 
 	g->accessorcnt = t->size;
 	g->accessors = malloc(g->accessorcnt * sizeof(*g->accessors));
@@ -876,12 +880,12 @@ unsigned int read_accessors(struct gltf *g, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> accessor %i\n", i);
+		tprintf("> accessor %i\n", i);
 		j += read_accessor(&g->accessors[cnt++], s, t + j);
-		dprintf("< accessor %i\n", i);
+		tprintf("< accessor %i\n", i);
 	}
 
-	dprintf("< accessors (total: %i)\n", cnt);
+	tprintf("< accessors (total: %i)\n", cnt);
 
 	return j;
 }
@@ -897,28 +901,28 @@ unsigned int read_bufview(struct gltfbufview *b, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "buffer") == 0) {
 			b->buf = atoi(toktostr(s, &t[j + 1]));
-			dprintf("buffer: %i\n", b->buf);
+			tprintf("buffer: %i\n", b->buf);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "byteLength") == 0) {
 			b->bytelen = atoi(toktostr(s, &t[j + 1]));
-			dprintf("byteLength: %i\n", b->bytelen);
+			tprintf("byteLength: %i\n", b->bytelen);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "byteOffset") == 0) {
 			b->byteofs = atoi(toktostr(s, &t[j + 1]));
-			dprintf("byteOffset: %i\n", b->byteofs);
+			tprintf("byteOffset: %i\n", b->byteofs);
 			j += 2;
 			continue;
 		}
 
 		if (jsoneq(s, key, "byteStride") == 0) {
 			b->bytestride = atoi(toktostr(s, &t[j + 1]));
-			dprintf("byteStride: %i\n", b->bytestride);
+			tprintf("byteStride: %i\n", b->bytestride);
 			j += 2;
 			continue;
 		}
@@ -931,7 +935,7 @@ unsigned int read_bufview(struct gltfbufview *b, const char *s, jsmntok_t *t)
 
 unsigned int read_bufviews(struct gltf *g, const char *s, jsmntok_t *t)
 {
-	dprintf("> bufviews\n");
+	tprintf("> bufviews\n");
 
 	g->bufviewcnt = t->size;
 	g->bufviews = malloc(g->bufviewcnt * sizeof(*g->bufviews));
@@ -939,12 +943,12 @@ unsigned int read_bufviews(struct gltf *g, const char *s, jsmntok_t *t)
 	unsigned int cnt = 0;
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> bufview %i\n", i);
+		tprintf("> bufview %i\n", i);
 		j += read_bufview(&g->bufviews[cnt++], s, t + j);
-		dprintf("< bufview %i\n", i);
+		tprintf("< bufview %i\n", i);
 	}
 
-	dprintf("< bufviews (total: %i)\n", cnt);
+	tprintf("< bufviews (total: %i)\n", cnt);
 
 	return j;
 }
@@ -957,16 +961,16 @@ unsigned int read_scene(struct gltf *g, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "nodes") == 0) {
 			if (t[j + 1].type == JSMN_ARRAY) {
-				dprintf("root nodes: ");
+				tprintf("root nodes: ");
 				g->rootcnt = t[j + 1].size;
 				g->roots =
 				  malloc(g->rootcnt * sizeof(*g->roots));
 				for (unsigned int k = 0; k < g->rootcnt; k++) {
 					g->roots[k] = atoi(
 					  toktostr(s, &t[j + 2 + k]));
-					dprintf("%d ", g->roots[k]);
+					tprintf("%d ", g->roots[k]);
 				}
-				dprintf("\n");
+				tprintf("\n");
 				j += 2 + g->rootcnt;
 				continue;
 			} else {
@@ -982,7 +986,7 @@ unsigned int read_scene(struct gltf *g, const char *s, jsmntok_t *t)
 
 unsigned int read_scenes(struct gltf *g, const char *s, jsmntok_t *t)
 {
-	dprintf("> scenes\n");
+	tprintf("> scenes\n");
 
 	if (t->size > 1)
 		eprintf("Found %i scenes. Will process only the first and skip all others.\n",
@@ -990,7 +994,7 @@ unsigned int read_scenes(struct gltf *g, const char *s, jsmntok_t *t)
 
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
-		dprintf("> scene %i\n", i);
+		tprintf("> scene %i\n", i);
 
 		// For now we process the first scene only
 		if (i > 0)
@@ -998,10 +1002,10 @@ unsigned int read_scenes(struct gltf *g, const char *s, jsmntok_t *t)
 		else
 			j += read_scene(g, s, t + j);
 
-		dprintf("< scene %i\n", i);
+		tprintf("< scene %i\n", i);
 	}
 
-	dprintf("< scenes (total: %i)\n", t->size);
+	tprintf("< scenes (total: %i)\n", t->size);
 
 	return j;
 }

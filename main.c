@@ -17,8 +17,11 @@
 #define WIDTH   1920
 #define HEIGHT  1080
 
+#ifndef NDEBUG
 #define dprintf printf
-//#define dprintf(...)
+#else
+#define dprintf(...)
+#endif
 
 unsigned int get_max_tris(struct mesh *meshes, unsigned int meshcnt)
 {
@@ -171,8 +174,8 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
-	//import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
+	//import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
+	import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
 	//import_gltf(s, "../raynin/data/good_8.gltf", "../raynin/data/good_8.bin");
 
 	dprintf("Imported scene with %d meshes, %d mtls, %d cams, %d nodes, %d tracks, %d samplers\n",
