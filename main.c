@@ -117,17 +117,23 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 
 		// Update instance aabbs by transforming blas root to world
 		float *m = t->glob;
-		struct b2node *n = &rd->nodes[ri->triofs << 1];
-		struct vec3 nmi = vec3_min(n->lmin, n->rmin);
-		struct vec3 nma = vec3_max(n->lmax, n->rmax);
+		struct b2vnode *n = &rd->nodes[ri->triofs << 1];
+
+		float nmix = min(n->lminx, n->rminx);
+		float nmiy = min(n->lminy, n->rminy);
+		float nmiz = min(n->lminz, n->rminz);
+		float nmax = max(n->lmaxx, n->rmaxx);
+		float nmay = max(n->lmaxy, n->rmaxy);
+		float nmaz = max(n->lmaxz, n->rmaxz);
+
 		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
 		struct vec3 ma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 
 		for (unsigned char i = 0; i < 8; i++) {
 			struct vec3 v = mat4_mulpos(m, (struct vec3){
-			  i & 1 ? nmi.x : nma.x,
-			  i & 2 ? nmi.y : nma.y,
-			  i & 4 ? nmi.z : nma.z});
+			  i & 1 ? nmix : nmax,
+			  i & 2 ? nmiy : nmay,
+			  i & 4 ? nmiz : nmaz});
 			mi = vec3_min(mi, v);
 			ma = vec3_max(ma, v);
 		}
@@ -216,7 +222,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Bvh node with register friendly layout of min/max
+	// TODO SSE version of aabb and triangle intersection
 	// TODO Move code from main into some subsys
 
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
