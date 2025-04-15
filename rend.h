@@ -1,6 +1,7 @@
 #ifndef REND_H
 #define REND_H
 
+#include <immintrin.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include "vec3.h"
@@ -17,6 +18,7 @@ struct b2node { // bvh node, 64 bytes
 };
 
 struct b2vnode { // bvh node, 64 bytes, vector layout
+	/*
 	float     lminx;
 	float     lmaxx;
 	float     rminx;
@@ -29,6 +31,10 @@ struct b2vnode { // bvh node, 64 bytes, vector layout
 	float     lmaxz;
 	float     rminz;
 	float     rmaxz;
+	*/
+	__m128    lrx;
+	__m128    lry;
+	__m128    lrz;
 	uint32_t  l;
 	uint32_t  r;
 	uint32_t  start;

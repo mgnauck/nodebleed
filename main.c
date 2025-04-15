@@ -119,12 +119,21 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 		float *m = t->glob;
 		struct b2vnode *n = &rd->nodes[ri->triofs << 1];
 
+		/*
 		float nmix = min(n->lminx, n->rminx);
 		float nmiy = min(n->lminy, n->rminy);
 		float nmiz = min(n->lminz, n->rminz);
 		float nmax = max(n->lmaxx, n->rmaxx);
 		float nmay = max(n->lmaxy, n->rmaxy);
 		float nmaz = max(n->lmaxz, n->rmaxz);
+		*/
+
+		float nmix = min(n->lrx[0], n->lrx[2]);
+		float nmiy = min(n->lry[0], n->lry[2]);
+		float nmiz = min(n->lrz[0], n->lrz[2]);
+		float nmax = max(n->lrx[1], n->lrx[3]);
+		float nmay = max(n->lry[1], n->lry[3]);
+		float nmaz = max(n->lrz[1], n->lrz[3]);
 
 		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
 		struct vec3 ma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
@@ -181,8 +190,8 @@ void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
 void init(struct scene *s, struct rdata *rd)
 {
 	//import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
-	import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
-	//import_gltf(s, "../raynin/data/good_8.gltf", "../raynin/data/good_8.bin");
+	//import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
+	import_gltf(s, "../raynin/data/good_8.gltf", "../raynin/data/good_8.bin");
 
 	dprintf("Imported scene with %d meshes, %d mtls, %d cams, %d nodes, %d tracks, %d samplers\n",
 	  s->meshcnt, s->mtlcnt, s->camcnt, s->nodecnt, s->trackcnt,
@@ -222,6 +231,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
+	// TODO Align nodes on stack
 	// TODO SSE version of aabb and triangle intersection
 	// TODO Move code from main into some subsys
 
@@ -279,6 +289,7 @@ int main(int argc, char *argv[])
 			thrd_create(&thrds[i], rend_render, &rd);
 		for (unsigned int i = 0; i < thrdcnt; i++)
 			thrd_join(thrds[i], NULL);
+		//*/
 
 		SDL_UpdateWindowSurface(win);
 
