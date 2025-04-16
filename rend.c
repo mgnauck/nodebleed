@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <float.h>
+#include <immintrin.h>
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -268,36 +269,23 @@ void convert_bvh(struct b2vnode *tgt, struct bnode *src)
 			t->l = tn; // Left is next node in tgt
 			//t->lmin = lc->min;
 			//t->lmax = lc->max;
-
-			/*
 			t->lminx = lc->min.x;
 			t->lminy = lc->min.y;
 			t->lminz = lc->min.z;
 			t->lmaxx = lc->max.x;
 			t->lmaxy = lc->max.y;
 			t->lmaxz = lc->max.z;
-			*/
 
 			struct bnode *rc = &src[sn + 1]; // Right = left + 1
 			// Set t->r when it gets off stack
 			//t->rmin = rc->min;
 			//t->rmax = rc->max;
-
-			/*
 			t->rminx = rc->min.x;
 			t->rminy = rc->min.y;
 			t->rminz = rc->min.z;
 			t->rmaxx = rc->max.x;
 			t->rmaxy = rc->max.y;
 			t->rmaxz = rc->max.z;
-			*/
-
-			t->lrx = _mm_set_ps(rc->max.x, rc->min.x,
-			  lc->max.x, lc->min.x);
-			t->lry = _mm_set_ps(rc->max.y, rc->min.y,
-			  lc->max.y, lc->min.y);
-			t->lrz = _mm_set_ps(rc->max.z, rc->min.z,
-			  lc->max.z, lc->min.z);
 
 			t->cnt = 0; // Mark as interior node
 
@@ -307,8 +295,8 @@ void convert_bvh(struct b2vnode *tgt, struct bnode *src)
 	}
 }
 
-float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
-                     struct vec3 mi, struct vec3 ma)
+float intersect_aabb(const struct vec3 ori, const struct vec3 idir, float tfar,
+                     const struct vec3 mi, const struct vec3 ma)
 {
 	float tx0 = (mi.x - ori.x) * idir.x;
 	float tx1 = (ma.x - ori.x) * idir.x;
@@ -331,7 +319,7 @@ float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
 		return FLT_MAX;
 }
 
-void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
+void intersect_tri(struct hit *h, const struct vec3 ori, const struct vec3 dir,
                    const struct rtri *tris, unsigned int triid,
                    unsigned int instid)
 {
@@ -340,12 +328,12 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 	// Vectors of two edges sharing v0
 	const struct rtri *t = &tris[triid];
-	struct vec3 v0 = t->v0;
-	struct vec3 e0 = vec3_sub(t->v1, v0);
-	struct vec3 e1 = vec3_sub(t->v2, v0);
+	const struct vec3 v0 = t->v0;
+	const struct vec3 e0 = vec3_sub(t->v1, v0);
+	const struct vec3 e1 = vec3_sub(t->v2, v0);
 
 	// Calculate determinant
-	struct vec3 pv = vec3_cross(dir, e1);
+	const struct vec3 pv = vec3_cross(dir, e1);
 	float det = vec3_dot(e0, pv);
 
 	if (fabsf(det) < EPS)
@@ -355,7 +343,7 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 	float idet = 1.0f / det;
 
 	// Distance v0 to origin
-	struct vec3 tv = vec3_sub(ori, v0);
+	const struct vec3 tv = vec3_sub(ori, v0);
 
 	// Calculate param u and test bounds
 	float u = vec3_dot(tv, pv) * idet;
@@ -363,7 +351,7 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 		return;
 
 	// Prepare to test for v
-	struct vec3 qv = vec3_cross(tv, e0);
+	const struct vec3 qv = vec3_cross(tv, e0);
 
 	// Calculate param v and test bounds
 	float v = vec3_dot(dir, qv) * idet;
@@ -380,7 +368,7 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
+void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
                     //const struct b2node *blas, const unsigned int *imap,
                     const struct b2vnode *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid)
@@ -390,13 +378,8 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 	unsigned int curr = 0;
 
-	__m128 orix = _mm_set1_ps(ori.x);
-	__m128 oriy = _mm_set1_ps(ori.y);
-	__m128 oriz = _mm_set1_ps(ori.z);
-
-	__m128 idirx = _mm_set1_ps(1.0f / dir.x);
-	__m128 idiry = _mm_set1_ps(1.0f / dir.y);
-	__m128 idirz = _mm_set1_ps(1.0f / dir.z);
+	struct vec3 idir = (struct vec3){
+	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
 
 	while (true) {
 		//const struct b2node *n = &blas[curr];
@@ -422,7 +405,6 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 			  n->rmin, n->rmax);
 			*/
 
-			/*
 			float ltx0 = (n->lminx - ori.x) * idir.x;
 			float ltx1 = (n->lmaxx - ori.x) * idir.x;
 			float rtx0 = (n->rminx - ori.x) * idir.x;
@@ -457,79 +439,9 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 			  ltmax >= 0) ? ltmin : FLT_MAX;
 			float d1 = (rtmin <= rtmax && rtmin < h->t &&
 			  rtmax >= 0) ? rtmin : FLT_MAX;
-			*/
-
-			// rmaxx, rminx, lmaxx, lminx
-			__m128 lrx = _mm_mul_ps(_mm_sub_ps(n->lrx, orix),
-			  idirx);
-			__m128 lry = _mm_mul_ps(_mm_sub_ps(n->lry, oriy),
-			  idiry);
-			__m128 lrz = _mm_mul_ps(_mm_sub_ps(n->lrz, oriz),
-			  idirz);
-
-			// Interleave x, y and z
-			// lmaxy, lmaxx, lminy, lminx
-			__m128 lxy = _mm_unpacklo_ps(lrx, lry);
-			// lmaxz, lmaxz, lminz, lminz
-			__m128 lzz = _mm_unpacklo_ps(lrz, lrz);
-			// rmaxy, rmaxx, rminy, rminx
-			__m128 rxy = _mm_unpackhi_ps(lrx, lry);
-			// rmaxz, rmaxz, rminz, rminz
-			__m128 rzz = _mm_unpackhi_ps(lrz, lrz);
-			// lminz, lminz, lminy, lminx
-			__m128 lminxyz = _mm_shuffle_ps(lxy, lzz,
-			  _MM_SHUFFLE(1, 0, 1, 0));
-			// lmaxz, lmaxz, lmaxy, lmaxx
-			__m128 lmaxxyz = _mm_shuffle_ps(lxy, lzz,
-			  _MM_SHUFFLE(3, 2, 3, 2));
-			// rminz, rminz, rminy, rminx
-			__m128 rminxyz = _mm_shuffle_ps(rxy, rzz,
-			  _MM_SHUFFLE(1, 0, 1, 0));
-			// rmaxz, rmaxz, rmaxy, rmaxx
-			__m128 rmaxxyz = _mm_shuffle_ps(rxy, rzz,
-			  _MM_SHUFFLE(3, 2, 3, 2));
-
-			// Calc tmin, tmax
-			// lminz, lminz, lminy, lminx
-			__m128 ltmin = _mm_min_ps(lminxyz, lmaxxyz);
-			// lmaxz, lmaxz, lmaxy, lmaxx
-			__m128 ltmax = _mm_max_ps(lminxyz, lmaxxyz);
-			// rminz, rminz, rminy, rminx
-			__m128 rtmin = _mm_min_ps(rminxyz, rmaxxyz);
-			// rmaxz, rmaxz, rmaxy, rmaxx
-			__m128 rtmax = _mm_max_ps(rminxyz, rmaxxyz);
-
-			// Revert interleave
-			// lmaxy, lminy, lmaxx, lminx
-			lxy = _mm_unpacklo_ps(ltmin, ltmax);
-			// lmaxz, lminz, lmaxz, lminz
-			lzz = _mm_unpackhi_ps(ltmin, ltmax);
-			// rmaxy, rminy, rmaxx, rminx
-			rxy = _mm_unpacklo_ps(rtmin, rtmax);
-			// rmaxz, rminz, rmaxz, rminz
-			rzz = _mm_unpackhi_ps(rtmin, rtmax);
-			// rmaxx, rminx, lmaxx, lminx
-			lrx = _mm_shuffle_ps(lxy, rxy, _MM_SHUFFLE(1, 0, 1, 0));
-			// rmaxy, rminy, lmaxy, lminy
-			lry = _mm_shuffle_ps(lxy, rxy, _MM_SHUFFLE(3, 2, 3, 2));
-			// rmaxz, rminz, lmaxz, lminz
-			lrz = _mm_shuffle_ps(lzz, rzz, _MM_SHUFFLE(1, 0, 1, 0));
 
 			unsigned int l = n->l;
 			unsigned int r = n->r;
-
-			// Min/max component
-			__m128 tmin = _mm_max_ps(_mm_max_ps(
-			  _mm_max_ps(lrx, lry), lrz), _mm_setzero_ps());
-			__m128 tmax = _mm_min_ps(_mm_min_ps(
-			  _mm_min_ps(lrx, lry), lrz), _mm_set1_ps(h->t));
-			float tminl = tmin[0];
-			float tmaxl = tmax[1];
-			float tminr = tmin[2];
-			float tmaxr = tmax[3];
-
-			float d0 = tmaxl >= tminl ? tminl : FLT_MAX;
-			float d1 = tmaxr >= tminr ? tminr : FLT_MAX;
 
 			if (d0 > d1) {
 				float t = d0;
@@ -560,7 +472,7 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
+void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
                     //const struct b2node *nodes, const unsigned int *imap,
                     const struct b2vnode *nodes, const unsigned int *imap,
                     const struct rinst *insts, const struct rtri *tris,
@@ -575,16 +487,8 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 	const struct b2vnode *tlas = &nodes[tlasofs << 1];
 	const unsigned int *tlasimap = &imap[tlasofs];
 
-	/*struct vec3 idir = (struct vec3){
-	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};*/
-
-	__m128 orix = _mm_set1_ps(ori.x);
-	__m128 oriy = _mm_set1_ps(ori.y);
-	__m128 oriz = _mm_set1_ps(ori.z);
-
-	__m128 idirx = _mm_set1_ps(1.0f / dir.x);
-	__m128 idiry = _mm_set1_ps(1.0f / dir.y);
-	__m128 idirz = _mm_set1_ps(1.0f / dir.z);
+	struct vec3 idir = (struct vec3){
+	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
 
 	while (true) {
 		//const struct b2node *n = &tlas[curr];
@@ -621,7 +525,6 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 			  n->rmin, n->rmax);
 			*/
 
-			/*
 			float ltx0 = (n->lminx - ori.x) * idir.x;
 			float ltx1 = (n->lmaxx - ori.x) * idir.x;
 			float rtx0 = (n->rminx - ori.x) * idir.x;
@@ -656,79 +559,9 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 			  ltmax >= 0) ? ltmin : FLT_MAX;
 			float d1 = (rtmin <= rtmax && rtmin < h->t &&
 			  rtmax >= 0) ? rtmin : FLT_MAX;
-			*/
-
-			// rmaxx, rminx, lmaxx, lminx
-			__m128 lrx = _mm_mul_ps(_mm_sub_ps(n->lrx, orix),
-			  idirx);
-			__m128 lry = _mm_mul_ps(_mm_sub_ps(n->lry, oriy),
-			  idiry);
-			__m128 lrz = _mm_mul_ps(_mm_sub_ps(n->lrz, oriz),
-			  idirz);
-
-			// Interleave x, y and z
-			// lmaxy, lmaxx, lminy, lminx
-			__m128 lxy = _mm_unpacklo_ps(lrx, lry);
-			// lmaxz, lmaxz, lminz, lminz
-			__m128 lzz = _mm_unpacklo_ps(lrz, lrz);
-			// rmaxy, rmaxx, rminy, rminx
-			__m128 rxy = _mm_unpackhi_ps(lrx, lry);
-			// rmaxz, rmaxz, rminz, rminz
-			__m128 rzz = _mm_unpackhi_ps(lrz, lrz);
-			// lminz, lminz, lminy, lminx
-			__m128 lminxyz = _mm_shuffle_ps(lxy, lzz,
-			  _MM_SHUFFLE(1, 0, 1, 0));
-			// lmaxz, lmaxz, lmaxy, lmaxx
-			__m128 lmaxxyz = _mm_shuffle_ps(lxy, lzz,
-			  _MM_SHUFFLE(3, 2, 3, 2));
-			// rminz, rminz, rminy, rminx
-			__m128 rminxyz = _mm_shuffle_ps(rxy, rzz,
-			  _MM_SHUFFLE(1, 0, 1, 0));
-			// rmaxz, rmaxz, rmaxy, rmaxx
-			__m128 rmaxxyz = _mm_shuffle_ps(rxy, rzz,
-			  _MM_SHUFFLE(3, 2, 3, 2));
-
-			// Calc tmin, tmax
-			// lminz, lminz, lminy, lminx
-			__m128 ltmin = _mm_min_ps(lminxyz, lmaxxyz);
-			// lmaxz, lmaxz, lmaxy, lmaxx
-			__m128 ltmax = _mm_max_ps(lminxyz, lmaxxyz);
-			// rminz, rminz, rminy, rminx
-			__m128 rtmin = _mm_min_ps(rminxyz, rmaxxyz);
-			// rmaxz, rmaxz, rmaxy, rmaxx
-			__m128 rtmax = _mm_max_ps(rminxyz, rmaxxyz);
-
-			// Revert interleave
-			// lmaxy, lminy, lmaxx, lminx
-			lxy = _mm_unpacklo_ps(ltmin, ltmax);
-			// lmaxz, lminz, lmaxz, lminz
-			lzz = _mm_unpackhi_ps(ltmin, ltmax);
-			// rmaxy, rminy, rmaxx, rminx
-			rxy = _mm_unpacklo_ps(rtmin, rtmax);
-			// rmaxz, rminz, rmaxz, rminz
-			rzz = _mm_unpackhi_ps(rtmin, rtmax);
-			// rmaxx, rminx, lmaxx, lminx
-			lrx = _mm_shuffle_ps(lxy, rxy, _MM_SHUFFLE(1, 0, 1, 0));
-			// rmaxy, rminy, lmaxy, lminy
-			lry = _mm_shuffle_ps(lxy, rxy, _MM_SHUFFLE(3, 2, 3, 2));
-			// rmaxz, rminz, lmaxz, lminz
-			lrz = _mm_shuffle_ps(lzz, rzz, _MM_SHUFFLE(1, 0, 1, 0));
 
 			unsigned int l = n->l;
 			unsigned int r = n->r;
-
-			// Min/max component
-			__m128 tmin = _mm_max_ps(_mm_max_ps(
-			  _mm_max_ps(lrx, lry), lrz), _mm_setzero_ps());
-			__m128 tmax = _mm_min_ps(_mm_min_ps(
-			  _mm_min_ps(lrx, lry), lrz), _mm_set1_ps(h->t));
-			float tminl = tmin[0];
-			float tmaxl = tmax[1];
-			float tminr = tmin[2];
-			float tmaxr = tmax[3];
-
-			float d0 = tmaxl >= tminl ? tminl : FLT_MAX;
-			float d1 = tmaxr >= tminr ? tminr : FLT_MAX;
 
 			if (d0 > d1) {
 				float t = d0;
