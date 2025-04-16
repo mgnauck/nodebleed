@@ -1,6 +1,5 @@
 #include <assert.h>
 #include <float.h>
-#include <immintrin.h>
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -237,8 +236,7 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 	}
 }
 
-//void convert_bvh(struct b2node *tgt, struct bnode *src)
-void convert_bvh(struct b2vnode *tgt, struct bnode *src)
+void convert_bvh(struct b2node *tgt, struct bnode *src)
 {
 	unsigned int stack[64];
 	unsigned int spos = 0;
@@ -249,8 +247,7 @@ void convert_bvh(struct b2vnode *tgt, struct bnode *src)
 
 	while (true) {
 		struct bnode *s = &src[sn];
-		//struct b2node *t = &tgt[tn++];
-		struct b2vnode *t = &tgt[tn++];
+		struct b2node *t = &tgt[tn++];
 
 		if (s->cnt > 0) {
 			t->start = s->sid;
@@ -267,25 +264,13 @@ void convert_bvh(struct b2vnode *tgt, struct bnode *src)
 
 			struct bnode *lc = &src[sn];
 			t->l = tn; // Left is next node in tgt
-			//t->lmin = lc->min;
-			//t->lmax = lc->max;
-			t->lminx = lc->min.x;
-			t->lminy = lc->min.y;
-			t->lminz = lc->min.z;
-			t->lmaxx = lc->max.x;
-			t->lmaxy = lc->max.y;
-			t->lmaxz = lc->max.z;
+			t->lmin = lc->min;
+			t->lmax = lc->max;
 
 			struct bnode *rc = &src[sn + 1]; // Right = left + 1
-			// Set t->r when it gets off stack
-			//t->rmin = rc->min;
-			//t->rmax = rc->max;
-			t->rminx = rc->min.x;
-			t->rminy = rc->min.y;
-			t->rminz = rc->min.z;
-			t->rmaxx = rc->max.x;
-			t->rmaxy = rc->max.y;
-			t->rmaxz = rc->max.z;
+			t->rmin = rc->min;
+			t->rmax = rc->max;
+			// Set tgt's right child index when it gets off stack
 
 			t->cnt = 0; // Mark as interior node
 
@@ -369,8 +354,7 @@ void intersect_tri(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 }
 
 void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
-                    //const struct b2node *blas, const unsigned int *imap,
-                    const struct b2vnode *blas, const unsigned int *imap,
+                    const struct b2node *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid)
 {
 	unsigned int stack[64];
@@ -382,8 +366,7 @@ void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
 
 	while (true) {
-		//const struct b2node *n = &blas[curr];
-		const struct b2vnode *n = &blas[curr];
+		const struct b2node *n = &blas[curr];
 
 		if (n->cnt > 0) {
 			// Leaf, check triangles
@@ -398,47 +381,10 @@ void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 				return;
 		} else {
 			// Interior node, check child aabbs
-			/*
 			float d0 = intersect_aabb(ori, idir, h->t,
 			  n->lmin, n->lmax);
 			float d1 = intersect_aabb(ori, idir, h->t,
 			  n->rmin, n->rmax);
-			*/
-
-			float ltx0 = (n->lminx - ori.x) * idir.x;
-			float ltx1 = (n->lmaxx - ori.x) * idir.x;
-			float rtx0 = (n->rminx - ori.x) * idir.x;
-			float rtx1 = (n->rmaxx - ori.x) * idir.x;
-
-			float lty0 = (n->lminy - ori.y) * idir.y;
-			float lty1 = (n->lmaxy - ori.y) * idir.y;
-			float rty0 = (n->rminy - ori.y) * idir.y;
-			float rty1 = (n->rmaxy - ori.y) * idir.y;
-
-			float ltz0 = (n->lminz - ori.z) * idir.z;
-			float ltz1 = (n->lmaxz - ori.z) * idir.z;
-			float rtz0 = (n->rminz - ori.z) * idir.z;
-			float rtz1 = (n->rmaxz - ori.z) * idir.z;
-
-			float ltmin = min(ltx0, ltx1);
-			float ltmax = max(ltx0, ltx1);
-			float rtmin = min(rtx0, rtx1);
-			float rtmax = max(rtx0, rtx1);
-
-			ltmin = max(ltmin, min(lty0, lty1));
-			ltmax = min(ltmax, max(lty0, lty1));
-			rtmin = max(rtmin, min(rty0, rty1));
-			rtmax = min(rtmax, max(rty0, rty1));
-
-			ltmin = max(ltmin, min(ltz0, ltz1));
-			ltmax = min(ltmax, max(ltz0, ltz1));
-			rtmin = max(rtmin, min(rtz0, rtz1));
-			rtmax = min(rtmax, max(rtz0, rtz1));
-
-			float d0 = (ltmin <= ltmax && ltmin < h->t &&
-			  ltmax >= 0) ? ltmin : FLT_MAX;
-			float d1 = (rtmin <= rtmax && rtmin < h->t &&
-			  rtmax >= 0) ? rtmin : FLT_MAX;
 
 			unsigned int l = n->l;
 			unsigned int r = n->r;
@@ -473,8 +419,7 @@ void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 }
 
 void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
-                    //const struct b2node *nodes, const unsigned int *imap,
-                    const struct b2vnode *nodes, const unsigned int *imap,
+                    const struct b2node *nodes, const unsigned int *imap,
                     const struct rinst *insts, const struct rtri *tris,
                     unsigned int tlasofs)
 {
@@ -483,16 +428,14 @@ void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 
 	unsigned int curr = 0;
 
-	//const struct b2node *tlas = &nodes[tlasofs << 1];
-	const struct b2vnode *tlas = &nodes[tlasofs << 1];
+	const struct b2node *tlas = &nodes[tlasofs << 1];
 	const unsigned int *tlasimap = &imap[tlasofs];
 
 	struct vec3 idir = (struct vec3){
 	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
 
 	while (true) {
-		//const struct b2node *n = &tlas[curr];
-		const struct b2vnode *n = &tlas[curr];
+		const struct b2node *n = &tlas[curr];
 
 		if (n->cnt > 0) {
 			// Leaf, check instance blas
@@ -518,47 +461,10 @@ void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 				return;
 		} else {
 			// Interior node, check child aabbs
-			/*
 			float d0 = intersect_aabb(ori, idir, h->t,
 			  n->lmin, n->lmax);
 			float d1 = intersect_aabb(ori, idir, h->t,
 			  n->rmin, n->rmax);
-			*/
-
-			float ltx0 = (n->lminx - ori.x) * idir.x;
-			float ltx1 = (n->lmaxx - ori.x) * idir.x;
-			float rtx0 = (n->rminx - ori.x) * idir.x;
-			float rtx1 = (n->rmaxx - ori.x) * idir.x;
-
-			float lty0 = (n->lminy - ori.y) * idir.y;
-			float lty1 = (n->lmaxy - ori.y) * idir.y;
-			float rty0 = (n->rminy - ori.y) * idir.y;
-			float rty1 = (n->rmaxy - ori.y) * idir.y;
-
-			float ltz0 = (n->lminz - ori.z) * idir.z;
-			float ltz1 = (n->lmaxz - ori.z) * idir.z;
-			float rtz0 = (n->rminz - ori.z) * idir.z;
-			float rtz1 = (n->rmaxz - ori.z) * idir.z;
-
-			float ltmin = min(ltx0, ltx1);
-			float ltmax = max(ltx0, ltx1);
-			float rtmin = min(rtx0, rtx1);
-			float rtmax = max(rtx0, rtx1);
-
-			ltmin = max(ltmin, min(lty0, lty1));
-			ltmax = min(ltmax, max(lty0, lty1));
-			rtmin = max(rtmin, min(rty0, rty1));
-			rtmax = min(rtmax, max(rty0, rty1));
-
-			ltmin = max(ltmin, min(ltz0, ltz1));
-			ltmax = min(ltmax, max(ltz0, ltz1));
-			rtmin = max(rtmin, min(rtz0, rtz1));
-			rtmax = min(rtmax, max(rtz0, rtz1));
-
-			float d0 = (ltmin <= ltmax && ltmin < h->t &&
-			  ltmax >= 0) ? ltmin : FLT_MAX;
-			float d1 = (rtmin <= rtmax && rtmin < h->t &&
-			  rtmax >= 0) ? rtmin : FLT_MAX;
 
 			unsigned int l = n->l;
 			unsigned int r = n->r;
@@ -630,8 +536,7 @@ void rend_prepstatic(struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		struct rinst *ri = &rd->insts[j];
-		//struct b2node *rn = &rd->nodes[ri->triofs << 1]; // Root node
-		struct b2vnode *rn = &rd->nodes[ri->triofs << 1]; // Root node
+		struct b2node *rn = &rd->nodes[ri->triofs << 1]; // Root node
 		if (rn->start + rn->cnt == 0) { // Not processed yet
 			dprintf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: 0x%lx\n",
 			  j, ri->triofs, ri->tricnt, (unsigned long)rn);

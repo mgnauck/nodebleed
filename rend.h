@@ -16,25 +16,6 @@ struct b2node { // bvh node, 64 bytes
 	uint32_t     cnt; // Tri or inst cnt
 };
 
-struct b2vnode { // bvh node, 64 bytes, vector layout
-	float     lminx;
-	float     lmaxx;
-	float     rminx;
-	float     rmaxx;
-	float     lminy;
-	float     lmaxy;
-	float     rminy;
-	float     rmaxy;
-	float     lminz;
-	float     lmaxz;
-	float     rminz;
-	float     rmaxz;
-	uint32_t  l;
-	uint32_t  r;
-	uint32_t  start;
-	uint32_t  cnt;
-};
-
 struct aabb { // 32 bytes
 	struct vec3  min;
 	float        pad0;
@@ -95,29 +76,28 @@ struct rview {
 };
 
 struct rdata {
-	struct rmtl     *mtls;
+	struct rmtl   *mtls;
 
-	struct rtri     *tris; // Tris of all meshes
-	struct rnrm     *nrms;
+	struct rtri   *tris; // Tris of all meshes
+	struct rnrm   *nrms;
 
-	unsigned int    instcnt;
-	struct rinst    *insts;
-	struct aabb     *aabbs; // World space instance aabbs
+	unsigned int  instcnt;
+	struct rinst  *insts;
+	struct aabb   *aabbs; // World space instance aabbs
 
-	unsigned int    *imap; // Indices mapping tris/insts
-	//struct b2node   *nodes; // Bvh nodes all blas and tlas
-	struct b2vnode  *nodes; // Bvh nodes all blas and tlas
-	unsigned int    tlasofs;
+	unsigned int  *imap; // Indices mapping tris/insts
+	struct b2node *nodes; // Bvh nodes all blas and tlas
+	unsigned int  tlasofs;
 
-	struct rcam     cam;
-	struct rview    view;
+	struct rcam   cam;
+	struct rview  view;
 
-	unsigned int    blksz; // Size of a block being rendered
-	atomic_uint     blknum; // Atomic block number
+	unsigned int  blksz; // Size of a block being rendered
+	atomic_uint   blknum; // Atomic block number
 
-	struct vec3     bgcol;
+	struct vec3   bgcol;
 
-	uint32_t        *buf; // Render target
+	uint32_t      *buf; // Render target
 };
 
 void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
