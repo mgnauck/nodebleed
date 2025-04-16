@@ -280,8 +280,8 @@ void convert_bvh(struct b2node *tgt, struct bnode *src)
 	}
 }
 
-float intersect_aabb(const struct vec3 ori, const struct vec3 idir, float tfar,
-                     const struct vec3 mi, const struct vec3 ma)
+float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
+                     struct vec3 mi, struct vec3 ma)
 {
 	float tx0 = (mi.x - ori.x) * idir.x;
 	float tx1 = (ma.x - ori.x) * idir.x;
@@ -304,7 +304,7 @@ float intersect_aabb(const struct vec3 ori, const struct vec3 idir, float tfar,
 		return FLT_MAX;
 }
 
-void intersect_tri(struct hit *h, const struct vec3 ori, const struct vec3 dir,
+void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
                    const struct rtri *tris, unsigned int triid,
                    unsigned int instid)
 {
@@ -313,12 +313,12 @@ void intersect_tri(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 
 	// Vectors of two edges sharing v0
 	const struct rtri *t = &tris[triid];
-	const struct vec3 v0 = t->v0;
-	const struct vec3 e0 = vec3_sub(t->v1, v0);
-	const struct vec3 e1 = vec3_sub(t->v2, v0);
+	struct vec3 v0 = t->v0;
+	struct vec3 e0 = vec3_sub(t->v1, v0);
+	struct vec3 e1 = vec3_sub(t->v2, v0);
 
 	// Calculate determinant
-	const struct vec3 pv = vec3_cross(dir, e1);
+	struct vec3 pv = vec3_cross(dir, e1);
 	float det = vec3_dot(e0, pv);
 
 	if (fabsf(det) < EPS)
@@ -328,7 +328,7 @@ void intersect_tri(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 	float idet = 1.0f / det;
 
 	// Distance v0 to origin
-	const struct vec3 tv = vec3_sub(ori, v0);
+	struct vec3 tv = vec3_sub(ori, v0);
 
 	// Calculate param u and test bounds
 	float u = vec3_dot(tv, pv) * idet;
@@ -336,7 +336,7 @@ void intersect_tri(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 		return;
 
 	// Prepare to test for v
-	const struct vec3 qv = vec3_cross(tv, e0);
+	struct vec3 qv = vec3_cross(tv, e0);
 
 	// Calculate param v and test bounds
 	float v = vec3_dot(dir, qv) * idet;
@@ -353,7 +353,7 @@ void intersect_tri(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 	}
 }
 
-void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
+void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct b2node *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid)
 {
@@ -418,7 +418,7 @@ void intersect_blas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
 	}
 }
 
-void intersect_tlas(struct hit *h, const struct vec3 ori, const struct vec3 dir,
+void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct b2node *nodes, const unsigned int *imap,
                     const struct rinst *insts, const struct rtri *tris,
                     unsigned int tlasofs)
@@ -559,7 +559,7 @@ void rend_prepstatic(struct rdata *rd)
 				tp++;
 			}
 
-			struct bnode nodes[ri->tricnt << 1];
+			_Alignas(64) struct bnode nodes[ri->tricnt << 1];
 			build_bvh(nodes, aabbs, &rd->imap[ri->triofs],
 			  ri->tricnt, rmin, rmax);
 			convert_bvh(&rd->nodes[ri->triofs << 1], nodes);
@@ -581,7 +581,7 @@ void rend_prepdynamic(struct rdata *rd)
 		ap++;
 	}
 
-	struct bnode nodes[rd->instcnt << 1];
+	_Alignas(64) struct bnode nodes[rd->instcnt << 1];
 	build_bvh(nodes, rd->aabbs, &rd->imap[tlasofs],
 	  rd->instcnt, rmin, rmax);
 	convert_bvh(&rd->nodes[tlasofs << 1], nodes);

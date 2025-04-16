@@ -216,7 +216,6 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(int argc, char *argv[])
 {
-	// TODO Bvh node with register friendly layout of min/max
 	// TODO Move code from main into some subsys
 
 	assert(sizeof(uint32_t) == sizeof(unsigned int));
