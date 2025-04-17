@@ -290,9 +290,9 @@ void import_data(struct scene *s,
 		tcnt += a->channelcnt;
 		// Create a list of accessors which reference animation data
 		for (unsigned int i = 0; i < a->samplercnt; i++) {
-			struct gltfsampler *s = &a->samplers[i];
-			animacc[s->input] = 1; // Will replace by data ofs later
-			animacc[s->output] = 1;
+			struct gltfsampler *sa = &a->samplers[i];
+			animacc[sa->input] = 1; // Will replace by data ofs later
+			animacc[sa->output] = 1;
 		}
 	}
 

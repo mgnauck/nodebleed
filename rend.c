@@ -131,17 +131,17 @@ struct split find_intervalsplit(const struct bnode *n,
 }
 
 void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
-                 unsigned int cnt, struct vec3 rmin, struct vec3 rmax)
+                 unsigned int cnt, struct vec3 rootmin, struct vec3 rootmax)
 {
 	unsigned int stack[64];
 	unsigned int spos = 0;
 
 	// Prepare root node
-	struct bnode *r = nodes;
-	r->min = rmin;
-	r->max = rmax;
-	r->sid = 0;
-	r->cnt = cnt;
+	struct bnode *root = nodes;
+	root->min = rootmin;
+	root->max = rootmax;
+	root->sid = 0;
+	root->cnt = cnt;
 
 	unsigned int ncnt = 2; // Root + 1 empty node for cache alignment
 	unsigned int nid = 0; // Start with root node
