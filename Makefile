@@ -1,26 +1,21 @@
+.POSIX:
 SRC = $(shell find -L . -type f -name '*.c')
 OBJ = $(SRC:.c=.o)
 OUT = a.out
-
 CC = clang
-CPPFLAGS =
-CFLAGS = -std=c11 -O2 -Wall -Wextra -pedantic -Wno-unused-parameter -Wno-unused-variable
-CFLAGS += -flto
+CFLAGS = -std=c99 -flto -O3 -Wall -Wextra -Werror -pedantic
+CFLAGS += -Wno-unused-parameter -Wno-unused-variable
 CFLAGS += $(shell sdl2-config --cflags)
-DBGFLAGS = -g
-#DBGFLAGS = -DNDEBUG
-LIBS = -lm
-LIBS += $(shell sdl2-config --libs)
-LDFLAGS = -s
-LDFLAGS += -fuse-ld=lld
+#CFLAGS += -g
+CFLAGS += -DNDEBUG
+LDLIBS = -lm $(shell sdl2-config --libs)
+#LDFLAGS = -flto -O3 -s
+LDFLAGS += -fuse-ld=lld -s
 
 all: $(OUT)
 
 $(OUT): $(OBJ)
-	$(CC) $^ -o $@ $(LDFLAGS) $(LIBS)
-
-%.o: %.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(DBGFLAGS) -c $<
+	$(CC) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 clean:
 	rm -rf $(OUT) $(OBJ)
