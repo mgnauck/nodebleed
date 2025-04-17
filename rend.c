@@ -14,7 +14,7 @@
 #ifndef NDEBUG
 #define dprintf printf
 #else
-#define dprintf(...)
+#define dprintf(...) {}
 #endif
 
 #define INTERVAL_CNT  8
@@ -559,7 +559,7 @@ void rend_prepstatic(struct rdata *rd)
 				tp++;
 			}
 
-			_Alignas(64) struct bnode nodes[ri->tricnt << 1];
+			/*_Alignas(64)*/ struct bnode nodes[ri->tricnt << 1];
 			build_bvh(nodes, aabbs, &rd->imap[ri->triofs],
 			  ri->tricnt, rmin, rmax);
 			convert_bvh(&rd->nodes[ri->triofs << 1], nodes);
@@ -581,7 +581,7 @@ void rend_prepdynamic(struct rdata *rd)
 		ap++;
 	}
 
-	_Alignas(64) struct bnode nodes[rd->instcnt << 1];
+	/*_Alignas(64)*/ struct bnode nodes[rd->instcnt << 1];
 	build_bvh(nodes, rd->aabbs, &rd->imap[tlasofs],
 	  rd->instcnt, rmin, rmax);
 	convert_bvh(&rd->nodes[tlasofs << 1], nodes);
@@ -625,6 +625,16 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 	return c;
 }
 
+static inline uint32_t fetch_and_add(uint32_t *var, uint32_t val)
+{
+	__asm__ volatile("lock; xaddl %0, %1"
+		: "+r" (val), "+m" (*var)
+		:
+		: "memory"
+	);
+	return val;
+}
+
 int rend_render(void *d)
 {
 	struct rdata *rd = d;
@@ -644,7 +654,7 @@ int rend_render(void *d)
 	unsigned int bs = rd->blksz;
 
 	while (true) {
-		unsigned int blk = rd->blknum++;
+		uint32_t blk = fetch_and_add(&rd->blknum, 1);
 		if (blk >= blkcnt)
 			return 0;
 		unsigned int bx = (blk % blksx) * bs;

@@ -13,7 +13,7 @@
 #ifndef NDEBUG
 #define dprintf printf
 #else
-#define dprintf(...)
+#define dprintf(...) {}
 #endif
 
 #ifndef NDEBUG

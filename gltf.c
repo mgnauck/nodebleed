@@ -9,12 +9,12 @@
 
 // Output trace
 //#define tprintf printf
-#define tprintf(...)
+#define tprintf(...) {}
 
 #ifndef NDEBUG
 #define eprintf printf
 #else
-#define eprintf(...)
+#define eprintf(...) {}
 #endif
 
 // Fixed buffer for temporary string storage

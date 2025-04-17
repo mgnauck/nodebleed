@@ -1,5 +1,4 @@
 #include <assert.h>
-#include <stdatomic.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -20,7 +19,7 @@
 #ifndef NDEBUG
 #define dprintf printf
 #else
-#define dprintf(...)
+#define dprintf(...) {}
 #endif
 
 unsigned int get_max_tris(struct mesh *meshes, unsigned int meshcnt)

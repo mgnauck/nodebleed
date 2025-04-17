@@ -1,7 +1,6 @@
 #ifndef REND_H
 #define REND_H
 
-#include <stdatomic.h>
 #include <stdint.h>
 #include "vec3.h"
 
@@ -93,7 +92,7 @@ struct rdata {
 	struct rview  view;
 
 	unsigned int  blksz; // Size of a block being rendered
-	atomic_uint   blknum; // Atomic block number
+	uint32_t      blknum; // Atomic block number
 
 	struct vec3   bgcol;
 
