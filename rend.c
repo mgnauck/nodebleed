@@ -650,7 +650,6 @@ int rend_render(void *d)
 
 	uint32_t *buf = rd->buf;
 	unsigned int w = rd->view.w;
-	unsigned int h = rd->view.h;
 	unsigned int bs = rd->blksz;
 
 	while (true) {
@@ -670,7 +669,7 @@ int rend_render(void *d)
 				struct vec3 c =
 				  trace(eye, vec3_unit(vec3_sub(p, eye)), rd);
 
-				buf[yofs + x] = 0xff << 24 |
+				buf[yofs + x] = 0xffu << 24 |
 				  min(255, (unsigned int)(255 * c.x)) << 16 |
 				  min(255, (unsigned int)(255 * c.y)) <<  8 |
 				  min(255, (unsigned int)(255 * c.z));

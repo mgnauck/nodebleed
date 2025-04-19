@@ -213,7 +213,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 	calc_view(&rd->view, WIDTH, HEIGHT, c);
 }
 
-int main(int argc, char *argv[])
+int main(void)
 {
 	// TODO Move code from main into some subsys
 

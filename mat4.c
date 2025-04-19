@@ -1,9 +1,10 @@
 #include <math.h>
+#include <stdint.h>
 #include "mat4.h"
 
 void mat4_cpy(float dst[restrict 16], const float src[16])
 {
-	for (int i = 0; i < 16; i++)
+	for (uint_fast8_t i = 0; i < 16; i++)
 		dst[i] = src[i];
 }
 
@@ -355,7 +356,7 @@ int mat4_inv(float dst[16], const float m[16])
 
 	det = 1.0 / det;
 
-	for (int i = 0; i < 16; i++)
+	for (uint_fast8_t i = 0; i < 16; i++)
 		dst[i] = inv[i] * det;
 
 	return 0;
@@ -396,7 +397,7 @@ void mat4_fromquat(float dst[16], float x, float y, float z, float w)
 
 void mat4_from3x4(float dst[16], const float src[12])
 {
-	for (unsigned int i = 0; i < 12; i++)
+	for (uint_fast8_t i = 0; i < 12; i++)
 		dst[i] = src[i];
 	dst[12] = dst[13] = dst[14] = 0.0f;
 	dst[15] = 1.0f;

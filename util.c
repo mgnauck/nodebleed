@@ -7,8 +7,6 @@
 
 #include "util.h"
 
-static char *progname = NULL; // Won't be freed
-
 typedef struct pcg_state_setseq_64 {
 	uint64_t  state;
 	uint64_t  inc;
