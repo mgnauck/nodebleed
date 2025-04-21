@@ -559,7 +559,7 @@ void rend_prepstatic(struct rdata *rd)
 				tp++;
 			}
 
-			/*_Alignas(64)*/ struct bnode nodes[ri->tricnt << 1];
+			_Alignas(64) struct bnode nodes[ri->tricnt << 1];
 			build_bvh(nodes, aabbs, &rd->imap[ri->triofs],
 			  ri->tricnt, rmin, rmax);
 			convert_bvh(&rd->nodes[ri->triofs << 1], nodes);
@@ -581,7 +581,7 @@ void rend_prepdynamic(struct rdata *rd)
 		ap++;
 	}
 
-	/*_Alignas(64)*/ struct bnode nodes[rd->instcnt << 1];
+	_Alignas(64) struct bnode nodes[rd->instcnt << 1];
 	build_bvh(nodes, rd->aabbs, &rd->imap[tlasofs],
 	  rd->instcnt, rmin, rmax);
 	convert_bvh(&rd->nodes[tlasofs << 1], nodes);
