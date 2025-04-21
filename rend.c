@@ -537,7 +537,7 @@ void rend_prepstatic(struct rdata *rd)
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		struct rinst *ri = &rd->insts[j];
 		struct b2node *rn = &rd->nodes[ri->triofs << 1]; // Root node
-		if (rn->start + rn->cnt == 0) { // Not processed yet
+		if (rn->l + rn->r == 0) { // Not processed yet
 			dprintf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: 0x%lx\n",
 			  j, ri->triofs, ri->tricnt, (unsigned long)rn);
 			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};

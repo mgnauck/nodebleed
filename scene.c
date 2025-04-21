@@ -22,7 +22,11 @@ int findid(struct scene *s, const char *name,
 
 void setname(struct scene *s, const char *name, unsigned int ofs)
 {
-	strcpy(s->names + ofs * NAME_MAX_LEN, name);
+	size_t len = min(NAME_MAX_LEN - 2, strlen(name) + 1);
+	memcpy(s->names + ofs * NAME_MAX_LEN, name, len);
+	if (len == NAME_MAX_LEN - 2)
+		// String was truncated, add \0
+		*(s->names + ofs * NAME_MAX_LEN + NAME_MAX_LEN - 1) = '\0';
 }
 
 void scene_init(struct scene *s, unsigned int maxmeshes,
@@ -105,7 +109,7 @@ void scene_release(struct scene *s)
 
 int scene_initmtl(struct scene *s, const char *name, struct vec3 col)
 {
-	assert(strlen(name) < NAME_MAX_LEN);
+	assert(strlen(name) < NAME_MAX_LEN - 1);
 
 	if (s->mtlcnt >= s->mtlmax)
 		return -1;
@@ -131,7 +135,7 @@ int scene_findmtl(struct scene *s, const char *name)
 int scene_initcam(struct scene *s, const char *name, float vfov,
                   float focdist, float focangle, int nodeid)
 {
-	assert(strlen(name) < NAME_MAX_LEN);
+	assert(strlen(name) < NAME_MAX_LEN - 1);
 
 	if (s->camcnt >= s->cammax)
 		return -1;
@@ -189,7 +193,7 @@ int scene_initnode(struct scene *s, const char *name,
                    int prntid, int objid, unsigned int flags,
                    struct vec3 *trans, float rot[4], struct vec3 *sca)
 {
-	assert(strlen(name) < NAME_MAX_LEN);
+	assert(strlen(name) < NAME_MAX_LEN - 1);
 
 	if (s->nodecnt >= s->nodemax)
 		return -1;

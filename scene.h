@@ -5,7 +5,7 @@
 #include "types.h"
 #include "vec3.h"
 
-#define NAME_MAX_LEN  128
+#define NAME_MAX_LEN  128 // Includes \0
 
 struct mtl {
 	struct vec3   col; // Non-metalic diff or metallic spec col
