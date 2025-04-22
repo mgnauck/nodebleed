@@ -1,18 +1,17 @@
 #ifndef REND_H
 #define REND_H
 
-#include <stdint.h>
 #include "vec3.h"
 
 struct b2node { // bvh node, 64 bytes
-	struct vec3  lmin;
-	uint32_t     l;
-	struct vec3  lmax;
-	uint32_t     start; // Start index of tri or inst
-	struct vec3  rmin;
-	uint32_t     r;
-	struct vec3  rmax;
-	uint32_t     cnt; // Tri or inst cnt
+	struct vec3   lmin;
+	unsigned int  l;
+	struct vec3   lmax;
+	unsigned int  start; // Start index of tri or inst
+	struct vec3   rmin;
+	unsigned int  r;
+	struct vec3   rmax;
+	unsigned int  cnt; // Tri or inst cnt
 };
 
 struct aabb { // 32 bytes
@@ -23,12 +22,12 @@ struct aabb { // 32 bytes
 };
 
 struct rmtl { // 32 bytes
-	struct vec3  col;
-	float        metallic;
-	float        roughness;
-	float        ior;
-	uint32_t     flags;
-	uint32_t     pad0;
+	struct vec3   col;
+	float         metallic;
+	float         roughness;
+	float         ior;
+	unsigned int  flags;
+	unsigned int  pad0;
 };
 
 struct rtri { // 48 bytes
@@ -41,20 +40,20 @@ struct rtri { // 48 bytes
 };
 
 struct rnrm { // 48 bytes
-	struct vec3  n0;
-	uint32_t     mtlid;
-	struct vec3  n1;
-	uint32_t     pad0;
-	struct vec3  n2;
-	uint32_t     pad1;
+	struct vec3   n0;
+	unsigned int  mtlid;
+	struct vec3   n1;
+	unsigned int  pad0;
+	struct vec3   n2;
+	unsigned int  pad1;
 };
 
 struct rinst { // 64 bytes
-	float     globinv[12]; // Inverse transform 3x4
-	uint32_t  flags; // Disabled, emissive, no shadow etc.
-	uint32_t  triofs;
-	uint32_t  tricnt;
-	uint32_t  pad0;
+	float         globinv[12]; // Inverse transform 3x4
+	unsigned int  flags; // Disabled, emissive, no shadow etc.
+	unsigned int  triofs;
+	unsigned int  tricnt;
+	unsigned int  pad0;
 };
 
 struct rcam {
@@ -92,11 +91,11 @@ struct rdata {
 	struct rview  view;
 
 	unsigned int  blksz; // Size of a block being rendered
-	uint32_t      blknum; // Atomic block number
+	int           blknum; // Atomic block number
 
 	struct vec3   bgcol;
 
-	uint32_t      *buf; // Render target
+	unsigned int  *buf; // Render target
 };
 
 void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,

@@ -17,7 +17,7 @@
 #define dprintf(...) {}
 #endif
 
-#define INTERVAL_CNT  8
+#define INTERVAL_CNT  16
 
 struct split {
 	float          cost;
@@ -33,17 +33,17 @@ struct interval {
 };
 
 struct bnode { // bvh node, 32 bytes wide
-	struct vec3  min;
-	uint32_t     sid; // Start index or left child node id
-	struct vec3  max;
-	uint32_t     cnt; // Tri or inst cnt
+	struct vec3   min;
+	unsigned int  sid; // Start index or left child node id
+	struct vec3   max;
+	unsigned int  cnt; // Tri or inst cnt
 };
 
 struct hit {
-	float     t;
-	float     u;
-	float     v;
-	uint32_t  id; // tri id < 16 | inst id
+	float         t;
+	float         u;
+	float         v;
+	unsigned int  id; // tri id < 16 | inst id
 };
 
 float calc_area(struct vec3 mi, struct vec3 ma)
@@ -66,7 +66,7 @@ struct split find_intervalsplit(const struct bnode *n,
 
 		// Init empty intervals
 		struct interval ivs[INTERVAL_CNT];
-		for (unsigned int i = 0; i < INTERVAL_CNT; i++)
+		for (unsigned char i = 0; i < INTERVAL_CNT; i++)
 			ivs[i] = (struct interval){
 			  .cnt = 0,
 			  .min = (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX},
@@ -79,7 +79,7 @@ struct split find_intervalsplit(const struct bnode *n,
 			const struct aabb *a = &aabbs[*ip++];
 			float c = 0.5f * (vec3_getc(a->min, axis) +
 			  vec3_getc(a->max, axis));
-			unsigned int ivid  = (unsigned int)max(0,
+			unsigned char ivid  = (unsigned char)max(0,
 			  min(INTERVAL_CNT - 1, (c - minc) * delta));
 			struct interval *iv = &ivs[ivid];
 			iv->min = vec3_min(iv->min, a->min);
@@ -98,7 +98,7 @@ struct split find_intervalsplit(const struct bnode *n,
 		struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 		unsigned int ltotcnt = 0; // Total cnt
 		unsigned int rtotcnt = 0;
-		for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
+		for (unsigned char i = 0; i < INTERVAL_CNT - 1; i++) {
 			// From left
 			struct interval *iv = &ivs[i];
 			ltotcnt += iv->cnt;
@@ -117,7 +117,7 @@ struct split find_intervalsplit(const struct bnode *n,
 
 		// Find best surface area cost for interval planes
 		delta = 1.0f / delta;
-		for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
+		for (unsigned char i = 0; i < INTERVAL_CNT - 1; i++) {
 			float c = lcnts[i] * lareas[i] + rcnts[i] * rareas[i];
 			if (c < best.cost) {
 				best.cost = c;
@@ -305,12 +305,9 @@ float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
 }
 
 void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
-                   const struct rtri *tris, unsigned int triid,
-                   unsigned int instid)
+                   const struct rtri *tris,
+                   unsigned short triid, unsigned short instid)
 {
-	assert(triid < USHRT_MAX);
-	assert(instid < USHRT_MAX);
-
 	// Vectors of two edges sharing v0
 	const struct rtri *t = &tris[triid];
 	struct vec3 v0 = t->v0;
@@ -358,7 +355,7 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct rtri *tris, unsigned int instid)
 {
 	unsigned int stack[64];
-	unsigned int spos = 0;
+	unsigned char spos = 0;
 
 	unsigned int curr = 0;
 
@@ -372,7 +369,8 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 			// Leaf, check triangles
 			for (unsigned int i = 0; i < n->cnt; i++)
 				intersect_tri(h, ori, dir, tris,
-				  imap[n->start + i], instid);
+				  (unsigned short)imap[n->start + i],
+				  (unsigned short)instid);
 
 			// Pop next node from stack if something is left
 			if (spos > 0)
@@ -424,7 +422,7 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
                     unsigned int tlasofs)
 {
 	unsigned int stack[64];
-	unsigned int spos = 0;
+	unsigned char spos = 0;
 
 	unsigned int curr = 0;
 
@@ -538,8 +536,8 @@ void rend_prepstatic(struct rdata *rd)
 		struct rinst *ri = &rd->insts[j];
 		struct b2node *rn = &rd->nodes[ri->triofs << 1]; // Root node
 		if (rn->l + rn->r == 0) { // Not processed yet
-			dprintf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: 0x%lx\n",
-			  j, ri->triofs, ri->tricnt, (unsigned long)rn);
+			dprintf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: %p\n",
+			  j, ri->triofs, ri->tricnt, (void *)rn);
 			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
 			struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 			struct aabb aabbs[ri->tricnt];
@@ -559,7 +557,7 @@ void rend_prepstatic(struct rdata *rd)
 				tp++;
 			}
 
-			_Alignas(64) struct bnode nodes[ri->tricnt << 1];
+			struct bnode nodes[ri->tricnt << 1];
 			build_bvh(nodes, aabbs, &rd->imap[ri->triofs],
 			  ri->tricnt, rmin, rmax);
 			convert_bvh(&rd->nodes[ri->triofs << 1], nodes);
@@ -581,7 +579,7 @@ void rend_prepdynamic(struct rdata *rd)
 		ap++;
 	}
 
-	_Alignas(64) struct bnode nodes[rd->instcnt << 1];
+	struct bnode nodes[rd->instcnt << 1];
 	build_bvh(nodes, rd->aabbs, &rd->imap[tlasofs],
 	  rd->instcnt, rmin, rmax);
 	convert_bvh(&rd->nodes[tlasofs << 1], nodes);
@@ -625,9 +623,10 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 	return c;
 }
 
-static inline uint32_t fetch_and_add(uint32_t *var, uint32_t val)
+static inline int fetch_and_add(int *var, int val)
 {
-	__asm__ volatile("lock; xaddl %0, %1"
+	__asm__ volatile (
+		"lock; xaddl %0, %1"
 		: "+r" (val), "+m" (*var)
 		:
 		: "memory"
@@ -646,14 +645,14 @@ int rend_render(void *d)
 
 	unsigned int blksx = rd->view.w / rd->blksz;
 	unsigned int blksy = rd->view.h / rd->blksz;
-	unsigned int blkcnt = blksx * blksy;
+	int          blkcnt = blksx * blksy;
 
-	uint32_t *buf = rd->buf;
+	unsigned int *buf = rd->buf;
 	unsigned int w = rd->view.w;
 	unsigned int bs = rd->blksz;
 
 	while (true) {
-		uint32_t blk = fetch_and_add(&rd->blknum, 1);
+		int blk = fetch_and_add(&rd->blknum, 1);
 		if (blk >= blkcnt)
 			return 0;
 		unsigned int bx = (blk % blksx) * bs;

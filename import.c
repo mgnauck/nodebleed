@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
+#include <stddef.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 
 #include "gltf.h"
@@ -89,21 +89,21 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		unsigned int *ip = m->inds + m->icnt;
 		const unsigned char *bi = bin + ibv->byteofs;
 		if (iacc->comptype == 5121) {
-			uint8_t v;
+			unsigned char v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
 				memcpy(&v, bi, sizeof(v));
 				bi += sizeof(v);
 				*ip++ = v;
 			}
 		} else if (iacc->comptype == 5123) {
-			uint16_t v;
+			unsigned short v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
 				memcpy(&v, bi, sizeof(v));
 				bi += sizeof(v);
 				*ip++ = v;
 			}
 		} else if(iacc->comptype == 5125) {
-			uint32_t v;
+			unsigned int v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
 				memcpy(&v, bi, sizeof(v));
 				bi += sizeof(v);
@@ -360,7 +360,7 @@ void import_gltf(struct scene *s, const char *gltfname, const char *binname)
 		abort("Failed to open %s\n", gltfname);
 
 	fseek(f, 0L, SEEK_END);
-	size_t gltfsz = ftell(f);
+	size_t gltfsz = (size_t)ftell(f);
 	fseek(f, 0L, SEEK_SET);
 
 	char *gltf = malloc(gltfsz + 1);
@@ -376,7 +376,7 @@ void import_gltf(struct scene *s, const char *gltfname, const char *binname)
 		abort("Failed to open %s\n", binname);
 
 	fseek(f, 0L, SEEK_END);
-	size_t binsz = ftell(f);
+	size_t binsz = (size_t)ftell(f);
 	fseek(f, 0L, SEEK_SET);
 
 	unsigned char *bin = malloc(binsz);

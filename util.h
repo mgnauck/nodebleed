@@ -2,7 +2,6 @@
 #define UTIL_H
 
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
 #define EPS     1e-6
@@ -12,10 +11,7 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
-#define arrsz(a) (sizeof(a)/sizeof((a)[0]))
-
-//void      *aligned_alloc(size_t alignment, size_t n);
-//void      aligned_free(void *ptr);
+#define arrsz(a) (sizeof(a) / sizeof((a)[0]))
 
 void      pcg_srand(uint64_t seed, uint64_t seq);
 uint32_t  pcg_rand(void);

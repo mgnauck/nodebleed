@@ -1,9 +1,4 @@
-#include <errno.h>
 #include <math.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include "util.h"
 
@@ -14,20 +9,6 @@ typedef struct pcg_state_setseq_64 {
 
 static pcg32_random_t pcg32_global = {
   0x853c49e6748fea9bULL, 0xda3e39cb94b95bdbULL};
-
-/*void *aligned_alloc(size_t alignment, size_t n)
-{
-	size_t ofs = alignment - 1 + sizeof(void *);
-	void *p = malloc(n + ofs);
-	void **a = (void **)(((size_t)p + ofs) & ~(alignment - 1));
-	a[-1] = p;
-	return a;
-}
-
-void aligned_free(void *ptr)
-{
-	free(((void **)ptr)[-1]);
-}*/
 
 // https://www.pcg-random.org
 uint32_t pcg32_random_r(pcg32_random_t *rng)

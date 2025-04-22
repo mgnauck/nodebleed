@@ -22,10 +22,10 @@
 char sbuf[SBUF_LEN];
 
 char *strncpyl(char * restrict dst, const char * src,
-               size_t srclen, size_t dstlen)
+               unsigned int srclen, unsigned int dstlen)
 {
-	size_t len = srclen < dstlen - 1 ? srclen : dstlen - 1;
-	for (size_t i = 0; i < len; i++)
+	unsigned int len = srclen < dstlen - 1 ? srclen : dstlen - 1;
+	for (unsigned int i = 0; i < len; i++)
 		dst[i] = *src++;
 	dst[len] = '\0';
 	return dst;

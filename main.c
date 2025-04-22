@@ -1,6 +1,5 @@
 #include <assert.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <string.h>
 #include <threads.h>
 #include <unistd.h>
@@ -146,7 +145,8 @@ void upd_rcam(struct rcam *rc, struct cam *c)
 	  .focdist = c->focdist};
 }
 
-void calc_view(struct rview *v, uint32_t width, uint32_t height, struct cam *c)
+void calc_view(struct rview *v, unsigned int width, unsigned int height,
+               struct cam *c)
 {
 	float v_height = 2.0f * tanf(0.5f * c->vfov * PI / 180.0f) * c->focdist;
 	float v_width = v_height * (float)width / (float)height;
@@ -190,9 +190,9 @@ void init(struct scene *s, struct rdata *rd)
 	dprintf("Created render data with %d mtls, %d tris, %d insts\n",
 	  s->mtlmax, trimax, instmax);
 
-	long last = SDL_GetTicks();
+	long long last = SDL_GetTicks64();
 	rend_prepstatic(rd);
-	dprintf("Created blas in %ld ms\n", SDL_GetTicks() - last);
+	dprintf("Created blas in %llu ms\n", SDL_GetTicks64() - last);
 }
 
 void update(struct rdata *rd, struct scene *s, float time)
@@ -203,9 +203,9 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 	upd_rinsts(rd, s);
 
-	//long last = SDL_GetTicks();
+	//long long last = SDL_GetTicks64();
 	rend_prepdynamic(rd);
-	//dprintf("Created tlas in %ld ms\n", SDL_GetTicks() - last);
+	//dprintf("Created tlas in %llu ms\n", SDL_GetTicks64() - last);
 
 	struct cam *c = &s->cams[s->currcam];
 	upd_rcam(&rd->cam, c);
@@ -215,14 +215,16 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(void)
 {
+	// TODO Build w/o libc
 	// TODO Move code from main into some subsys
+	// TODO Pathtrace on CPU for the lolz
 
-	assert(sizeof(uint32_t) == sizeof(unsigned int));
-	assert(sizeof(uint32_t) == sizeof(float));
-	assert(sizeof(uint16_t) == sizeof(unsigned short int));
+	assert(sizeof(unsigned char) == 1);
+	assert(sizeof(unsigned short) == 2);
+	assert(sizeof(unsigned int) == 4);
+	assert(sizeof(unsigned long long) == 8);
 
 	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
-	dprintf("_SC_NPROCESSORS_ONLN: %d\n", thrdcnt);
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		return 1;
@@ -250,7 +252,7 @@ int main(void)
 
 	thrd_t thrds[thrdcnt];
 
-	long start;
+	long long start;
 	bool quit = false;
 	start = SDL_GetTicks64();
 	while (!quit) {
@@ -262,7 +264,7 @@ int main(void)
 				quit = true;
 		}
 
-		long last = SDL_GetTicks64();
+		long long last = SDL_GetTicks64();
 
 		update(&rd, &s, (last - start) / 1000.0f);
 		//rend_render(&rd);
@@ -275,7 +277,7 @@ int main(void)
 		SDL_UpdateWindowSurface(win);
 
 		char title[64];
-		snprintf(title, 64, "%ld ms", SDL_GetTicks64() - last);
+		snprintf(title, 64, "%llu ms", SDL_GetTicks64() - last);
 		SDL_SetWindowTitle(win, title);
 
 		rd.blknum = 0;

@@ -1,8 +1,6 @@
 #ifndef VEC3_H
 #define VEC3_H
 
-#include <stdint.h>
-
 struct vec3 {
 	float  x, y, z;
 };
@@ -31,7 +29,7 @@ struct vec3  vec3_max(struct vec3 a, struct vec3 b);
 float        vec3_minc(struct vec3 v); // Component
 float        vec3_maxc(struct vec3 v);
 
-float        vec3_getc(struct vec3 v, uint_fast8_t i);
+float        vec3_getc(struct vec3 v, unsigned char i);
 
 struct vec3  vec3_abs(struct vec3 v);
 

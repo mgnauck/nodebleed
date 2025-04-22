@@ -93,7 +93,7 @@ float vec3_maxc(struct vec3 v)
 	return max(max(v.x, v.y), v.z);
 }
 
-float vec3_getc(struct vec3 v, uint_fast8_t i)
+float vec3_getc(struct vec3 v, unsigned char i)
 {
 	return i == 0 ? v.x : (i == 1 ? v.y : v.z);
 }
