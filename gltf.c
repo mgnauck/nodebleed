@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "ext/jsmn.h"
+#include "jsmn.h"
 #include "gltf.h"
 
 // Output trace
