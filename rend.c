@@ -625,13 +625,7 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 
 static inline int fetch_and_add(int *var, int val)
 {
-	__asm__ volatile (
-		"lock; xaddl %0, %1"
-		: "+r" (val), "+m" (*var)
-		:
-		: "memory"
-	);
-	return val;
+	return __atomic_fetch_add(var, val, __ATOMIC_SEQ_CST);
 }
 
 int rend_render(void *d)
