@@ -1,8 +1,11 @@
 #include <assert.h>
+#include <fcntl.h>
 #include <stdio.h>
-#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 #include "gltf.h"
 #include "import.h"
@@ -353,41 +356,38 @@ void import_data(struct scene *s,
 	gltf_release(&g);
 }
 
+void *mmread(const char *relpathname, unsigned long long *sz)
+{
+	int fd = openat(AT_FDCWD, relpathname, O_RDONLY);
+	if (fd < 0)
+		abort("Failed to open %s\n", relpathname);
+
+	struct stat st = {0};
+	if (fstatat(AT_FDCWD, relpathname, &st, 0) < 0)
+		exit(1);
+
+	void *buf = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
+	  fd, 0);
+	if ((long long)buf < 0)
+		abort("Failed to read %ld bytes\n", st.st_size);
+
+	if (close(fd) < 0)
+		abort("Close %s failed\n", relpathname);
+
+	*sz = st.st_size;
+	return buf;
+}
+
 void import_gltf(struct scene *s, const char *gltfname, const char *binname)
 {
-	FILE *f = fopen(gltfname, "rt");
-	if (!f)
-		abort("Failed to open %s\n", gltfname);
+	unsigned long long gltfsz;
+	char *gltf = mmread(gltfname, &gltfsz);
 
-	fseek(f, 0L, SEEK_END);
-	size_t gltfsz = (size_t)ftell(f);
-	fseek(f, 0L, SEEK_SET);
-
-	char *gltf = malloc(gltfsz + 1);
-	
-	if (fread(gltf, sizeof(*gltf), gltfsz, f) != gltfsz)
-		abort("Failed to read %zu bytes\n", gltfsz);
-	gltf[gltfsz] = '\0';
-
- 	fclose(f);
-
- 	f = fopen(binname, "rb");
-	if (f == NULL)
-		abort("Failed to open %s\n", binname);
-
-	fseek(f, 0L, SEEK_END);
-	size_t binsz = (size_t)ftell(f);
-	fseek(f, 0L, SEEK_SET);
-
-	unsigned char *bin = malloc(binsz);
-
-	if (fread(bin, sizeof(*bin), binsz, f) != binsz)
-		abort("Failed to read %zu bytes\n", binsz);
-
-	fclose(f);
+	unsigned long long binsz;
+	unsigned char *bin = mmread(binname, &binsz);
 
 	import_data(s, gltf, bin);
 
-	free(bin);
-	free(gltf);
+	munmap(bin, binsz);
+	munmap(gltf, gltfsz);
 }
