@@ -91,7 +91,7 @@ struct rdata {
 	struct rview  view;
 
 	unsigned int  blksz; // Size of a block being rendered
-	int           blknum; // Atomic block number
+	int           blknum; // Block number, accessed atomically
 
 	struct vec3   bgcol;
 
