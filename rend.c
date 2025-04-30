@@ -664,4 +664,6 @@ int rend_render(void *d)
 			}
 		}
 	}
+
+	return 0;
 }

@@ -1,6 +1,5 @@
 #include <math.h>
 #include <stdio.h>
-#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1016,7 +1015,7 @@ int gltf_init(struct gltf *g, const char *buf)
 	jsmn_init(&parser);
 
 	// Retrieve number of tokens
-	size_t sz = strlen(buf);
+	unsigned long long sz = strlen(buf);
 	int cnt = jsmn_parse(&parser, buf, sz, NULL, 0);
 	if (cnt < 0) {
 		eprintf("Something went wrong parsing the token count of the gltf: %i\n", cnt);
