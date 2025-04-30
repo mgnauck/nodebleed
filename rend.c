@@ -623,11 +623,6 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 	return c;
 }
 
-static inline int fetch_and_add(int *var, int val)
-{
-	return __atomic_fetch_add(var, val, __ATOMIC_SEQ_CST);
-}
-
 int rend_render(void *d)
 {
 	struct rdata *rd = d;
@@ -646,9 +641,9 @@ int rend_render(void *d)
 	unsigned int bs = rd->blksz;
 
 	while (true) {
-		int blk = fetch_and_add(&rd->blknum, 1);
+		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
 		if (blk >= blkcnt)
-			return 0;
+			break;
 		unsigned int bx = (blk % blksx) * bs;
 		unsigned int by = (blk / blksx) * bs;
 		for (unsigned int j = 0; j < bs; j++) {
