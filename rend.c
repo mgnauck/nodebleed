@@ -1,10 +1,8 @@
-#include <assert.h>
 #include <float.h>
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "mat4.h"
 #include "rend.h"
@@ -228,7 +226,6 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 		n->cnt = 0; // No leaf, no tris or instance
 
 		// Push right child on stack and continue with left
-		assert(spos < 64);
 		stack[spos++] = ncnt + 1;
 		nid = ncnt;
 
@@ -408,7 +405,6 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 				curr = l;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
-					assert(spos < 64);
 					stack[spos++] = r;
 				}
 			}
@@ -488,7 +484,6 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 				curr = l;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
-					assert(spos < 64);
 					stack[spos++] = r;
 				}
 			}
@@ -513,7 +508,8 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 
 	// Bvh nodes for blas and tlas combined in one array
 	rd->nodes = aligned_alloc(64, idcnt * 2 * sizeof(*rd->nodes));
-	memset(rd->nodes, 0, idcnt * 2 * sizeof(*rd->nodes));
+	for (unsigned int i = 0; i < idcnt * 2; i++)
+		rd->nodes[i].l = rd->nodes[i].r = 0;
 
 	// Start of tlas index map and tlas nodes * 2
 	rd->tlasofs = maxtris;
@@ -534,17 +530,19 @@ void rend_prepstatic(struct rdata *rd)
 {
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		struct rinst *ri = &rd->insts[j];
-		struct b2node *rn = &rd->nodes[ri->triofs << 1]; // Root node
+		unsigned int triofs = ri->triofs;
+		struct b2node *rn = &rd->nodes[triofs << 1]; // Root node
 		if (rn->l + rn->r == 0) { // Not processed yet
-			dprintf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: %p\n",
-			  j, ri->triofs, ri->tricnt, (void *)rn);
+			unsigned int tricnt = ri->tricnt;
+			struct rtri *tp = &rd->tris[triofs];
+			unsigned int *ip = &rd->imap[triofs];
+			struct aabb aabbs[tricnt];
+			struct aabb *ap = aabbs;
 			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
 			struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
-			struct aabb aabbs[ri->tricnt];
-			struct aabb *ap = aabbs;
-			struct rtri *tp = &rd->tris[ri->triofs];
-			unsigned int *ip = &rd->imap[ri->triofs];
-			for (unsigned int i = 0; i < ri->tricnt; i++) {
+			dprintf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: %p\n",
+			  j, triofs, tricnt, (void *)rn);
+			for (unsigned int i = 0; i < tricnt; i++) {
 				ap->min = ap->max = tp->v0;
 				ap->min = vec3_min(ap->min, tp->v1);
 				ap->max = vec3_max(ap->max, tp->v1);
@@ -553,14 +551,14 @@ void rend_prepstatic(struct rdata *rd)
 				rmin = vec3_min(rmin, ap->min);
 				rmax = vec3_max(rmax, ap->max);
 				*ip++ = i;
-				ap++;
 				tp++;
+				ap++;
 			}
 
-			struct bnode nodes[ri->tricnt << 1];
-			build_bvh(nodes, aabbs, &rd->imap[ri->triofs],
-			  ri->tricnt, rmin, rmax);
-			convert_bvh(&rd->nodes[ri->triofs << 1], nodes);
+			struct bnode nodes[tricnt << 1];
+			build_bvh(nodes, aabbs, &rd->imap[triofs],
+			  tricnt, rmin, rmax);
+			convert_bvh(&rd->nodes[triofs << 1], nodes);
 		}
 	}
 }
@@ -596,6 +594,7 @@ struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
 struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 {
 	struct hit h = {.t = FLT_MAX};
+
 	intersect_tlas(&h, o, d, rd->nodes, rd->imap, rd->insts,
 	  rd->tris, rd->tlasofs);
 

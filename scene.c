@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,8 +108,6 @@ void scene_release(struct scene *s)
 
 int scene_initmtl(struct scene *s, const char *name, struct vec3 col)
 {
-	assert(strlen(name) < NAME_MAX_LEN - 1);
-
 	if (s->mtlcnt >= s->mtlmax)
 		return -1;
 
@@ -135,8 +132,6 @@ int scene_findmtl(struct scene *s, const char *name)
 int scene_initcam(struct scene *s, const char *name, float vfov,
                   float focdist, float focangle, int nodeid)
 {
-	assert(strlen(name) < NAME_MAX_LEN - 1);
-
 	if (s->camcnt >= s->cammax)
 		return -1;
 
@@ -193,8 +188,6 @@ int scene_initnode(struct scene *s, const char *name,
                    int prntid, int objid, unsigned int flags,
                    struct vec3 *trans, float rot[4], struct vec3 *sca)
 {
-	assert(strlen(name) < NAME_MAX_LEN - 1);
-
 	if (s->nodecnt >= s->nodemax)
 		return -1;
 
@@ -311,7 +304,6 @@ void scene_updanims(struct scene *s, float time)
 	for (unsigned int j = 0; j < s->trackcnt; j++) {
 		struct track *tr = &s->tracks[j];
 		struct sampler *sa = &s->samplers[tr->sid];
-		assert(sa != NULL);
 
 		float *keys = &s->animdata[sa->kofs];
 		unsigned int n = find_key(keys, tr->key, sa->kcnt, time);
@@ -355,7 +347,6 @@ void scene_updanims(struct scene *s, float time)
 		}
 
 		struct tfcomp *tfc = &s->tfcomps[tr->nid];
-		assert(tfc != NULL);
 
 		float *dst;
 		switch (tr->tgt) {
@@ -372,8 +363,6 @@ void scene_updanims(struct scene *s, float time)
 			dst = NULL;
 		}
 
-		assert(dst && "Invalid animation target");
-
 		for (unsigned int i = 0; i < comp; i++)
 			dst[i] = v[i];
 
@@ -383,8 +372,6 @@ void scene_updanims(struct scene *s, float time)
 			continue;
 
 		struct tfmat *tfm = &s->tfmats[tr->nid];
-		assert(tfm != NULL);
-
 		combine_tfcomp(tfm->loc, &tfc->trans, tfc->rot, &tfc->scale);
 	}
 }

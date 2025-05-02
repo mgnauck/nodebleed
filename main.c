@@ -1,8 +1,13 @@
-#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <threads.h>
 #include <unistd.h>
 
-#include <SDL.h>
+#include "SDL.h"
+
+#include <math.h>
+#include <float.h>
 
 #include "import.h"
 #include "mat4.h"
@@ -188,9 +193,9 @@ void init(struct scene *s, struct rdata *rd)
 	dprintf("Created render data with %d mtls, %d tris, %d insts\n",
 	  s->mtlmax, trimax, instmax);
 
-	long long last = SDL_GetTicks64();
+	//long long last = SDL_GetTicks64();
 	rend_prepstatic(rd);
-	dprintf("Created blas in %llu ms\n", SDL_GetTicks64() - last);
+	//dprintf("Created blas in %llu ms\n", SDL_GetTicks64() - last);
 }
 
 void update(struct rdata *rd, struct scene *s, float time)
@@ -213,32 +218,24 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(void)
 {
-	// TODO Build w/o libc
 	// TODO Move code from main into some subsys
 	// TODO Pathtrace on CPU for the lolz
 
-	assert(sizeof(unsigned char) == 1);
-	assert(sizeof(unsigned short) == 2);
-	assert(sizeof(unsigned int) == 4);
-	assert(sizeof(unsigned long long) == 8);
-
-	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
-
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
-		return 1;
+		exit(1);
 
-	SDL_Window *win = SDL_CreateWindow("unik",
-	  SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, 0);
+	SDL_Window *win = SDL_CreateWindow("unik", SDL_WINDOWPOS_CENTERED,
+	  SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, 0);
 	if (!win) {
 		SDL_Quit();
-		return 1;
+		exit(1);
 	}
 
 	SDL_Surface *scr = SDL_GetWindowSurface(win);
 	if (!scr) {
 		SDL_DestroyWindow(win);
 		SDL_Quit();
-		return 1;
+		exit(1);
 	}
 
 	struct scene s = { 0 };
@@ -247,7 +244,9 @@ int main(void)
 
 	rd.blksz = 20;
 	rd.buf = scr->pixels;
+	//rd.buf = malloc(WIDTH * HEIGHT * sizeof(unsigned int));
 
+	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	thrd_t thrds[thrdcnt];
 
 	long long start;
@@ -280,6 +279,8 @@ int main(void)
 
 		rd.blknum = 0;
 	}
+
+	//free(rd.buf);
 
 	rend_release(&rd);
 	scene_release(&s);

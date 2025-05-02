@@ -1,11 +1,10 @@
-#include <assert.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "gltf.h"
 #include "import.h"
@@ -144,13 +143,9 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 			continue;
 		}
 
-		// Vertex cnt == normal cnt in primitive
-		assert(vacc->cnt == nacc->cnt);
 
 		struct vec3 *vp = m->vrts + m->vcnt;
-		assert(sizeof(vp->x) == 4);
 		struct vec3 *np = m->nrms + m->vcnt;
-		assert(sizeof(np->x) == 4);
 		const unsigned char *bv = bin + vbv->byteofs;
 		const unsigned char *bn = bin + nbv->byteofs;
 		for (unsigned int i = 0; i < vacc->cnt; i++) {
@@ -281,10 +276,12 @@ void import_data(struct scene *s,
 	if (gltf_init(&g, gltfbuf) != 0)
 		abort("Failed to initialize gltf\n");
 
-	assert(g.meshcnt > 0 && g.rootcnt > 0 && g.nodecnt > 0);
+	if (g.meshcnt == 0 || g.rootcnt == 0 || g.nodecnt == 0)
+		abort("Expected at least one mesh, node and root in gltf\n");
 
 	unsigned int animacc[g.accessorcnt]; // Anim data accessors
-	memset(animacc, 0, g.accessorcnt * sizeof(unsigned int));
+	for (unsigned int i = 0; i < g.accessorcnt; i++)
+		animacc[0] = 0;
 
 	unsigned int scnt = 0, tcnt = 0;
 	for (unsigned int j = 0; j < g.animcnt; j++) {
@@ -328,9 +325,10 @@ void import_data(struct scene *s,
 		import_mesh(s, &g.meshes[i], &g, binbuf);
 
 	// Create single scene root node at id 0
+	float ro[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 	if (scene_initnode(s, "ROOT", -1, -1, 0,
 	  &(struct vec3){0.0f, 0.0f, 0.0f},
-	  (float[4]){0.0f, 0.0f, 0.0f, 1.0f},
+	  ro,
 	  &(struct vec3){1.0f, 1.0f, 1.0f}) != 0)
 		abort("Failed to create root node\n");
 
@@ -358,13 +356,15 @@ void import_data(struct scene *s,
 
 void *mmread(const char *relpathname, unsigned long long *sz)
 {
-	int fd = openat(AT_FDCWD, relpathname, O_RDONLY);
+	int fd = open(relpathname, O_RDONLY);
 	if (fd < 0)
 		abort("Failed to open %s\n", relpathname);
 
 	struct stat st = {0};
-	if (fstatat(AT_FDCWD, relpathname, &st, 0) < 0)
-		exit(1);
+	if (fstat(fd, &st) < 0)
+		abort("Failed to retrieve file stat %s\n", relpathname);
+
+	//dprintf("file: %s, sz: %ld\n", relpathname, st.st_size);
 
 	void *buf = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
 	  fd, 0);

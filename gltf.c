@@ -138,11 +138,9 @@ unsigned int read_pbr_metallic_roughness(struct gltfmtl *m, const char *s,
 		if (jsoneq(s, key, "baseColorFactor") == 0) {
 			if (t[j + 1].type == JSMN_ARRAY && t[j + 1].size == 4) {
 				// Just read rgb, ignore alpha (= j + 5)
-				memcpy(&m->col, (float[]){
-				  atof(toktostr(s, &t[j + 2])),
-				  atof(toktostr(s, &t[j + 3])),
-				  atof(toktostr(s, &t[j + 4]))},
-				  3 * sizeof(*m->col));
+				m->col[0] = atof(toktostr(s, &t[j + 2]));
+				m->col[1] = atof(toktostr(s, &t[j + 3]));
+				m->col[2] = atof(toktostr(s, &t[j + 4]));
 				j += 6;
 				continue;
 			} else {
@@ -164,11 +162,11 @@ unsigned int read_pbr_metallic_roughness(struct gltfmtl *m, const char *s,
 		if (jsoneq(s, key, "roughnessFactor") == 0) {
 			if (t[j + 1].type == JSMN_PRIMITIVE) {
 				m->roughness = atof(toktostr(s, &t[j + 1]));
-				tprintf("roughnessFactor: %f\n", m->roughness);
+				tprintf("roughness: %f\n", m->roughness);
 				j += 2;
 				continue;
 			} else {
-				eprintf("Failed to read roughnessFactor\n");
+				eprintf("Failed to read roughness\n");
 			}
 
 		}
@@ -181,7 +179,7 @@ unsigned int read_pbr_metallic_roughness(struct gltfmtl *m, const char *s,
 
 unsigned int read_mtl(struct gltfmtl *m, const char *s, jsmntok_t *t)
 {
-	memcpy(m->col, (float[]){1.0f, 1.0f, 1.0f}, 3 * sizeof(*m->col));
+	m->col[0] = m->col[1] = m->col[2] = 1.0f;
 	m->metallic = 0.0f;
 	m->roughness = 0.5f;
 	m->ior = 1.5f;
@@ -189,7 +187,7 @@ unsigned int read_mtl(struct gltfmtl *m, const char *s, jsmntok_t *t)
 
 	// Temporary store only, will use to calc material emission
 	float emissivestrength = 0.0f;
-	float emissivefactor[3] = {1.0f, 1.0f, 1.0f};
+	float emissivefac[3] = {1.0f, 1.0f, 1.0f};
 
 	unsigned int j = 1;
 	for (int i = 0; i < t->size; i++) {
@@ -206,12 +204,10 @@ unsigned int read_mtl(struct gltfmtl *m, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "emissiveFactor") == 0) {
 			if (t[j + 1].type == JSMN_ARRAY && t[j + 1].size == 3) {
-				memcpy(&emissivefactor, (float[]){
-				  atof(toktostr(s, &t[j + 2])),
-				  atof(toktostr(s, &t[j + 3])),
-				  atof(toktostr(s, &t[j + 4]))},
-				  3 * sizeof(*emissivefactor));
-				  j += 5;
+				emissivefac[0] = atof(toktostr(s, &t[j + 2]));
+				emissivefac[1] = atof(toktostr(s, &t[j + 3]));
+				emissivefac[2] = atof(toktostr(s, &t[j + 4]));
+				j += 5;
 				continue;
 			} else {
 				eprintf("Failed to read emissiveFactor\n");
@@ -232,9 +228,9 @@ unsigned int read_mtl(struct gltfmtl *m, const char *s, jsmntok_t *t)
 		j += ignore(s, key);
 	}
 
-	m->emission[0] = emissivefactor[0] * emissivestrength;
-	m->emission[1] = emissivefactor[1] * emissivestrength;
-	m->emission[2] = emissivefactor[2] * emissivestrength;
+	m->emission[0] = emissivefac[0] * emissivestrength;
+	m->emission[1] = emissivefac[1] * emissivestrength;
+	m->emission[2] = emissivefac[2] * emissivestrength;
 
 	return j;
 }
@@ -263,9 +259,10 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 {
 	n->meshid = -1;
 	n->camid = -1;
-	memcpy(n->scale, (float[]){1.0f, 1.0f, 1.0f}, 3 * sizeof(*n->scale));
-	memcpy(n->rot, (float[]){0.0f, 0.0f, 0.0f, 1.0f}, 4 * sizeof(*n->rot));
-	memcpy(n->trans, (float[]){0.0f, 0.0f, 0.0f}, 3 * sizeof(*n->trans));
+	n->scale[0] = n->scale[1] = n->scale[2] = 1.0f;
+	n->rot[0] = n->rot[1] = n->rot[2] = 0.0f;
+	n->rot[3] = 1.0f;
+	n->trans[0] = n->trans[1] = n->trans[2] = 0.0f;
 	n->children = NULL;
 	n->childcnt = 0;
 
@@ -298,11 +295,9 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "translation") == 0) {
 			if (t[j + 1].type == JSMN_ARRAY && t[j + 1].size == 3) {
-				memcpy(n->trans, (float[]){
-				  atof(toktostr(s, &t[j + 2])),
-				  atof(toktostr(s, &t[j + 3])),
-				  atof(toktostr(s, &t[j + 4]))},
-				  3 * sizeof(*n->trans));
+				n->trans[0] = atof(toktostr(s, &t[j + 2]));
+				n->trans[1] = atof(toktostr(s, &t[j + 3]));
+				n->trans[2] = atof(toktostr(s, &t[j + 4]));
 				tprintf("translation: %f, %f, %f\n",
 				  n->trans[0], n->trans[1], n->trans[2]);
 				j += 5;
@@ -314,11 +309,9 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "scale") == 0) {
 			if (t[j + 1].type == JSMN_ARRAY && t[j + 1].size == 3) {
-				memcpy(n->scale, (float[]){
-				  atof(toktostr(s, &t[j + 2])),
-				  atof(toktostr(s, &t[j + 3])),
-				  atof(toktostr(s, &t[j + 4]))},
-				  3 * sizeof(*n->scale));
+				n->scale[0] = atof(toktostr(s, &t[j + 2]));
+				n->scale[1] = atof(toktostr(s, &t[j + 3]));
+				n->scale[2] = atof(toktostr(s, &t[j + 4]));
 				tprintf("scale: %f, %f, %f\n",
 				  n->scale[0], n->scale[1], n->scale[2]);
 				j += 5;
@@ -330,12 +323,10 @@ unsigned int read_node(struct gltfnode *n, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "rotation") == 0) {
 			if (t[j + 1].type == JSMN_ARRAY && t[j + 1].size == 4) {
-				memcpy(n->rot, (float[]){
-				  atof(toktostr(s, &t[j + 2])),
-				  atof(toktostr(s, &t[j + 3])),
-				  atof(toktostr(s, &t[j + 4])),
-				  atof(toktostr(s, &t[j + 5]))},
-				  4 * sizeof(*n->rot));
+				n->rot[0] = atof(toktostr(s, &t[j + 2]));
+				n->rot[1] = atof(toktostr(s, &t[j + 3]));
+				n->rot[2] = atof(toktostr(s, &t[j + 4]));
+				n->rot[3] = atof(toktostr(s, &t[j + 5]));
 				tprintf("rotation: %f, %f, %f, %f\n",
 				  n->rot[0], n->rot[1], n->rot[2], n->rot[3]);
 				j += 6;
