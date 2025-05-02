@@ -244,7 +244,6 @@ int main(void)
 
 	rd.blksz = 20;
 	rd.buf = scr->pixels;
-	//rd.buf = malloc(WIDTH * HEIGHT * sizeof(unsigned int));
 
 	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	thrd_t thrds[thrdcnt];
@@ -279,8 +278,6 @@ int main(void)
 
 		rd.blknum = 0;
 	}
-
-	//free(rd.buf);
 
 	rend_release(&rd);
 	scene_release(&s);
