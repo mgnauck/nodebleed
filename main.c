@@ -272,9 +272,11 @@ int main(void)
 
 		SDL_UpdateWindowSurface(win);
 
+#ifndef NDEBUG
 		char title[64];
 		snprintf(title, 64, "%llu ms", SDL_GetTicks64() - last);
 		SDL_SetWindowTitle(win, title);
+#endif
 
 		rd.blknum = 0;
 	}

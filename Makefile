@@ -2,8 +2,9 @@
 OBJ = gltf.o import.o main.o mat4.o rend.o scene.o util.o vec3.o
 OUT = a.out
 CC = clang
-CFLAGS = -std=c99 -march=native -O3 -Wall -Wextra -Wpedantic -Wshadow
+CFLAGS = -std=c99 -march=native -Oz -Wall -Wextra -Wpedantic -Wshadow
 CFLAGS += -flto
+CFLAGS += -fno-asynchronous-unwind-tables
 CFLAGS += $(shell sdl2-config --cflags)
 #CFLAGS += -g
 #CFLAGS += -fsanitize=undefined
