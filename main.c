@@ -1,16 +1,24 @@
+#include <float.h>
+#include <math.h>
+#ifndef NOSTDLIB
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <threads.h>
 #include <unistd.h>
+#endif
 
+#ifdef NOSTDLIB
+#define SDL_MAIN_HANDLED
+#endif
 #include "SDL.h"
-
-#include <math.h>
-#include <float.h>
 
 #include "import.h"
 #include "mat4.h"
+#ifdef NOSTDLIB
+//#include "platform.h"
+#include "printf.h"
+#endif
 #include "rend.h"
 #include "scene.h"
 #include "util.h"
@@ -216,8 +224,15 @@ void update(struct rdata *rd, struct scene *s, float time)
 	calc_view(&rd->view, WIDTH, HEIGHT, c);
 }
 
+#ifndef NOSTDLIB
 int main(void)
 {
+#else
+__attribute((force_align_arg_pointer))
+void _start(void)
+{
+	//__asm("sub $8, %rsp\n");
+#endif
 	// TODO Move code from main into some subsys
 	// TODO Pathtrace on CPU for the lolz
 
@@ -245,8 +260,17 @@ int main(void)
 	rd.blksz = 20;
 	rd.buf = scr->pixels;
 
-	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
+#ifndef NOSTDLIB
+	unsigned int thrdcnt = 20; //(int)sysconf(_SC_NPROCESSORS_ONLN);
 	thrd_t thrds[thrdcnt];
+#else
+#define STACKSZ  4 * 1024 * 1024
+	unsigned int thrdcnt = 20;
+	void *stacks[thrdcnt];
+	create_stacks(stacks, thrdcnt, STACKSZ);
+#endif
+
+	rend_initsync(&rd, thrdcnt);
 
 	long long start;
 	bool quit = false;
@@ -265,19 +289,32 @@ int main(void)
 		update(&rd, &s, (last - start) / 1000.0f);
 		//rend_render(&rd);
 
+#ifndef NOSTDLIB
 		for (unsigned int i = 0; i < thrdcnt; i++)
 			thrd_create(&thrds[i], rend_render, &rd);
 		for (unsigned int i = 0; i < thrdcnt; i++)
 			thrd_join(thrds[i], NULL);
+#else
+		create_threads(rend_render, &rd, stacks, thrdcnt);
+		fwait(rd.finfut);
+#endif
 
 		SDL_UpdateWindowSurface(win);
 
+#ifndef NDEBUG
 		char title[64];
 		snprintf(title, 64, "%llu ms", SDL_GetTicks64() - last);
 		SDL_SetWindowTitle(win, title);
+#endif
 
-		rd.blknum = 0;
+		rend_resetsync(&rd);
 	}
+
+	rend_releasesync(&rd);
+
+#ifdef NOSTDLIB
+	release_stacks(stacks, thrdcnt, STACKSZ);
+#endif
 
 	rend_release(&rd);
 	scene_release(&s);
@@ -285,5 +322,9 @@ int main(void)
 	SDL_DestroyWindow(win);
 	SDL_Quit();
 
+#ifndef NOSTDLIB
 	return 0;
+#else
+	exit(0);
+#endif
 }

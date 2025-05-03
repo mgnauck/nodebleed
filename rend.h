@@ -90,8 +90,13 @@ struct rdata {
 	struct rcam   cam;
 	struct rview  view;
 
+#ifdef NOSTDLIB
+	unsigned int  thrdcnt; // Max num of threads
+	unsigned int  fincnt; // Num of threads finished
+	unsigned int  *finfut; // Render threads finished futex 
+#endif
 	unsigned int  blksz; // Size of a block being rendered
-	int           blknum; // Block number, accessed atomically
+	unsigned int  blknum; // Block number, accessed atomically
 
 	struct vec3   bgcol;
 
@@ -104,6 +109,13 @@ void  rend_release(struct rdata *rd);
 
 void  rend_prepstatic(struct rdata *rd);
 void  rend_prepdynamic(struct rdata *rd);
+#ifndef NOSTDLIB
 int   rend_render(void *rd); // Expected argument is struct rdata *
+#else
+void  rend_render(void *rd); // Expected argument is struct rdata *
+#endif
+void  rend_initsync(struct rdata *rd, unsigned int thrdcnt);
+void  rend_resetsync(struct rdata *rd);
+void  rend_releasesync(struct rdata *rd);
 
 #endif

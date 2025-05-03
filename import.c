@@ -1,3 +1,4 @@
+#ifndef NOSTDLIB
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,10 +6,15 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 #include "gltf.h"
 #include "import.h"
 #include "mat4.h"
+#ifdef NOSTDLIB
+#include "platform.h"
+#include "printf.h"
+#endif
 #include "scene.h"
 #include "util.h"
 
@@ -356,15 +362,15 @@ void import_data(struct scene *s,
 
 void *mmread(const char *relpathname, unsigned long long *sz)
 {
-	int fd = open(relpathname, O_RDONLY);
+	int fd = openat(AT_FDCWD, relpathname, O_RDONLY);
 	if (fd < 0)
 		abort("Failed to open %s\n", relpathname);
 
 	struct stat st = {0};
-	if (fstat(fd, &st) < 0)
+	if (fstatat(AT_FDCWD, relpathname, &st, 0) < 0)
 		abort("Failed to retrieve file stat %s\n", relpathname);
 
-	//dprintf("file: %s, sz: %ld\n", relpathname, st.st_size);
+	dprintf("file: %s, sz: %ld\n", relpathname, st.st_size);
 
 	void *buf = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
 	  fd, 0);

@@ -1,9 +1,15 @@
 #include <math.h>
+#ifndef NOSTDLIB
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#endif
 
 #include "mat4.h"
+#ifdef NOSTDLIB
+#include "platform.h"
+#include "printf.h"
+#endif
 #include "scene.h"
 #include "util.h"
 
@@ -27,6 +33,8 @@ void setname(struct scene *s, const char *name, unsigned int ofs)
 		// String was truncated, add \0
 		*(s->names + ofs * NAME_MAX_LEN + NAME_MAX_LEN - 1) = '\0';
 }
+
+#define aligned_alloc(a, sz)  malloc(sz)
 
 void scene_init(struct scene *s, unsigned int maxmeshes,
                 unsigned int maxmtls, unsigned int maxcams,

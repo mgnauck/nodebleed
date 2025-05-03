@@ -1,12 +1,15 @@
 .POSIX:
 OBJ = gltf.o import.o main.o mat4.o rend.o scene.o util.o vec3.o
+OBJ += printf.o platform.o platform_x86-64.o platform_AArch64.o
 OUT = a.out
 CC = clang
 CFLAGS = -std=c99 -march=native -Oz -Wall -Wextra -Wpedantic -Wshadow
-CFLAGS += -flto -fno-asynchronous-unwind-tables
+CFLAGS += -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables
+CFLAGS += -flto
 CFLAGS += $(shell sdl2-config --cflags)
 #CFLAGS += -g
 #CFLAGS += -fsanitize=undefined
+CFLAGS += -DNOSTDLIB
 CFLAGS += -DNDEBUG
 LDLIBS = -lm
 LDLIBS += $(shell sdl2-config --libs)
@@ -14,6 +17,7 @@ LDLIBS += $(shell sdl2-config --libs)
 #LDFLAGS = -flto -O3
 LDFLAGS += -fuse-ld=lld
 LDFLAGS += -s
+LDFLAGS += -nostdlib
 #strip -R .comment a.out
 
 all: $(OUT)

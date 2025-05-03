@@ -1,10 +1,16 @@
 #include <math.h>
+#ifndef NOSTDLIB
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#endif
 
 #include "jsmn.h"
 #include "gltf.h"
+#ifdef NOSTDLIB
+#include "platform.h"
+#include "printf.h"
+#endif
 
 // Output trace
 //#define tprintf printf

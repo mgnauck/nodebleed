@@ -1,10 +1,16 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
+#ifndef NOSTDLIB
 #include <stdio.h>
 #include <stdlib.h>
+#endif
 
 #include "mat4.h"
+#ifdef NOSTDLIB
+#include "platform.h"
+#include "printf.h"
+#endif
 #include "rend.h"
 #include "types.h"
 #include "util.h"
@@ -491,6 +497,8 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
+#define aligned_alloc(a, sz)  malloc(sz)
+
 void rend_init(struct rdata *rd, unsigned int maxmtls,
                unsigned int maxtris, unsigned int maxinsts) 
 {
@@ -622,8 +630,14 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 	return c;
 }
 
+#ifndef NOSTDLIB
 int rend_render(void *d)
 {
+#else
+void rend_render(void *d)
+{
+	__asm("sub $8, %rsp\n");
+#endif
 	struct rdata *rd = d;
 
 	struct vec3 eye = rd->cam.eye;
@@ -664,5 +678,42 @@ int rend_render(void *d)
 		}
 	}
 
+#ifndef NOSTDLIB
 	return 0;
+#else
+	if (__atomic_add_fetch(&rd->fincnt, 1, __ATOMIC_SEQ_CST) == rd->thrdcnt)
+		fpost(rd->finfut);
+
+	exit(0);
+#endif
+}
+
+void rend_initsync(struct rdata *rd, unsigned int thrdcnt)
+{
+#ifdef NOSTDLIB
+	rd->thrdcnt = thrdcnt;
+
+	rd->finfut = mmap(NULL, sizeof(unsigned int), PROT_READ | PROT_WRITE,
+	  MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+	if ((long long)rd->finfut < 0)
+		exit(1);
+
+	*rd->finfut = 0;
+#endif
+}
+
+void rend_resetsync(struct rdata *rd)
+{
+	rd->blknum = 0;
+#ifdef NOSTDLIB
+	rd->fincnt = 0;
+	*rd->finfut = 0;
+#endif
+}
+
+void rend_releasesync(struct rdata *rd)
+{
+#ifdef NOSTDLIB
+	munmap(rd->finfut, sizeof(unsigned int));
+#endif
 }

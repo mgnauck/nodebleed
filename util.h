@@ -22,4 +22,16 @@ void      setflags(unsigned int *state, unsigned int flags);
 void      clrflags(unsigned int *state, unsigned int flags);
 bool      hasflags(unsigned int state, unsigned int flags);
 
+#ifdef NOSTDLIB
+void      fwait(unsigned int *fut);
+void      fpost(unsigned int *fut);
+
+void      create_stacks(void **stacks, unsigned int stackscnt,
+                        unsigned int stacksz);
+void      release_stacks(void **stacks, unsigned int stackscnt,
+                         unsigned int stacksz);
+void      create_threads(void (*fn)(void *), void *data, void **stacks,
+                         unsigned int thrdcnt);
+#endif
+
 #endif

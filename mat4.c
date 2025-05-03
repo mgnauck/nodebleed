@@ -1,4 +1,5 @@
 #include <math.h>
+
 #include "mat4.h"
 
 void mat4_cpy(float dst[restrict 16], const float src[16])
