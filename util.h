@@ -7,6 +7,7 @@
 #define EPS     1e-6
 #define PI      3.14159265
 #define TWO_PI  6.28318531
+#define INV_PI  (1.0 / PI)
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))

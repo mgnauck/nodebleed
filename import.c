@@ -310,7 +310,7 @@ void import_data(struct scene *s,
 
 	if (g.mtlcnt == 0) {
 		dprintf("Found no materials. Creating default material.\n");
-		scene_initmtl(s, "PROXY", (struct vec3){1.0f, 0.0f, 0.0f});
+		scene_initmtl(s, "PROXY", (struct vec3){0.5f, 0.0f, 0.5f});
 	}
 
 	for (unsigned int i = 0; i < g.camcnt; i++)

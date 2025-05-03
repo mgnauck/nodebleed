@@ -95,7 +95,10 @@ struct rdata {
 
 	struct vec3   bgcol;
 
-	unsigned int  *buf; // Render target
+	struct vec3   *acc; // Accumulator
+	unsigned int  *buf; // Color buffer
+
+	unsigned int  samplecnt;
 };
 
 void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,

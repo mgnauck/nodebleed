@@ -587,7 +587,14 @@ struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
                         float inv_transpose[16])
 {
 	struct vec3 nrm = vec3_add(vec3_scale(rn->n1, u),
-	  vec3_add(vec3_scale(rn->n2, v), vec3_scale(rn->n0, 1 - u - v)));
+	  vec3_add(vec3_scale(rn->n2, v), vec3_scale(rn->n0, 1.0f - u - v)));
+	return vec3_unit(mat4_muldir(inv_transpose, nrm));
+}
+
+struct vec3 calc_fnrm(struct rtri *t, float inv_transpose[16])
+{
+	struct vec3 nrm = vec3_unit(vec3_cross(vec3_sub(t->v0, t->v1),
+	  vec3_sub(t->v0, t->v2)));
 	return vec3_unit(mat4_muldir(inv_transpose, nrm));
 }
 
@@ -622,6 +629,53 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 	return c;
 }
 
+struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
+                   unsigned char depth)
+{
+	if (depth >= 2)
+		return rd->bgcol;
+
+	struct hit h = {.t = FLT_MAX};
+
+	intersect_tlas(&h, o, d, rd->nodes, rd->imap, rd->insts,
+	  rd->tris, rd->tlasofs);
+
+	if (h.t == FLT_MAX)
+		return rd->bgcol;
+
+	unsigned int instid = h.id & 0xffff;
+	unsigned int triid = h.id >> 16;
+	struct rinst *ri = &rd->insts[instid];
+	struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+	unsigned int mtlid = rn->mtlid;
+
+	// Inverse transpose, dir mul is 3x4
+	float it[16];
+	float *rt = ri->globinv;
+	for (int j = 0; j < 4; j++)
+		for (int i = 0; i < 3; i++)
+			it[4 * j + i] = rt[4 * i + j];
+
+	struct vec3 nrm = calc_nrm(h.u, h.v, rn, it);
+	//struct vec3 nrm = calc_fnrm(&rd->tris[ri->triofs + triid], it);
+	if (vec3_dot(nrm, d) > 0.0f)
+		nrm = vec3_neg(nrm);
+
+	// New origin and direction
+	struct vec3 pos = vec3_add(o, vec3_scale(d, h.t));
+	struct vec3 dir = vec3_randunit();
+	if (vec3_dot(nrm, dir) < 0.0f)
+		dir = vec3_neg(dir);
+
+	struct vec3 brdf = vec3_scale(rd->mtls[mtlid].col, INV_PI);
+	float cos_theta = vec3_dot(nrm, dir);
+
+	struct vec3 irr = trace2(vec3_add(pos, vec3_scale(dir, 0.001)), dir,
+	  rd, depth + 1);
+
+	return vec3_scale(vec3_mul(brdf, irr), cos_theta * TWO_PI);
+}
+
 int rend_render(void *d)
 {
 	struct rdata *rd = d;
@@ -635,9 +689,12 @@ int rend_render(void *d)
 	unsigned int blksy = rd->view.h / rd->blksz;
 	int          blkcnt = blksx * blksy;
 
+	struct vec3 *acc = rd->acc;
 	unsigned int *buf = rd->buf;
 	unsigned int w = rd->view.w;
 	unsigned int bs = rd->blksz;
+
+	float invsamp = 1.0f / (1.0f + rd->samplecnt);
 
 	while (true) {
 		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
@@ -652,9 +709,16 @@ int rend_render(void *d)
 				unsigned int x = bx + i;
 				struct vec3 p = vec3_add(tl, vec3_add(
 				  vec3_scale(dx, x), vec3_scale(dy, y)));
+				p = vec3_add(p,
+				  vec3_add(vec3_scale(dx, pcg_randf() - 0.5f),
+				    vec3_scale(dy, pcg_randf() - 0.5f)));
 
 				struct vec3 c =
-				  trace(eye, vec3_unit(vec3_sub(p, eye)), rd);
+				  trace2(eye, vec3_unit(vec3_sub(p, eye)), rd,
+				    0);
+
+				acc[yofs + x] = vec3_add(acc[yofs + x], c);
+				c = vec3_scale(acc[yofs + x], invsamp);
 
 				buf[yofs + x] = 0xffu << 24 |
 				  min(255, (unsigned int)(255 * c.x)) << 16 |

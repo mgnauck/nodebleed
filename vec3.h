@@ -5,9 +5,8 @@ struct vec3 {
 	float  x, y, z;
 };
 
-struct vec3  vec3_rand(void);
-struct vec3  vec3_randrng(float min, float max);
-
+struct vec3  vec3_randunit(void);
+struct vec3  vec3_randhemi(struct vec3 n);
 struct vec3  vec3_rand2disk(void);
 
 struct vec3  vec3_add(struct vec3 a, struct vec3 b);

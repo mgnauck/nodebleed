@@ -178,11 +178,13 @@ void init(struct scene *s, struct rdata *rd)
 {
 	//import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
 	import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
-	//import_gltf(s, "../raynin/data/good_8.gltf", "../raynin/data/good_8.bin");
+	//import_gltf(s, "../raynin/data/good_7.gltf", "../raynin/data/good_7.bin");
 
 	dprintf("Imported scene with %d meshes, %d mtls, %d cams, %d nodes, %d tracks, %d samplers\n",
 	  s->meshcnt, s->mtlcnt, s->camcnt, s->nodecnt, s->trackcnt,
 	  s->samplercnt);
+
+	s->bgcol = (struct vec3){1.0f, 1.0f, 1.0f};
 
 	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
 	unsigned int instmax = get_max_insts(s->objs, s->nodecnt);
@@ -196,6 +198,10 @@ void init(struct scene *s, struct rdata *rd)
 	//long long last = SDL_GetTicks64();
 	rend_prepstatic(rd);
 	//dprintf("Created blas in %llu ms\n", SDL_GetTicks64() - last);
+
+	rd->acc = aligned_alloc(64, WIDTH * HEIGHT * sizeof(*rd->acc));
+	for (unsigned int i = 0; i < WIDTH * HEIGHT; i++)
+		rd->acc[i] = (struct vec3){0.0f, 0.0f, 0.0f};
 }
 
 void update(struct rdata *rd, struct scene *s, float time)
@@ -274,12 +280,16 @@ int main(void)
 
 #ifndef NDEBUG
 		char title[64];
-		snprintf(title, 64, "%llu ms", SDL_GetTicks64() - last);
+		snprintf(title, 64, "%llu ms, %d samples",
+		  SDL_GetTicks64() - last, rd.samplecnt);
 		SDL_SetWindowTitle(win, title);
 #endif
 
 		rd.blknum = 0;
+		rd.samplecnt++;
 	}
+
+	free(rd.acc);
 
 	rend_release(&rd);
 	scene_release(&s);
