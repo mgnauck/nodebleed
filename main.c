@@ -177,8 +177,8 @@ void calc_view(struct rview *v, unsigned int width, unsigned int height,
 void init(struct scene *s, struct rdata *rd)
 {
 	//import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
-	//import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
-	import_gltf(s, "../data/sponza.gltf", "../data/sponza.bin");
+	import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
+	//import_gltf(s, "../data/sponza.gltf", "../data/sponza.bin");
 	//import_gltf(s, "../raynin/data/good_5.gltf", "../raynin/data/good_5.bin");
 
 	dprintf("Imported scene with %d meshes, %d mtls, %d cams, %d nodes, %d tracks, %d samplers\n",
@@ -196,9 +196,9 @@ void init(struct scene *s, struct rdata *rd)
 	dprintf("Created render data with %d mtls, %d tris, %d insts\n",
 	  s->mtlmax, trimax, instmax);
 
-	//long long last = SDL_GetTicks64();
+	long long last = SDL_GetTicks64();
 	rend_prepstatic(rd);
-	//dprintf("Created blas in %llu ms\n", SDL_GetTicks64() - last);
+	dprintf("Created blas in %llu ms\n", SDL_GetTicks64() - last);
 
 	rd->acc = aligned_alloc(64, WIDTH * HEIGHT * sizeof(*rd->acc));
 	for (unsigned int i = 0; i < WIDTH * HEIGHT; i++)
