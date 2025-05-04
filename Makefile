@@ -16,8 +16,8 @@ CFLAGS += $(shell sdl2-config --cflags)
 #CFLAGS += -g
 #CFLAGS += -fsanitize=undefined
 CFLAGS += -DNDEBUG
-LDLIBS = -lm
-LDLIBS += $(shell sdl2-config --libs)
+LDLIBS = -lm -ldl
+##LDLIBS += $(shell sdl2-config --libs)
 #LDFLAGS += -fsanitize=undefined
 #LDFLAGS = -flto -O3
 LDFLAGS += -fuse-ld=lld

@@ -1,3 +1,4 @@
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -222,25 +223,68 @@ void update(struct rdata *rd, struct scene *s, float time)
 	calc_view(&rd->view, WIDTH, HEIGHT, c);
 }
 
+static const char symnames[] =
+	"libSDL2.so\0"
+	"SDL_Init\0"
+	"SDL_Quit\0"
+	"SDL_CreateWindow\0"
+	"SDL_DestroyWindow\0"
+	"SDL_GetWindowSurface\0"
+	"SDL_GetTicks64\0"
+	"SDL_PollEvent\0"
+	"SDL_UpdateWindowSurface\0"
+	"SDL_SetWindowTitle\0"
+	"\0";
+
+static struct symtab {
+	int (*SDL_Init)(unsigned int);
+	void (*SDL_Quit)(void);
+	SDL_Window *(*SDL_CreateWindow)(const char *, int, int, int, int,
+	  unsigned int);
+	void (*SDL_DestroyWindow)(SDL_Window *);
+	SDL_Surface *(*SDL_GetWindowSurface)(SDL_Window *);
+	unsigned long long (*SDL_GetTicks64)(void);
+	int (*SDL_PollEvent)(SDL_Event *);
+	int (*SDL_UpdateWindowSurface)(SDL_Window *);
+	void (*SDL_SetWindowTitle)(SDL_Window *, const char *);
+} symtab;
+
+static void dynload(void)
+{
+	char *src = (char *)symnames;
+	void **dst = (void **)&symtab;
+	do {
+		void *handle = dlopen(src, RTLD_LAZY);
+		for(;;) {
+			while(*(src++));
+			if(!*src)
+				break;
+			*dst++ = dlsym(handle, src);
+		}
+	} while(*(++src));
+}
+
 int main(void)
 {
 	// TODO Move code from main into some subsys
 	// TODO Pathtrace on CPU for the lolz
 
-	if (SDL_Init(SDL_INIT_VIDEO) < 0)
+	dynload();
+
+	if (symtab.SDL_Init(SDL_INIT_VIDEO) < 0)
 		exit(1);
 
-	SDL_Window *win = SDL_CreateWindow("unik", SDL_WINDOWPOS_CENTERED,
+	SDL_Window *win = symtab.SDL_CreateWindow("unik", SDL_WINDOWPOS_CENTERED,
 	  SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, 0);
 	if (!win) {
-		SDL_Quit();
+		symtab.SDL_Quit();
 		exit(1);
 	}
 
-	SDL_Surface *scr = SDL_GetWindowSurface(win);
+	SDL_Surface *scr = symtab.SDL_GetWindowSurface(win);
 	if (!scr) {
-		SDL_DestroyWindow(win);
-		SDL_Quit();
+		symtab.SDL_DestroyWindow(win);
+		symtab.SDL_Quit();
 		exit(1);
 	}
 
@@ -256,17 +300,17 @@ int main(void)
 
 	long long start;
 	bool quit = false;
-	start = SDL_GetTicks64();
+	start = symtab.SDL_GetTicks64();
 	while (!quit) {
 		SDL_Event event;
-		while (SDL_PollEvent(&event)) {
+		while (symtab.SDL_PollEvent(&event)) {
 			if (event.type == SDL_QUIT ||
 			    (event.type == SDL_KEYDOWN &&
 			     event.key.keysym.sym == SDLK_ESCAPE))
 				quit = true;
 		}
 
-		long long last = SDL_GetTicks64();
+		long long last = symtab.SDL_GetTicks64();
 
 		update(&rd, &s, (last - start) / 1000.0f);
 		//rend_render(&rd);
@@ -276,13 +320,13 @@ int main(void)
 		for (unsigned int i = 0; i < thrdcnt; i++)
 			thrd_join(thrds[i], NULL);
 
-		SDL_UpdateWindowSurface(win);
+		symtab.SDL_UpdateWindowSurface(win);
 
 #ifndef NDEBUG
 		char title[64];
 		snprintf(title, 64, "%llu ms, %d samples",
-		  SDL_GetTicks64() - last, rd.samplecnt);
-		SDL_SetWindowTitle(win, title);
+		  symtab.SDL_GetTicks64() - last, rd.samplecnt);
+		symtab.SDL_SetWindowTitle(win, title);
 #endif
 
 		rd.blknum = 0;
@@ -294,8 +338,8 @@ int main(void)
 	rend_release(&rd);
 	scene_release(&s);
 
-	SDL_DestroyWindow(win);
-	SDL_Quit();
+	symtab.SDL_DestroyWindow(win);
+	symtab.SDL_Quit();
 
 	return 0;
 }
