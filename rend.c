@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <float.h>
 #include <limits.h>
 #include <math.h>
@@ -14,6 +15,10 @@
 #else
 #define dprintf(...) {}
 #endif
+
+// Max 4096 instances
+#define INST_ID_BITS  12
+#define INST_ID_MASK  0xfff
 
 #define INTERVAL_CNT  16
 
@@ -41,7 +46,7 @@ struct hit {
 	float         t;
 	float         u;
 	float         v;
-	unsigned int  id; // tri id < 16 | inst id
+	unsigned int  id; // triid << INST_ID_BITS | instid & INST_ID_MASK
 };
 
 float calc_area(struct vec3 mi, struct vec3 ma)
@@ -226,6 +231,7 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 		n->cnt = 0; // No leaf, no tris or instance
 
 		// Push right child on stack and continue with left
+		assert(spos < 64);
 		stack[spos++] = ncnt + 1;
 		nid = ncnt;
 
@@ -271,6 +277,7 @@ void convert_bvh(struct b2node *tgt, struct bnode *src)
 
 			t->cnt = 0; // Mark as interior node
 
+			assert(spos < 63);
 			stack[spos++] = sn + 1; // Right src node
 			stack[spos++] = tn - 1; // Curr tgt (prnt of right)
 		}
@@ -303,7 +310,7 @@ float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
 
 void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
                    const struct rtri *tris,
-                   unsigned short triid, unsigned short instid)
+                   unsigned int triid, unsigned int instid)
 {
 	// Vectors of two edges sharing v0
 	const struct rtri *t = &tris[triid];
@@ -343,7 +350,7 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 		h->t = dist;
 		h->u = u;
 		h->v = v;
-		h->id = triid << 16 | instid;
+		h->id = (triid << INST_ID_BITS) | instid;
 	}
 }
 
@@ -366,8 +373,7 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 			// Leaf, check triangles
 			for (unsigned int i = 0; i < n->cnt; i++)
 				intersect_tri(h, ori, dir, tris,
-				  (unsigned short)imap[n->start + i],
-				  (unsigned short)instid);
+				  imap[n->start + i], instid);
 
 			// Pop next node from stack if something is left
 			if (spos > 0)
@@ -405,6 +411,7 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 				curr = l;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
+					assert(spos < 64);
 					stack[spos++] = r;
 				}
 			}
@@ -484,6 +491,7 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 				curr = l;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
+					assert(spos < 64);
 					stack[spos++] = r;
 				}
 			}
@@ -536,7 +544,8 @@ void rend_prepstatic(struct rdata *rd)
 			unsigned int tricnt = ri->tricnt;
 			struct rtri *tp = &rd->tris[triofs];
 			unsigned int *ip = &rd->imap[triofs];
-			struct aabb aabbs[tricnt];
+			//struct aabb aabbs[tricnt]; // On stack, can break
+			struct aabb *aabbs = malloc(tricnt * sizeof(*aabbs));
 			struct aabb *ap = aabbs;
 			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
 			struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
@@ -555,10 +564,13 @@ void rend_prepstatic(struct rdata *rd)
 				ap++;
 			}
 
-			struct bnode nodes[tricnt << 1];
+			//struct bnode nodes[tricnt << 1]; // On stack, can break
+			struct bnode *nodes = malloc((tricnt << 1) * sizeof(*nodes));
 			build_bvh(nodes, aabbs, &rd->imap[triofs],
 			  tricnt, rmin, rmax);
 			convert_bvh(&rd->nodes[triofs << 1], nodes);
+			free(nodes);
+			free(aabbs);
 		}
 	}
 }
@@ -577,7 +589,7 @@ void rend_prepdynamic(struct rdata *rd)
 		ap++;
 	}
 
-	struct bnode nodes[rd->instcnt << 1];
+	struct bnode nodes[rd->instcnt << 1]; // On stack, can break
 	build_bvh(nodes, rd->aabbs, &rd->imap[tlasofs],
 	  rd->instcnt, rmin, rmax);
 	convert_bvh(&rd->nodes[tlasofs << 1], nodes);
@@ -607,8 +619,8 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 
 	struct vec3 c = rd->bgcol;
 	if (h.t < FLT_MAX) {
-		unsigned int instid = h.id & 0xffff;
-		unsigned int triid = h.id >> 16;
+		unsigned int instid = h.id & INST_ID_MASK;
+		unsigned int triid = h.id >> INST_ID_BITS;
 		struct rinst *ri = &rd->insts[instid];
 		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
 		unsigned int mtlid = rn->mtlid;
@@ -643,8 +655,8 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
 	if (h.t == FLT_MAX)
 		return rd->bgcol;
 
-	unsigned int instid = h.id & 0xffff;
-	unsigned int triid = h.id >> 16;
+	unsigned int instid = h.id & INST_ID_MASK;
+	unsigned int triid = h.id >> INST_ID_BITS;
 	struct rinst *ri = &rd->insts[instid];
 	struct rnrm *rn = &rd->nrms[ri->triofs + triid];
 	unsigned int mtlid = rn->mtlid;
@@ -714,6 +726,7 @@ int rend_render(void *d)
 				    vec3_scale(dy, pcg_randf() - 0.5f)));
 
 				struct vec3 c =
+				  //trace(eye, vec3_unit(vec3_sub(p, eye)), rd);
 				  trace2(eye, vec3_unit(vec3_sub(p, eye)), rd,
 				    0);
 

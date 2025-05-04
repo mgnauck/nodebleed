@@ -177,8 +177,9 @@ void calc_view(struct rview *v, unsigned int width, unsigned int height,
 void init(struct scene *s, struct rdata *rd)
 {
 	//import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
-	import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
-	//import_gltf(s, "../raynin/data/good_7.gltf", "../raynin/data/good_7.bin");
+	//import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
+	import_gltf(s, "../data/sponza.gltf", "../data/sponza.bin");
+	//import_gltf(s, "../raynin/data/good_5.gltf", "../raynin/data/good_5.bin");
 
 	dprintf("Imported scene with %d meshes, %d mtls, %d cams, %d nodes, %d tracks, %d samplers\n",
 	  s->meshcnt, s->mtlcnt, s->camcnt, s->nodecnt, s->trackcnt,

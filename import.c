@@ -115,7 +115,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 			dprintf("Expected index buffer with byte, short or int components. Ignoring primitive.\n");
 			continue;
 		}
-		m->icnt += ip - m->inds + m->icnt;
+		m->icnt += iacc->cnt;
 
 		// Vertices
 		struct gltfaccessor *vacc = &g->accessors[p->posid];
@@ -143,7 +143,6 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 			continue;
 		}
 
-
 		struct vec3 *vp = m->vrts + m->vcnt;
 		struct vec3 *np = m->nrms + m->vcnt;
 		const unsigned char *bv = bin + vbv->byteofs;
@@ -164,9 +163,8 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 			memcpy(&np->z, bn, sizeof(np->z));
 			bn += sizeof(np->z);
 			np++;
-
-			m->vcnt++;
 		}
+		m->vcnt += vacc->cnt;
 
 		if (p->mtlid < 0) {
 			dprintf("Found primitive without mtl. Switching to mtl 0.\n");
@@ -174,7 +172,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		}
 
 		// Track consolidated mtl flags at mesh
-		setflags(&m->flags, s->mtls[p->mtlid].flags); 
+		setflags(&m->flags, s->mtls[p->mtlid].flags);
 
 		// Primitive's material
 		m->mtls[j] = (struct mtlref){
