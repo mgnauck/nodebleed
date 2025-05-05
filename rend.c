@@ -726,9 +726,9 @@ int rend_render(void *d)
 				    vec3_scale(dy, pcg_randf() - 0.5f)));
 
 				struct vec3 c =
-				  trace(eye, vec3_unit(vec3_sub(p, eye)), rd);
-				  //trace2(eye, vec3_unit(vec3_sub(p, eye)), rd,
-				  //  0);
+				  //trace(eye, vec3_unit(vec3_sub(p, eye)), rd);
+				  trace2(eye, vec3_unit(vec3_sub(p, eye)), rd,
+				    0);
 
 				acc[yofs + x] = vec3_add(acc[yofs + x], c);
 				c = vec3_scale(acc[yofs + x], invsamp);

@@ -80,13 +80,40 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 	for (unsigned int j = 0; j < gm->primcnt; j++) {
 		struct gltfprim *p = &gm->prims[j];
 
-		// Indices
+		// Indices accessor
 		struct gltfaccessor *iacc = &g->accessors[p->indid];
 		if (iacc->datatype != DT_SCALAR) {
 			dprintf("Expected indices accessor with scalar data type. Ignoring primitive.\n");
 			continue;
 		}
 
+		// Vertices accessor
+		struct gltfaccessor *vacc = &g->accessors[p->posid];
+		if (vacc->datatype != DT_VEC3) {
+			dprintf("Expected vertices accessor with vec3 data type. Ignoring primitive.\n");
+			continue;
+		}
+
+		struct gltfbufview *vbv = &g->bufviews[vacc->bufview];
+		if (vacc->comptype != 5126) { // = float
+			dprintf("Expected vertex buffer with float components. Ignoring primitive.\n");
+			continue;
+		}
+
+		// Normals accessor
+		struct gltfaccessor *nacc = &g->accessors[p->nrmid];
+		if (nacc->datatype != DT_VEC3) {
+			dprintf("Expected normals accessor with vec3 data type. Ignoring primitive.\n");
+			continue;
+		}
+
+		struct gltfbufview *nbv = &g->bufviews[nacc->bufview];
+		if (nacc->comptype != 5126) { // = float
+			dprintf("Expected normals buffer with float components. Ignoring primitive.\n");
+			continue;
+		}
+
+		// Read indices
 		struct gltfbufview *ibv = &g->bufviews[iacc->bufview];
 		unsigned int *ip = m->inds + m->icnt;
 		const unsigned char *bi = bin + ibv->byteofs + iacc->byteofs;
@@ -95,21 +122,21 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
 				memcpy(&v, bi, sizeof(v));
 				bi += sizeof(v);
-				*ip++ = v;
+				*ip++ = m->vcnt + v;
 			}
 		} else if (iacc->comptype == 5123) {
 			unsigned short v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
 				memcpy(&v, bi, sizeof(v));
 				bi += sizeof(v);
-				*ip++ = v;
+				*ip++ = m->vcnt + v;
 			}
 		} else if(iacc->comptype == 5125) {
 			unsigned int v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
 				memcpy(&v, bi, sizeof(v));
 				bi += sizeof(v);
-				*ip++ = v;
+				*ip++ = m->vcnt + v;
 			}
 		} else {
 			dprintf("Expected index buffer with byte, short or int components. Ignoring primitive.\n");
@@ -117,32 +144,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		}
 		m->icnt += iacc->cnt;
 
-		// Vertices
-		struct gltfaccessor *vacc = &g->accessors[p->posid];
-		if (vacc->datatype != DT_VEC3) {
-			dprintf("Expected vertices accessor with vec3 data type. Ignoring primitive.\n");
-			continue;
-		}
-
-		struct gltfbufview *vbv = &g->bufviews[vacc->bufview];
-		if (vacc->comptype != 5126) { // 5126 = float
-			dprintf("Expected vertex buffer with float components. Ignoring primitive.\n");
-			continue;
-		}
-
-		// Normals
-		struct gltfaccessor *nacc = &g->accessors[p->nrmid];
-		if (nacc->datatype != DT_VEC3) {
-			dprintf("Expected normals accessor with vec3 data type. Ignoring primitive.\n");
-			continue;
-		}
-
-		struct gltfbufview *nbv = &g->bufviews[nacc->bufview];
-		if (nacc->comptype != 5126) { // 5126 = float
-			dprintf("Expected normals buffer with float components. Ignoring primitive.\n");
-			continue;
-		}
-
+		// Read vertices and normals
 		struct vec3 *vp = m->vrts + m->vcnt;
 		struct vec3 *np = m->nrms + m->vcnt;
 		const unsigned char *bv = bin + vbv->byteofs + vacc->byteofs;
@@ -373,7 +375,7 @@ void *mmread(const char *relpathname, unsigned long long *sz)
 	void *buf = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
 	  fd, 0);
 	if ((long long)buf < 0)
-		abort("Failed to read %ld bytes\n", st.st_size);
+		abort("Failed to map %ld bytes\n", st.st_size);
 
 	if (close(fd) < 0)
 		abort("Close %s failed\n", relpathname);

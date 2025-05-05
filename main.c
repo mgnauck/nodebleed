@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,8 +76,8 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 				rn++;
 			}
 		}
-		triofs[k] = ofs;
-		tricnt[k] = m->icnt / 3;
+		triofs[k] = ofs; // Ofs into tri buffer
+		tricnt[k] = m->icnt / 3; // Tri cnt per mesh
 		ofs += m->icnt / 3;
 	}
 
@@ -178,9 +179,12 @@ void init(struct scene *s, struct rdata *rd)
 {
 	//import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
 	//import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
-	//import_gltf(s, "../data/sponza2.gltf", "../data/sponza2.bin");
-	import_gltf(s, "../data/toycar.gltf", "../data/toycar.bin");
+	import_gltf(s, "../data/sponza.gltf", "../data/sponza.bin");
+	//import_gltf(s, "../data/cornell.gltf", "../data/cornell.bin");
+	//import_gltf(s, "../data/toycar.gltf", "../data/toycar.bin");
 	//import_gltf(s, "../raynin/data/good_5.gltf", "../raynin/data/good_5.bin");
+
+	assert(s);
 
 	dprintf("Imported scene with %d meshes, %d mtls, %d cams, %d nodes, %d tracks, %d samplers\n",
 	  s->meshcnt, s->mtlcnt, s->camcnt, s->nodecnt, s->trackcnt,
@@ -226,8 +230,10 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 int main(void)
 {
+	// TODO Camera control
+	// TODO IS and LS
 	// TODO Move code from main into some subsys
-	// TODO Pathtrace on CPU for the lolz
+	// TODO Subdiv surfaces
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		exit(1);
