@@ -89,7 +89,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 
 		struct gltfbufview *ibv = &g->bufviews[iacc->bufview];
 		unsigned int *ip = m->inds + m->icnt;
-		const unsigned char *bi = bin + ibv->byteofs;
+		const unsigned char *bi = bin + ibv->byteofs + iacc->byteofs;
 		if (iacc->comptype == 5121) {
 			unsigned char v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
@@ -145,8 +145,12 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 
 		struct vec3 *vp = m->vrts + m->vcnt;
 		struct vec3 *np = m->nrms + m->vcnt;
-		const unsigned char *bv = bin + vbv->byteofs;
-		const unsigned char *bn = bin + nbv->byteofs;
+		const unsigned char *bv = bin + vbv->byteofs + vacc->byteofs;
+		const unsigned char *bn = bin + nbv->byteofs + nacc->byteofs;
+		// Stride applies only to vertex attributes
+		int vec3sz = sizeof(vp->x) + sizeof(vp->y) + sizeof(vp->z);
+		unsigned int vstride = max(0, (int)vbv->bytestride - vec3sz); 
+		unsigned int nstride = max(0, (int)nbv->bytestride - vec3sz); 
 		for (unsigned int i = 0; i < vacc->cnt; i++) {
 			memcpy(&vp->x, bv, sizeof(vp->x));
 			bv += sizeof(vp->x);
@@ -154,6 +158,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 			bv += sizeof(vp->y);
 			memcpy(&vp->z, bv, sizeof(vp->z));
 			bv += sizeof(vp->z);
+			bv += vstride; // Advance remains from stride
 			vp++;
 
 			memcpy(&np->x, bn, sizeof(np->x));
@@ -162,6 +167,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 			bn += sizeof(np->y);
 			memcpy(&np->z, bn, sizeof(np->z));
 			bn += sizeof(np->z);
+			bn += nstride;
 			np++;
 		}
 		m->vcnt += vacc->cnt;

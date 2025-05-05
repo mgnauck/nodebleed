@@ -836,15 +836,20 @@ unsigned int read_accessor(struct gltfaccessor *a, const char *s, jsmntok_t *t)
 
 		if (jsoneq(s, key, "type") == 0) {
 			char *type = toktostr(s, &t[j + 1]);
-			if (strstr(type, "VEC3")) {
+			if (strstr(type, "SCALAR")) {
+				a->datatype = DT_SCALAR;
+			} else if (strstr(type, "VEC2")) {
+				a->datatype = DT_VEC2;
+			} else if (strstr(type, "VEC3")) {
 				a->datatype = DT_VEC3;
 			} else if (strstr(type, "VEC4")) {
 				a->datatype = DT_VEC4;
-			} else if (strstr(type, "SCALAR")) {
-				a->datatype = DT_SCALAR;
-			} else {
-				a->datatype = DT_UNKNOWN;
-				eprintf("Accessor with unknown data type: %s\n", type);
+			} else if (strstr(type, "MAT2")) {
+				a->datatype = DT_MAT2;
+			} else if (strstr(type, "MAT3")) {
+				a->datatype = DT_MAT3;
+			} else if (strstr(type, "MAT4")) {
+				a->datatype = DT_MAT4;
 			}
 			tprintf("type: %i (%s)\n", a->datatype, type);
 			j += 2;

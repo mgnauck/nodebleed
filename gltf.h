@@ -14,9 +14,12 @@
 
 enum gltfdatatype {
 	DT_SCALAR,
+	DT_VEC2,
 	DT_VEC3,
 	DT_VEC4,
-	DT_UNKNOWN // All the unsupported ones
+	DT_MAT2,
+	DT_MAT3,
+	DT_MAT4
 };
 
 struct gltfmtl {
