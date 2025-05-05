@@ -610,6 +610,42 @@ struct vec3 calc_fnrm(struct rtri *t, float inv_transpose[16])
 	return vec3_unit(mat4_muldir(inv_transpose, nrm));
 }
 
+void create_onb(struct vec3 *b1, struct vec3 *b2, struct vec3 n)
+{
+	float sign = copysignf(1.0f, n.z);
+	float a = -1.0f / (sign + n.z);
+	float b = n.x * n.y * a;
+	*b1 = (struct vec3){1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x};
+	*b2 = (struct vec3){b, sign + n.y * n.y * a, -n.y};
+}
+
+struct vec3 samp_disk(float r0, float r1)
+{
+	float r = sqrtf(r0);
+	float theta = 2.0f * PI * r1;
+	return (struct vec3){r * cosf(theta), r * sinf(theta), 0.0f};
+}
+
+struct vec3 samp_hemicos(float r0, float r1)
+{
+	// Sample disc at bas of hemisphere uniformly
+	struct vec3 d = samp_disk(r0, r1);
+
+	// Project sample up to hemisphere
+	return (struct vec3){
+	  d.x, sqrtf(max(0.0f, 1.0f - vec3_dot(d, d))), d.y};
+}
+
+struct vec3 samp_diff(struct vec3 n)
+{
+	struct vec3 v = samp_hemicos(pcg_randf(), pcg_randf());
+
+	struct vec3 b1, b2;
+	create_onb(&b1, &b2, n);
+
+	return (struct vec3){vec3_dot(b1, v), vec3_dot(n, v), vec3_dot(b2, v)};
+}
+
 struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 {
 	struct hit h = {.t = FLT_MAX};
@@ -675,17 +711,18 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
 
 	// New origin and direction
 	struct vec3 pos = vec3_add(o, vec3_scale(d, h.t));
-	struct vec3 dir = vec3_randunit();
+	struct vec3 dir = vec3_randuni();
 	if (vec3_dot(nrm, dir) < 0.0f)
 		dir = vec3_neg(dir);
 
 	struct vec3 brdf = vec3_scale(rd->mtls[mtlid].col, INV_PI);
 	float cos_theta = vec3_dot(nrm, dir);
+	float pdf = 1.0f / TWO_PI;
 
 	struct vec3 irr = trace2(vec3_add(pos, vec3_scale(dir, 0.001)), dir,
 	  rd, depth + 1);
 
-	return vec3_scale(vec3_mul(brdf, irr), cos_theta * TWO_PI);
+	return vec3_scale(vec3_mul(brdf, irr), cos_theta / pdf);
 }
 
 int rend_render(void *d)

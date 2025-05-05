@@ -5,9 +5,7 @@ struct vec3 {
 	float  x, y, z;
 };
 
-struct vec3  vec3_randunit(void);
-struct vec3  vec3_randhemi(struct vec3 n);
-struct vec3  vec3_rand2disk(void);
+struct vec3  vec3_randuni(void);
 
 struct vec3  vec3_add(struct vec3 a, struct vec3 b);
 struct vec3  vec3_sub(struct vec3 a, struct vec3 b);

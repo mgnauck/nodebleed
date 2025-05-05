@@ -3,26 +3,12 @@
 #include "util.h"
 #include "vec3.h"
 
-struct vec3 vec3_randunit(void)
+struct vec3 vec3_randuni(void)
 {
 	float u = 2.0f * pcg_randf() - 1.0f;
 	float theta = 2.0f * PI * pcg_randf();
 	float r = sqrtf(1.0f - u * u);
 	return (struct vec3){r * cosf(theta), r * sinf(theta), u};
-	//return (struct vec3){pcg_randf(), pcg_randf(), pcg_randf()};
-}
-
-struct vec3 vec3_randhemi(struct vec3 n)
-{
-	struct vec3 v = vec3_randunit();
-	return vec3_dot(n, v) < 0.0f ? vec3_neg(v) : v;
-}
-
-struct vec3 vec3_rand2disk(void)
-{
-	float r = sqrtf(pcg_randf());
-	float theta = 2.0f * PI * pcg_randf();
-	return (struct vec3){r * cosf(theta), r * sinf(theta), 0.0f};
 }
 
 struct vec3 vec3_add(struct vec3 a, struct vec3 b)
