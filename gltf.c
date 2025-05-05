@@ -925,6 +925,9 @@ unsigned int read_bufview(struct gltfbufview *b, const char *s, jsmntok_t *t)
 		j += ignore(s, key);
 	}
 
+	if (b->buf != 0)
+		eprintf("Multiple buffers found. This is not supported.\n");
+
 	return j;
 }
 
