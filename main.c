@@ -16,8 +16,11 @@
 #include "scene.h"
 #include "util.h"
 
-#define WIDTH   1920
-#define HEIGHT  1080
+#define WIDTH    1920
+#define HEIGHT   1080
+
+#define CAMMOV   0.800
+#define CAMLOOK  0.025
 
 #ifndef NDEBUG
 #define dprintf printf
@@ -178,9 +181,8 @@ void calc_view(struct rview *v, unsigned int width, unsigned int height,
 void init(struct scene *s, struct rdata *rd)
 {
 	//import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
-	//import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
-	import_gltf(s, "../data/sponza.gltf", "../data/sponza.bin");
-	//import_gltf(s, "../data/cornell.gltf", "../data/cornell.bin");
+	import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
+	//import_gltf(s, "../data/sponza.gltf", "../data/sponza.bin");
 	//import_gltf(s, "../data/toycar.gltf", "../data/toycar.bin");
 	//import_gltf(s, "../raynin/data/good_5.gltf", "../raynin/data/good_5.bin");
 
@@ -208,13 +210,24 @@ void init(struct scene *s, struct rdata *rd)
 	rd->acc = aligned_alloc(64, WIDTH * HEIGHT * sizeof(*rd->acc));
 	for (unsigned int i = 0; i < WIDTH * HEIGHT; i++)
 		rd->acc[i] = (struct vec3){0.0f, 0.0f, 0.0f};
+
+	scene_updanims(s, 0.0f);
+	scene_updtransforms(s);
+	scene_updcams(s);
 }
 
 void update(struct rdata *rd, struct scene *s, float time)
 {
+	if (hasflags(s->dirty, CAM)) {
+		// TODO Handle clear by proper acc buffer mixing
+		memset(rd->acc, 0, WIDTH * HEIGHT * sizeof(*rd->acc));
+		rd->samplecnt = 0;
+		clrflags(&s->dirty, CAM);
+	}
+
 	scene_updanims(s, time);
 	scene_updtransforms(s);
-	scene_updcams(s);
+	//scene_updcams(s);
 
 	upd_rinsts(rd, s);
 
@@ -228,10 +241,60 @@ void update(struct rdata *rd, struct scene *s, float time)
 	calc_view(&rd->view, WIDTH, HEIGHT, c);
 }
 
+void cam_calcbase(struct cam *c)
+{
+	c->ri = vec3_unit(vec3_cross((struct vec3){0.0f, 1.0f, 0.0f}, c->fwd));
+	c->up = vec3_unit(vec3_cross(c->fwd, c->ri));
+}
+
+void cam_setdir(struct cam *c, struct vec3 dir)
+{
+	c->fwd = vec3_unit(dir);
+	cam_calcbase(c);
+}
+
+void handle_keydown(struct scene *s, const SDL_Keysym *key)
+{
+	struct cam *c = &s->cams[s->currcam];
+
+	switch (key->sym) {
+	case SDLK_a:
+		c->eye = vec3_add(c->eye, vec3_scale(c->ri, -CAMMOV));
+		break;
+	case SDLK_d:
+		c->eye = vec3_add(c->eye, vec3_scale(c->ri, CAMMOV));
+		break;
+	case SDLK_w:
+		c->eye = vec3_add(c->eye, vec3_scale(c->fwd, -CAMMOV));
+		break;
+	case SDLK_s:
+		c->eye = vec3_add(c->eye, vec3_scale(c->fwd, CAMMOV));
+		break;
+	case SDLK_r:
+		scene_updcams(s);
+		break;
+	}
+
+	setflags(&s->dirty, CAM);
+}
+
+void handle_mousemove(struct scene *s, const SDL_MouseMotionEvent *event)
+{
+	struct cam *c = &s->cams[s->currcam];
+
+	float theta = min(max(acosf(-c->fwd.y) + CAMLOOK * (float)event->yrel,
+	  0.05f), 0.95f * PI);
+	float phi = fmodf(atan2f(-c->fwd.z, c->fwd.x) + PI - CAMLOOK *
+	  (float)event->xrel, TWO_PI);
+
+	cam_setdir(c, vec3_spherical(theta, phi));
+
+	setflags(&s->dirty, CAM);
+}
+
 int main(void)
 {
-	// TODO Camera control
-	// TODO IS and LS
+	// TODO Direct light sampling
 	// TODO Move code from main into some subsys
 	// TODO Subdiv surfaces
 
@@ -252,6 +315,8 @@ int main(void)
 		exit(1);
 	}
 
+	SDL_SetRelativeMouseMode(SDL_TRUE);
+
 	struct scene s = { 0 };
 	struct rdata rd = { 0 };
 	init(&s, &rd);
@@ -268,16 +333,20 @@ int main(void)
 	while (!quit) {
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
-			if (event.type == SDL_QUIT ||
-			    (event.type == SDL_KEYDOWN &&
-			     event.key.keysym.sym == SDLK_ESCAPE))
+			if (event.type == SDL_QUIT) {
 				quit = true;
+			} else if (event.type == SDL_KEYDOWN) {
+				if (event.key.keysym.sym == SDLK_ESCAPE)
+					quit = true;
+				else
+					handle_keydown(&s, &event.key.keysym);
+			} else if (event.type == SDL_MOUSEMOTION) {
+				handle_mousemove(&s, &event.motion);
+			}
 		}
 
 		long long last = SDL_GetTicks64();
-
 		update(&rd, &s, (last - start) / 1000.0f);
-		//rend_render(&rd);
 
 		for (unsigned int i = 0; i < thrdcnt; i++)
 			thrd_create(&thrds[i], rend_render, &rd);
