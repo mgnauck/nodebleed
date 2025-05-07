@@ -742,7 +742,7 @@ int rend_render(void *d)
 	unsigned int w = rd->view.w;
 	unsigned int bs = rd->blksz;
 
-	float invsamp = 1.0f / (1.0f + rd->samplecnt);
+	float rspp = 1.0f / (1.0f + rd->samplecnt);
 
 	while (true) {
 		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
@@ -767,7 +767,7 @@ int rend_render(void *d)
 				    0);
 
 				acc[yofs + x] = vec3_add(acc[yofs + x], c);
-				c = vec3_scale(acc[yofs + x], invsamp);
+				c = vec3_scale(acc[yofs + x], rspp);
 
 				buf[yofs + x] = 0xffu << 24 |
 				  min(255, (unsigned int)(255 * c.x)) << 16 |

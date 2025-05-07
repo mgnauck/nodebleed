@@ -219,7 +219,6 @@ void init(struct scene *s, struct rdata *rd)
 void update(struct rdata *rd, struct scene *s, float time)
 {
 	if (hasflags(s->dirty, CAM)) {
-		// TODO Handle clear by proper acc buffer mixing
 		memset(rd->acc, 0, WIDTH * HEIGHT * sizeof(*rd->acc));
 		rd->samplecnt = 0;
 		clrflags(&s->dirty, CAM);
@@ -253,24 +252,24 @@ void cam_setdir(struct cam *c, struct vec3 dir)
 	cam_calcbase(c);
 }
 
-void handle_keydown(struct scene *s, const SDL_Keysym *key)
+void keydown(struct scene *s, int key)
 {
 	struct cam *c = &s->cams[s->currcam];
 
-	switch (key->sym) {
-	case SDLK_a:
+	switch (key) {
+	case 'a':
 		c->eye = vec3_add(c->eye, vec3_scale(c->ri, -CAMMOV));
 		break;
-	case SDLK_d:
+	case 'd':
 		c->eye = vec3_add(c->eye, vec3_scale(c->ri, CAMMOV));
 		break;
-	case SDLK_w:
+	case 'w':
 		c->eye = vec3_add(c->eye, vec3_scale(c->fwd, -CAMMOV));
 		break;
-	case SDLK_s:
+	case 's':
 		c->eye = vec3_add(c->eye, vec3_scale(c->fwd, CAMMOV));
 		break;
-	case SDLK_r:
+	case 'r':
 		scene_updcams(s);
 		break;
 	}
@@ -278,14 +277,14 @@ void handle_keydown(struct scene *s, const SDL_Keysym *key)
 	setflags(&s->dirty, CAM);
 }
 
-void handle_mousemove(struct scene *s, const SDL_MouseMotionEvent *event)
+void mousemove(struct scene *s, int dx, int dy)
 {
 	struct cam *c = &s->cams[s->currcam];
 
-	float theta = min(max(acosf(-c->fwd.y) + CAMLOOK * (float)event->yrel,
+	float theta = min(max(acosf(-c->fwd.y) + CAMLOOK * (float)dy,
 	  0.05f), 0.95f * PI);
 	float phi = fmodf(atan2f(-c->fwd.z, c->fwd.x) + PI - CAMLOOK *
-	  (float)event->xrel, TWO_PI);
+	  (float)dx, TWO_PI);
 
 	cam_setdir(c, vec3_spherical(theta, phi));
 
@@ -331,17 +330,17 @@ int main(void)
 	bool quit = false;
 	start = SDL_GetTicks64();
 	while (!quit) {
-		SDL_Event event;
-		while (SDL_PollEvent(&event)) {
-			if (event.type == SDL_QUIT) {
+		SDL_Event ev;
+		while (SDL_PollEvent(&ev)) {
+			if (ev.type == SDL_QUIT) {
 				quit = true;
-			} else if (event.type == SDL_KEYDOWN) {
-				if (event.key.keysym.sym == SDLK_ESCAPE)
+			} else if (ev.type == SDL_KEYDOWN) {
+				if (ev.key.keysym.sym == SDLK_ESCAPE)
 					quit = true;
 				else
-					handle_keydown(&s, &event.key.keysym);
-			} else if (event.type == SDL_MOUSEMOTION) {
-				handle_mousemove(&s, &event.motion);
+					keydown(&s, ev.key.keysym.sym);
+			} else if (ev.type == SDL_MOUSEMOTION) {
+				mousemove(&s, ev.motion.xrel, ev.motion.yrel);
 			}
 		}
 
