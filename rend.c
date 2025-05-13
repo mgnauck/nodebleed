@@ -628,8 +628,8 @@ struct vec3 samp_hemicos(float r0, float r1, float *cos_theta)
 
 	*cos_theta = c_theta;
 
-	return (struct vec3){ // Local space Y up
-	  cosf(phi) * s_theta, c_theta, sinf(phi) * s_theta};
+	return (struct vec3){ // Local space Z up
+	  cosf(phi) * s_theta, sinf(phi) * s_theta, c_theta};
 }
 
 struct vec3 samp_diff(struct vec3 n, float *cos_theta)
@@ -640,8 +640,8 @@ struct vec3 samp_diff(struct vec3 n, float *cos_theta)
 	create_onb(&tang, &bitang, n);
 
 	return vec3_add(
-	  vec3_add(vec3_scale(tang, v.x), vec3_scale(n, v.y)),
-	  vec3_scale(bitang, v.z));
+	  vec3_add(vec3_scale(tang, v.x), vec3_scale(bitang, v.y)),
+	  vec3_scale(n, v.z));
 }
 
 struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
