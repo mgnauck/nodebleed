@@ -619,29 +619,11 @@ void create_onb(struct vec3 *b1, struct vec3 *b2, struct vec3 n)
 	*b2 = (struct vec3){b, sign + n.y * n.y * a, -n.y};
 }
 
-struct vec3 samp_hemicos(float r0, float r1, float *cos_theta)
+struct vec3 rand_hemicos(float r0, float r1)
 {
-	float c_theta = sqrtf(r0);
-	float phi = TWO_PI * r1;
-
-	float s_theta = sqrtf(max(0.0f, 1.0f - c_theta * c_theta));
-
-	*cos_theta = c_theta;
-
-	return (struct vec3){ // Local space Z up
-	  cosf(phi) * s_theta, sinf(phi) * s_theta, c_theta};
-}
-
-struct vec3 samp_diff(struct vec3 n, float *cos_theta)
-{
-	struct vec3 v = samp_hemicos(pcg_randf(), pcg_randf(), cos_theta);
-
-	struct vec3 tang, bitang;
-	create_onb(&tang, &bitang, n);
-
-	return vec3_add(
-	  vec3_add(vec3_scale(tang, v.x), vec3_scale(bitang, v.y)),
-	  vec3_scale(n, v.z));
+	float phi = TWO_PI * r0;
+	float sr1 = sqrtf(r1);
+	return (struct vec3){cosf(phi) * sr1, sinf(phi) * sr1, sqrtf(1 - r1)};
 }
 
 struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
@@ -710,8 +692,15 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
 	// New origin and direction
 	struct vec3 pos = vec3_add(o, vec3_scale(d, h.t));
 
-	float cos_theta;
-	struct vec3 dir = samp_diff(nrm, &cos_theta);
+	struct vec3 ta, bta;
+	create_onb(&ta, &bta, nrm);
+
+	struct vec3 dir = rand_hemicos(pcg_randf(), pcg_randf());
+
+	dir = vec3_add(vec3_add(vec3_scale(ta, dir.x), vec3_scale(bta, dir.y)),
+	  vec3_scale(nrm, dir.z));
+
+	//float cos_theta = vec3_dot(nrm, dir);
 	//float pdf = cos_theta / PI;
 
 	//struct vec3 brdf = vec3_scale(rd->mtls[mtlid].col, INV_PI);
