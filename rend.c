@@ -121,7 +121,8 @@ struct split find_intervalsplit(const struct bnode *n,
 		// Find best surface area cost for interval planes
 		delta = 1.0f / delta;
 		for (unsigned char i = 0; i < INTERVAL_CNT - 1; i++) {
-			float c = 1.0f + lcnts[i] * lareas[i] + rcnts[i] * rareas[i];
+			float c = 1.0f + lcnts[i] * lareas[i] +
+			  rcnts[i] * rareas[i];
 			if (c < best.cost) {
 				best.cost = c;
 				best.axis = axis;
