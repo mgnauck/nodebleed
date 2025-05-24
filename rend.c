@@ -121,7 +121,7 @@ struct split find_intervalsplit(const struct bnode *n,
 		// Find best surface area cost for interval planes
 		delta = 1.0f / delta;
 		for (unsigned char i = 0; i < INTERVAL_CNT - 1; i++) {
-			float c = lcnts[i] * lareas[i] + rcnts[i] * rareas[i];
+			float c = 1.0f + lcnts[i] * lareas[i] + rcnts[i] * rareas[i];
 			if (c < best.cost) {
 				best.cost = c;
 				best.axis = axis;
@@ -204,7 +204,8 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 
 		unsigned int lcnt = l - n->sid;
 		if (lcnt == 0 || lcnt == n->cnt) {
-			//dprintf("one side of the partition was empty\n");
+			//dprintf("one side of the partition was empty at sid: %d, l: %d, r: %d\n",
+			//  n->sid, lcnt, n->cnt - lcnt);
 			if (spos > 0) {
 				nid = stack[--spos];
 				continue;
@@ -710,7 +711,10 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
 	  rd, depth + 1);
 
 	//return vec3_scale(vec3_mul(brdf, irr), cos_theta / pdf);
-	return vec3_mul(brdf, irr);
+	//return vec3_mul(brdf, irr);
+	return vec3_mul(
+	  vec3_scale(vec3_add(nrm, (struct vec3){1.0f, 1.0f, 1.0f}), 0.5f),
+	  vec3_mul(brdf, irr));
 }
 
 int rend_render(void *d)
