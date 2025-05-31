@@ -3,7 +3,7 @@
 
 #include "vec3.h"
 
-struct b2node { // bvh node, 64 bytes
+struct b2node { // bvh node, 2-wide, 64 bytes
 	struct vec3   lmin;
 	unsigned int  l;
 	struct vec3   lmax;
@@ -86,6 +86,9 @@ struct rdata {
 	unsigned int  *imap; // Indices mapping tris/insts
 	struct b2node *nodes; // Bvh nodes all blas and tlas
 	unsigned int  tlasofs;
+
+	unsigned int  bvhcnt; // Total number of bvhs (blas + tlas)
+	unsigned int  *nodecnts; // Node cnt per blas and tlas
 
 	struct rcam   cam;
 	struct rview  view;

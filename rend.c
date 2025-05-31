@@ -22,7 +22,7 @@
 
 #define INTERVAL_CNT  16
 
-struct bnode { // bvh node, 32 bytes wide
+struct bnode { // bvh node, 1-wide, 32 bytes wide
 	struct vec3   min;
 	unsigned int  sid; // Start index or left child node id
 	struct vec3   max;
@@ -42,7 +42,7 @@ float calc_area(struct vec3 mi, struct vec3 ma)
 	return d.x * d.y + d.y * d.z + d.z * d.x;
 }
 
-void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
+unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
                  unsigned int cnt, struct vec3 rootmin, struct vec3 rootmax)
 {
 	unsigned int stack[64];
@@ -247,9 +247,11 @@ void build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
 
 		ncnt += 2; // Account for two new nodes
 	}
+
+	return ncnt;
 }
 
-void convert_bvh(struct b2node *tgt, struct bnode *src)
+void convert_b2(struct b2node *tgt, struct bnode *src)
 {
 	unsigned int stack[64];
 	unsigned int spos = 0;
@@ -292,6 +294,11 @@ void convert_bvh(struct b2node *tgt, struct bnode *src)
 			stack[spos++] = tn - 1; // Curr tgt (prnt of right)
 		}
 	}
+}
+
+void combine_leafs(struct bnode *src, unsigned int cnt)
+{
+
 }
 
 float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
@@ -529,12 +536,20 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	for (unsigned int i = 0; i < idcnt * 2; i++)
 		rd->nodes[i].l = rd->nodes[i].r = 0;
 
+	// Reserve a node cnt slot for each inst + 1 tlas
+	// We do not know how many instances have a unique mesh yet
+	rd->nodecnts = malloc(maxinsts + 1 * sizeof(*rd->nodecnts));
+
 	// Start of tlas index map and tlas nodes * 2
 	rd->tlasofs = maxtris;
+
+	// Total number of blas + 1 tlas
+	rd->bvhcnt = 0;
 }
 
 void rend_release(struct rdata *rd)
 {
+	free(rd->nodecnts);
 	free(rd->nodes);
 	free(rd->imap);
 	free(rd->aabbs);
@@ -576,9 +591,12 @@ void rend_prepstatic(struct rdata *rd)
 
 			//struct bnode nodes[tricnt << 1]; // On stack, can break
 			struct bnode *nodes = malloc((tricnt << 1) * sizeof(*nodes));
-			build_bvh(nodes, aabbs, &rd->imap[triofs],
+			rd->nodecnts[rd->bvhcnt++] = build_bvh(
+			  nodes, aabbs, &rd->imap[triofs],
 			  tricnt, rmin, rmax);
-			convert_bvh(&rd->nodes[triofs << 1], nodes);
+			printf("blas has %d nodes\n",
+			  rd->nodecnts[rd->bvhcnt - 1]);
+			convert_b2(&rd->nodes[triofs << 1], nodes);
 			free(nodes);
 			free(aabbs);
 		}
@@ -600,9 +618,10 @@ void rend_prepdynamic(struct rdata *rd)
 	}
 
 	struct bnode nodes[rd->instcnt << 1]; // On stack, can break
-	build_bvh(nodes, rd->aabbs, &rd->imap[tlasofs],
-	  rd->instcnt, rmin, rmax);
-	convert_bvh(&rd->nodes[tlasofs << 1], nodes);
+	rd->nodecnts[rd->bvhcnt + 1] = build_bvh(
+	  nodes, rd->aabbs, &rd->imap[tlasofs], rd->instcnt, rmin, rmax);
+	printf("tlas has %d nodes\n", rd->nodecnts[rd->bvhcnt + 1]);
+	convert_b2(&rd->nodes[tlasofs << 1], nodes);
 }
 
 struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
