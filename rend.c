@@ -42,8 +42,9 @@ float calc_area(struct vec3 mi, struct vec3 ma)
 	return d.x * d.y + d.y * d.z + d.z * d.x;
 }
 
-unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *imap,
-                 unsigned int cnt, struct vec3 rootmin, struct vec3 rootmax)
+unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
+                       unsigned int *imap, unsigned int cnt,
+                       struct vec3 rootmin, struct vec3 rootmax)
 {
 	unsigned int stack[64];
 	unsigned int spos = 0;
@@ -249,6 +250,103 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs, unsigned int *im
 	}
 
 	return ncnt;
+}
+
+void print_leafcnt(struct bnode *nodes)
+{
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	unsigned int id = 0;
+
+	while (true) {
+		struct bnode *n = &nodes[id];
+		if (n->cnt > 0) {
+			dprintf("leaf %d with %d tris\n", id, n->cnt);
+			if (spos > 0) {
+				id = stack[--spos];
+				continue;
+			} else {
+				break;
+			}
+		}
+		id = n->sid; // Continue with left
+		stack[spos++] = n->sid + 1; // Right
+	}
+}
+
+unsigned int merge_leafs(struct bnode *nodes, struct bnode *n,
+                         unsigned int *sid, unsigned int maxcnt)
+{
+	if (n->cnt > 0) {
+		*sid = n->sid;
+		return n->cnt;
+	}
+
+	unsigned int lsid;
+	unsigned int lcnt = merge_leafs(nodes, &nodes[n->sid],
+	  &lsid, maxcnt);
+
+	unsigned int rsid;
+	unsigned int rcnt = merge_leafs(nodes, &nodes[n->sid + 1],
+	  &rsid, maxcnt);
+
+	*sid = lsid; // Propagate left most start id up
+
+	if (lcnt + rcnt <= maxcnt) {
+		//dprintf("Merging nodes\n");
+		n->sid = *sid;
+		n->cnt = lcnt + rcnt;
+	}
+
+	return lcnt + rcnt;
+}
+
+void split_leafs(struct bnode *nodes, struct bnode *n, struct aabb *aabbs,
+                 unsigned int *imap, unsigned int *nodecnt, unsigned int maxcnt)
+{
+	if (n->cnt > maxcnt) {
+		//dprintf("Splitting node\n");
+		struct bnode *l = &nodes[*nodecnt];
+		l->sid = n->sid;
+		l->cnt = maxcnt; // Split at maxcnt index
+		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
+		struct vec3 ma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+		unsigned int *ip = &imap[l->sid];
+		for (unsigned int i = 0; i < l->cnt; i++) {
+			struct aabb *b = &aabbs[*ip++];
+			mi = vec3_min(mi, b->min);
+			ma = vec3_max(ma, b->max);
+		}
+		l->min = mi;
+		l->max = ma;
+
+		struct bnode *r = &nodes[*nodecnt + 1];
+		r->sid = n->sid + maxcnt;
+		r->cnt = n->cnt - maxcnt; // Remaining
+		mi = (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX};
+		ma = (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
+		ip = &imap[r->sid];
+		for (unsigned int i = 0; i < r->cnt; i++) {
+			struct aabb *b = &aabbs[*ip++];
+			mi = vec3_min(mi, b->min);
+			ma = vec3_max(ma, b->max);
+		}
+		r->min = mi;
+		r->max = ma;
+
+		n->sid = *nodecnt;
+		n->cnt = 0;
+
+		*nodecnt += 2;
+	}
+
+	if (n->cnt == 0) {
+		split_leafs(nodes, &nodes[n->sid], aabbs, imap, nodecnt,
+		  maxcnt);
+		split_leafs(nodes, &nodes[n->sid + 1], aabbs, imap, nodecnt,
+		  maxcnt);
+	}
 }
 
 void convert_b2(struct b2node *tgt, struct bnode *src)
@@ -589,6 +687,12 @@ void rend_prepstatic(struct rdata *rd)
 			rd->nodecnts[rd->bvhcnt++] = build_bvh(
 			  nodes, aabbs, &rd->imap[triofs],
 			  tricnt, rmin, rmax);
+			// Try to make leafs to contain 4 tris but not more
+			unsigned int sid;
+			merge_leafs(nodes, nodes, &sid, 4);
+			split_leafs(nodes, nodes, aabbs, &rd->imap[triofs],
+			  &rd->nodecnts[rd->bvhcnt - 1], 4);
+			//print_leafcnt(nodes);
 			convert_b2(&rd->nodes[triofs << 1], nodes);
 			free(nodes);
 			free(aabbs);
@@ -613,6 +717,12 @@ void rend_prepdynamic(struct rdata *rd)
 	struct bnode nodes[rd->instcnt << 1]; // On stack, can break
 	rd->nodecnts[rd->bvhcnt + 1] = build_bvh(
 	  nodes, rd->aabbs, &rd->imap[tlasofs], rd->instcnt, rmin, rmax);
+	// Try to make leafs to contain 4 insts but not more
+	unsigned int sid;
+	merge_leafs(nodes, nodes, &sid, 4);
+	split_leafs(nodes, nodes, rd->aabbs, &rd->imap[tlasofs],
+	  &rd->nodecnts[rd->bvhcnt - 1], 4);
+	//print_leafcnt(nodes);
 	convert_b2(&rd->nodes[tlasofs << 1], nodes);
 }
 
