@@ -296,11 +296,6 @@ void convert_b2(struct b2node *tgt, struct bnode *src)
 	}
 }
 
-void combine_leafs(struct bnode *src, unsigned int cnt)
-{
-
-}
-
 float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
                      struct vec3 mi, struct vec3 ma)
 {
@@ -594,8 +589,6 @@ void rend_prepstatic(struct rdata *rd)
 			rd->nodecnts[rd->bvhcnt++] = build_bvh(
 			  nodes, aabbs, &rd->imap[triofs],
 			  tricnt, rmin, rmax);
-			printf("blas has %d nodes\n",
-			  rd->nodecnts[rd->bvhcnt - 1]);
 			convert_b2(&rd->nodes[triofs << 1], nodes);
 			free(nodes);
 			free(aabbs);
@@ -620,7 +613,6 @@ void rend_prepdynamic(struct rdata *rd)
 	struct bnode nodes[rd->instcnt << 1]; // On stack, can break
 	rd->nodecnts[rd->bvhcnt + 1] = build_bvh(
 	  nodes, rd->aabbs, &rd->imap[tlasofs], rd->instcnt, rmin, rmax);
-	printf("tlas has %d nodes\n", rd->nodecnts[rd->bvhcnt + 1]);
 	convert_b2(&rd->nodes[tlasofs << 1], nodes);
 }
 
