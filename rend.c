@@ -22,14 +22,14 @@
 
 #define INTERVAL_CNT  16
 
-struct bnode { // bvh node, 1-wide, 32 bytes wide
+struct bnode { // bvh node, 1-wide, 32 bytes
 	struct vec3   min;
 	unsigned int  sid; // Start index or left child node id
 	struct vec3   max;
 	unsigned int  cnt; // Tri or inst cnt
 };
 
-struct hit {
+struct hit { // 32 bytes
 	float         t;
 	float         u;
 	float         v;
@@ -291,7 +291,7 @@ unsigned int merge_leafs(struct bnode *nodes, struct bnode *n,
 	unsigned int rcnt = merge_leafs(nodes, &nodes[n->sid + 1],
 	  &rsid, maxcnt);
 
-	*sid = lsid; // Propagate left most start id up
+	*sid = lsid; // Propagate left most start index up
 
 	if (lcnt + rcnt <= maxcnt) {
 		//dprintf("Merging nodes\n");
