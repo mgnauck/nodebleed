@@ -3,7 +3,7 @@
 
 #include "vec3.h"
 
-struct b2node { // bvh node, 2-wide, 64 bytes
+struct b2node { // Bvh node, 2-wide, 64 bytes
 	struct vec3   lmin;
 	unsigned int  l;
 	struct vec3   lmax;
@@ -12,6 +12,17 @@ struct b2node { // bvh node, 2-wide, 64 bytes
 	unsigned int  r;
 	struct vec3   rmax;
 	unsigned int  cnt; // Tri or inst cnt
+};
+
+struct b4node { // Bvh node, 4-wide, 128 bytes, SIMD friendly
+	float         minx[4];
+	float         maxx[4];
+	float         miny[4];
+	float         maxy[4];
+	float         minz[4];
+	float         maxz[4];
+	unsigned int  children[4];
+	unsigned int  pad[4]; // TODO Traversal order here
 };
 
 struct aabb { // 32 bytes
