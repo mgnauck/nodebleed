@@ -311,7 +311,7 @@ void print_nodes(struct bnode *nodes)
 			} else
 				break;
 		} else {
-			dprintf("interior %d with children: %d %d\n",
+			dprintf("interior %d with 2 children: %d %d\n",
 			  id, n->sid, n->sid + 1);
 		}
 
@@ -341,7 +341,8 @@ void print_mnodes(struct bmnode *nodes)
 			} else
 				break;
 		} else {
-			dprintf("interior %d with children: ", id);
+			dprintf("interior %d with %d children: ",
+			  id, n->childcnt);
 			for (unsigned int i = 0; i < n->childcnt; i++)
 				dprintf("%d ", n->children[i]);
 			dprintf("\n");
@@ -481,7 +482,8 @@ void convert_b2node(struct b2node *tgt, struct bnode *src)
 	}
 }
 
-unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
+unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src,
+                            unsigned int *mergecnt)
 {
 	// Create compacted MBVH copy of src BVH
 	unsigned int stack[64];
@@ -530,7 +532,56 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 		}
 	}
 
-	return tcnt;
+	tn = 0;
+
+	// Collapse transformed but still binary src nodes into M-wide nodes
+	while (true) {
+		struct bmnode *n = &tgt[tn];
+		while (n->childcnt < MBVH_CHILD_CNT) {
+			struct bmnode *bc = NULL;
+			float bcost = 0.0f;
+			unsigned int bci;
+			for (unsigned int i = 0; i < n->childcnt; i++) {
+				struct bmnode *c = &tgt[n->children[i]];
+				if (c->cnt == 0 && n->childcnt - 1
+				  + c->childcnt <= MBVH_CHILD_CNT) {
+					float cost = calc_area(c->min, c->max);
+					if (cost > bcost) {
+						bc = c;
+						bcost = cost;
+						bci = i;
+					}
+				}
+			}
+
+			if (bc) {
+				// Merge children of best child into curr node
+				n->children[bci] = bc->children[0]; // Replace
+				for (unsigned int i = 1; i < bc->childcnt; i++)
+					n->children[n->childcnt++] =
+						bc->children[i]; // Append
+				*mergecnt += bc->childcnt;
+			} else
+				break; // No child found that can be merged
+		}
+
+		// Schedule all interior child nodes for processing
+		for (unsigned int i = 0; i < n->childcnt; i++) {
+			unsigned int cid = n->children[i];
+			if (tgt[cid].cnt == 0) {
+				assert(spos < 64);
+				stack[spos++] = cid;
+			}
+		}
+
+		// Retrieve next node
+		if (spos > 0)
+			tn = stack[--spos];
+		else
+			break;
+	}
+
+	return tcnt; // Compacted node count excl. merge operations
 }
 
 float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
@@ -830,7 +881,7 @@ void rend_prepstatic(struct rdata *rd)
 			unsigned int ncnt = count_nodes(nodes);
 			dprintf("blas node cnt: %d\n",
 			  ncnt);
-			assert(ncnt == rd->nodecnts[rd->bvhcnt - 1]);
+			assert(ncnt == rd->nodecnts[rd->bvhcnt - 1] - 1);
 
 			// Make leafs to contain 4 tris at best but not more
 			unsigned int sid, mergecnt = 0, splitcnt = 0;
@@ -846,8 +897,13 @@ void rend_prepstatic(struct rdata *rd)
 			// Create compacted mbvh with m = 4
 			struct bmnode *mnodes = malloc((tricnt << 1)
 			  * sizeof(*mnodes));
-			unsigned int mnodecnt = convert_bmnode(mnodes, nodes);
-			dprintf("compacted mbvh node cnt: %d\n", mnodecnt);
+			mergecnt = 0;
+			unsigned int mnodecnt =
+			  convert_bmnode(mnodes, nodes, &mergecnt);
+			dprintf("compacted mbvh node cnt %d with another %d merged nodes\n",
+			  mnodecnt, mergecnt);
+
+			//print_mnodes(mnodes);
 
 			free(mnodes);
 
