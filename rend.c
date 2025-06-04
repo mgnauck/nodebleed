@@ -29,6 +29,16 @@ struct bnode { // bvh node, 1-wide, 32 bytes
 	unsigned int  cnt; // Tri or inst cnt
 };
 
+#define MBVH_CHILD_CNT  4
+struct bmnode { // Mbvh node with M child nodes
+	struct vec3   min;
+	unsigned int  start; // Start index of tri or inst
+	struct vec3   max;
+	unsigned int  cnt; // Tri or inst cnt
+	unsigned int  children[MBVH_CHILD_CNT]; // Child node ids
+	unsigned int  childcnt;
+};
+
 struct hit { // 32 bytes
 	float         t;
 	float         u;
@@ -252,7 +262,37 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 	return ncnt;
 }
 
-void print_leafcnt(struct bnode *nodes)
+unsigned int count_nodes(struct bnode *nodes)
+{
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	unsigned int id = 0;
+
+	unsigned int cnt = 0;
+
+	while (true) {
+		struct bnode *n = &nodes[id];
+		cnt++;
+
+		if (n->cnt > 0) {
+			if (spos > 0) {
+				id = stack[--spos];
+				continue;
+			} else
+				break;
+		}
+
+		id = n->sid;
+
+		assert(spos < 64);
+		stack[spos++] = id + 1;
+	}
+
+	return cnt;
+}
+
+void print_nodes(struct bnode *nodes)
 {
 	unsigned int stack[64];
 	unsigned int spos = 0;
@@ -261,22 +301,64 @@ void print_leafcnt(struct bnode *nodes)
 
 	while (true) {
 		struct bnode *n = &nodes[id];
+
 		if (n->cnt > 0) {
-			dprintf("leaf %d with %d tris\n", id, n->cnt);
+			dprintf("leaf %d with sid: %d, cnt: %d\n",
+			  id, n->sid, n->cnt);
 			if (spos > 0) {
 				id = stack[--spos];
 				continue;
-			} else {
+			} else
 				break;
-			}
+		} else {
+			dprintf("interior %d with children: %d %d\n",
+			  id, n->sid, n->sid + 1);
 		}
+
 		id = n->sid; // Continue with left
-		stack[spos++] = n->sid + 1; // Right
+
+		assert(spos < 64);
+		stack[spos++] = id + 1; // Right
+	}
+}
+
+void print_mnodes(struct bmnode *nodes)
+{
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	unsigned int id = 0;
+
+	while (true) {
+		struct bmnode *n = &nodes[id];
+
+		if (n->childcnt == 0) {
+			dprintf("leaf %d with sid: %d, cnt: %d\n",
+			  id, n->start, n->cnt);
+			if (spos > 0) {
+				id = stack[--spos];
+				continue;
+			} else
+				break;
+		} else {
+			dprintf("interior %d with children: ", id);
+			for (unsigned int i = 0; i < n->childcnt; i++)
+				dprintf("%d ", n->children[i]);
+			dprintf("\n");
+		}
+
+		id = n->children[0];
+
+		for (unsigned int i = 1; i < n->childcnt; i++) {
+			assert(spos < 64 - n->childcnt + 1);
+			stack[spos++] = n->children[i];
+		}
 	}
 }
 
 unsigned int merge_leafs(struct bnode *nodes, struct bnode *n,
-                         unsigned int *sid, unsigned int maxcnt)
+                         unsigned int *sid, unsigned int maxcnt,
+                         unsigned int *mergecnt)
 {
 	if (n->cnt > 0) {
 		*sid = n->sid;
@@ -285,11 +367,11 @@ unsigned int merge_leafs(struct bnode *nodes, struct bnode *n,
 
 	unsigned int lsid;
 	unsigned int lcnt = merge_leafs(nodes, &nodes[n->sid],
-	  &lsid, maxcnt);
+	  &lsid, maxcnt, mergecnt);
 
 	unsigned int rsid;
 	unsigned int rcnt = merge_leafs(nodes, &nodes[n->sid + 1],
-	  &rsid, maxcnt);
+	  &rsid, maxcnt, mergecnt);
 
 	*sid = lsid; // Propagate left most start index up
 
@@ -297,13 +379,16 @@ unsigned int merge_leafs(struct bnode *nodes, struct bnode *n,
 		//dprintf("Merging nodes\n");
 		n->sid = *sid;
 		n->cnt = lcnt + rcnt;
+
+		*mergecnt += 1;
 	}
 
 	return lcnt + rcnt;
 }
 
 void split_leafs(struct bnode *nodes, struct bnode *n, struct aabb *aabbs,
-                 unsigned int *imap, unsigned int *nodecnt, unsigned int maxcnt)
+                 unsigned int *imap, unsigned int *nodecnt, unsigned int maxcnt,
+                 unsigned int *splitcnt)
 {
 	if (n->cnt > maxcnt) {
 		//dprintf("Splitting node\n");
@@ -339,17 +424,19 @@ void split_leafs(struct bnode *nodes, struct bnode *n, struct aabb *aabbs,
 		n->cnt = 0;
 
 		*nodecnt += 2;
+
+		*splitcnt += 1;
 	}
 
 	if (n->cnt == 0) {
 		split_leafs(nodes, &nodes[n->sid], aabbs, imap, nodecnt,
-		  maxcnt);
+		  maxcnt, splitcnt);
 		split_leafs(nodes, &nodes[n->sid + 1], aabbs, imap, nodecnt,
-		  maxcnt);
+		  maxcnt, splitcnt);
 	}
 }
 
-void convert_b2(struct b2node *tgt, struct bnode *src)
+void convert_b2node(struct b2node *tgt, struct bnode *src)
 {
 	unsigned int stack[64];
 	unsigned int spos = 0;
@@ -392,6 +479,58 @@ void convert_b2(struct b2node *tgt, struct bnode *src)
 			stack[spos++] = tn - 1; // Curr tgt (prnt of right)
 		}
 	}
+}
+
+unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
+{
+	// Create compacted MBVH copy of src BVH
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	unsigned int sn = 0; // Index of current src node
+	unsigned int tn = 0; // Index of current tgt node
+
+	unsigned int tcnt = 1; // Tgt nodes count
+
+	while (true) {
+		struct bnode *s = &src[sn];
+		struct bmnode *t = &tgt[tn];
+
+		t->min = s->min;
+		t->max = s->max;
+
+		if (s->cnt > 0) {
+			// Leaf node
+			t->childcnt = 0; // No children
+
+			t->start = s->sid; // Copy primitive references
+			t->cnt = s->cnt;
+
+			if (spos > 0) {
+				tn = stack[--spos];
+				sn = stack[--spos];
+			} else
+				break;
+		} else {
+			// Interior node
+			t->start = 0;
+			t->cnt = 0; // Interior node, no primitives attached
+			t->children[0] = tcnt;
+			t->children[1] = tcnt + 1;
+			t->childcnt = 2;
+
+			sn = s->sid; // Continue with left src child
+			tn = tcnt; // Continue with left tgt child
+
+			assert(spos < 63);
+			stack[spos++] = sn + 1; // Right src child for later
+			stack[spos++] = tn + 1; // Right tgt child for later
+
+			tcnt += 2; // Allocated two new nodes in tgt
+		}
+	}
+
+	return tcnt;
 }
 
 float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
@@ -667,8 +806,8 @@ void rend_prepstatic(struct rdata *rd)
 			struct aabb *ap = aabbs;
 			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
 			struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
-			dprintf("Creating blas for inst: %d, ofs: %d, cnt: %d, addr: %p\n",
-			  j, triofs, tricnt, (void *)rn);
+			dprintf("> Creating blas for inst: %d, ofs: %d, cnt: %d, addr: %p, max node cnt: %d\n",
+			  j, triofs, tricnt, (void *)rn, tricnt << 1);
 			for (unsigned int i = 0; i < tricnt; i++) {
 				ap->min = ap->max = tp->v0;
 				ap->min = vec3_min(ap->min, tp->v1);
@@ -682,18 +821,38 @@ void rend_prepstatic(struct rdata *rd)
 				ap++;
 			}
 
-			//struct bnode nodes[tricnt << 1]; // On stack, can break
-			struct bnode *nodes = malloc((tricnt << 1) * sizeof(*nodes));
+			// Create normal sah based bvh
+			struct bnode *nodes = malloc((tricnt << 1)
+			  * sizeof(*nodes));
 			rd->nodecnts[rd->bvhcnt++] = build_bvh(
 			  nodes, aabbs, &rd->imap[triofs],
 			  tricnt, rmin, rmax);
-			// Try to make leafs to contain 4 tris but not more
-			unsigned int sid;
-			merge_leafs(nodes, nodes, &sid, 4);
+			unsigned int ncnt = count_nodes(nodes);
+			dprintf("blas node cnt: %d\n",
+			  ncnt);
+			assert(ncnt == rd->nodecnts[rd->bvhcnt - 1]);
+
+			// Make leafs to contain 4 tris at best but not more
+			unsigned int sid, mergecnt = 0, splitcnt = 0;
+			merge_leafs(nodes, nodes, &sid, 4, &mergecnt);
+			dprintf("merged which reduced %d nodes\n", 2 * mergecnt);
 			split_leafs(nodes, nodes, aabbs, &rd->imap[triofs],
-			  &rd->nodecnts[rd->bvhcnt - 1], 4);
-			//print_leafcnt(nodes);
-			convert_b2(&rd->nodes[triofs << 1], nodes);
+			  &rd->nodecnts[rd->bvhcnt - 1], 4, &splitcnt);
+			dprintf("splitted which added %d nodes\n",
+			  2 * splitcnt);
+			dprintf("blas node cnt after merge and split: %d\n",
+			  count_nodes(nodes));
+
+			// Create compacted mbvh with m = 4
+			struct bmnode *mnodes = malloc((tricnt << 1)
+			  * sizeof(*mnodes));
+			unsigned int mnodecnt = convert_bmnode(mnodes, nodes);
+			dprintf("compacted mbvh node cnt: %d\n", mnodecnt);
+
+			free(mnodes);
+
+			convert_b2node(&rd->nodes[triofs << 1], nodes);
+
 			free(nodes);
 			free(aabbs);
 		}
@@ -702,6 +861,7 @@ void rend_prepstatic(struct rdata *rd)
 
 void rend_prepdynamic(struct rdata *rd)
 {
+	//dprintf("> Creating tlas\n");
 	struct aabb *ap = rd->aabbs; // World space aabbs of instances
 	struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
 	struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
@@ -717,13 +877,17 @@ void rend_prepdynamic(struct rdata *rd)
 	struct bnode nodes[rd->instcnt << 1]; // On stack, can break
 	rd->nodecnts[rd->bvhcnt + 1] = build_bvh(
 	  nodes, rd->aabbs, &rd->imap[tlasofs], rd->instcnt, rmin, rmax);
+	//dprintf("tlas node cnt: %d\n", count_nodes(nodes));
+
 	// Try to make leafs to contain 4 insts but not more
-	unsigned int sid;
-	merge_leafs(nodes, nodes, &sid, 4);
+	unsigned int sid, mergecnt = 0, splitcnt = 0;
+	merge_leafs(nodes, nodes, &sid, 4, &mergecnt);
+	//dprintf("merged which reduced %d nodes\n", 2 * mergecnt);
 	split_leafs(nodes, nodes, rd->aabbs, &rd->imap[tlasofs],
-	  &rd->nodecnts[rd->bvhcnt - 1], 4);
-	//print_leafcnt(nodes);
-	convert_b2(&rd->nodes[tlasofs << 1], nodes);
+	  &rd->nodecnts[rd->bvhcnt - 1], 4, &splitcnt);
+	//dprintf("splitted which added %d nodes\n", 2 * splitcnt);
+
+	convert_b2node(&rd->nodes[tlasofs << 1], nodes);
 }
 
 struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
