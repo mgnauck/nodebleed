@@ -3,10 +3,10 @@
 #include "util.h"
 #include "vec3.h"
 
-struct vec3 vec3_randuni(void)
+struct vec3 vec3_randuni(unsigned int *seed)
 {
-	float u = 2.0f * pcg_randf() - 1.0f;
-	float theta = 2.0f * PI * pcg_randf();
+	float u = 2.0f * randf(seed) - 1.0f;
+	float theta = 2.0f * PI * randf(seed);
 	float r = sqrtf(1.0f - u * u);
 	return (struct vec3){r * cosf(theta), r * sinf(theta), u};
 }

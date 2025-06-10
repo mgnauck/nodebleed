@@ -22,6 +22,9 @@
 
 #define INTERVAL_CNT  16
 
+#define MBVH_CHILD_CNT  4
+#define LEAF_TRI_CNT    4
+
 struct bnode { // bvh node, 1-wide, 32 bytes
 	struct vec3   min;
 	unsigned int  sid; // Start index or left child node id
@@ -29,7 +32,6 @@ struct bnode { // bvh node, 1-wide, 32 bytes
 	unsigned int  cnt; // Tri or inst cnt
 };
 
-#define MBVH_CHILD_CNT  4
 struct bmnode { // Mbvh node with M child nodes
 	struct vec3   min;
 	unsigned int  start; // Start index of tri or inst
@@ -885,10 +887,12 @@ void rend_prepstatic(struct rdata *rd)
 
 			// Make leafs to contain 4 tris at best but not more
 			unsigned int sid, mergecnt = 0, splitcnt = 0;
-			merge_leafs(nodes, nodes, &sid, 4, &mergecnt);
+			merge_leafs(nodes, nodes, &sid, LEAF_TRI_CNT,
+			  &mergecnt);
 			dprintf("merged which reduced %d nodes\n", 2 * mergecnt);
 			split_leafs(nodes, nodes, aabbs, &rd->imap[triofs],
-			  &rd->nodecnts[rd->bvhcnt - 1], 4, &splitcnt);
+			  &rd->nodecnts[rd->bvhcnt - 1], LEAF_TRI_CNT,
+			  &splitcnt);
 			dprintf("splitted which added %d nodes\n",
 			  2 * splitcnt);
 			dprintf("blas node cnt after merge and split: %d\n",
@@ -937,10 +941,10 @@ void rend_prepdynamic(struct rdata *rd)
 
 	// Try to make leafs to contain 4 insts but not more
 	unsigned int sid, mergecnt = 0, splitcnt = 0;
-	merge_leafs(nodes, nodes, &sid, 4, &mergecnt);
+	merge_leafs(nodes, nodes, &sid, LEAF_TRI_CNT, &mergecnt);
 	//dprintf("merged which reduced %d nodes\n", 2 * mergecnt);
 	split_leafs(nodes, nodes, rd->aabbs, &rd->imap[tlasofs],
-	  &rd->nodecnts[rd->bvhcnt - 1], 4, &splitcnt);
+	  &rd->nodecnts[rd->bvhcnt - 1], LEAF_TRI_CNT, &splitcnt);
 	//dprintf("splitted which added %d nodes\n", 2 * splitcnt);
 
 	convert_b2node(&rd->nodes[tlasofs << 1], nodes);
@@ -1009,7 +1013,7 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 }
 
 struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
-                   unsigned char depth)
+                   unsigned char depth, unsigned int *seed)
 {
 	if (depth >= 2)
 		return rd->bgcol;
@@ -1046,7 +1050,7 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
 	struct vec3 ta, bta;
 	create_onb(&ta, &bta, nrm);
 
-	struct vec3 dir = rand_hemicos(pcg_randf(), pcg_randf());
+	struct vec3 dir = rand_hemicos(randf(seed), randf(seed));
 
 	dir = vec3_add(vec3_add(vec3_scale(ta, dir.x), vec3_scale(bta, dir.y)),
 	  vec3_scale(nrm, dir.z));
@@ -1058,7 +1062,7 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
 	struct vec3 brdf = rd->mtls[mtlid].col;
 
 	struct vec3 irr = trace2(vec3_add(pos, vec3_scale(dir, 0.001)), dir,
-	  rd, depth + 1);
+	  rd, depth + 1, seed);
 
 	//return vec3_scale(vec3_mul(brdf, irr), cos_theta / pdf);
 	//return vec3_mul(brdf, irr);
@@ -1091,6 +1095,7 @@ int rend_render(void *d)
 		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
 		if (blk >= blkcnt)
 			break;
+		unsigned int seed = (blk + 13) * 131317 + rd->samplecnt * 23;
 		unsigned int bx = (blk % blksx) * bs;
 		unsigned int by = (blk / blksx) * bs;
 		for (unsigned int j = 0; j < bs; j++) {
@@ -1100,14 +1105,14 @@ int rend_render(void *d)
 				unsigned int x = bx + i;
 				struct vec3 p = vec3_add(tl, vec3_add(
 				  vec3_scale(dx, x), vec3_scale(dy, y)));
-				p = vec3_add(p,
-				  vec3_add(vec3_scale(dx, pcg_randf() - 0.5f),
-				    vec3_scale(dy, pcg_randf() - 0.5f)));
+				p = vec3_add(p, vec3_add(
+				  vec3_scale(dx, randf(&seed) - 0.5f),
+				  vec3_scale(dy, randf(&seed) - 0.5f)));
 
 				struct vec3 c =
 				  //trace(eye, vec3_unit(vec3_sub(p, eye)), rd);
 				  trace2(eye, vec3_unit(vec3_sub(p, eye)), rd,
-				    0);
+				    0, &seed);
 
 				acc[yofs + x] = vec3_add(acc[yofs + x], c);
 				c = vec3_scale(acc[yofs + x], rspp);

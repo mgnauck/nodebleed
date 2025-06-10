@@ -1,6 +1,7 @@
 #ifndef REND_H
 #define REND_H
 
+#include <immintrin.h>
 #include "vec3.h"
 
 struct b2node { // Bvh node, 2-wide, 64 bytes
@@ -14,15 +15,20 @@ struct b2node { // Bvh node, 2-wide, 64 bytes
 	unsigned int  cnt; // Tri or inst cnt
 };
 
-struct b4node { // Bvh node, 4-wide, 128 bytes, SIMD friendly
-	float         minx[4];
-	float         maxx[4];
-	float         miny[4];
-	float         maxy[4];
-	float         minz[4];
-	float         maxz[4];
-	unsigned int  children[4];
-	unsigned int  pad[4]; // TODO Traversal order here
+// Node flags
+#define NODE_LEAF  (1 << 30)
+#define NODE_EMPTY (1 << 31)
+
+// Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
+struct b8node { // Bvh node, 8-wide, 256 bytes
+	__m256   minx; // Aabbs of 8 child nodes
+	__m256   maxx;
+	__m256   miny;
+	__m256   maxy;
+	__m256   minz;
+	__m256   maxz;
+	__m256i  children; // Node flags, child node or leaf indices
+	__m256i  perm; // Permutations for ordered traversal
 };
 
 struct aabb { // 32 bytes

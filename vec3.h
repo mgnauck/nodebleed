@@ -5,7 +5,7 @@ struct vec3 {
 	float  x, y, z;
 };
 
-struct vec3  vec3_randuni(void);
+struct vec3  vec3_randuni(unsigned int *seed);
 
 struct vec3  vec3_add(struct vec3 a, struct vec3 b);
 struct vec3  vec3_sub(struct vec3 a, struct vec3 b);
