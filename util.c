@@ -1,6 +1,6 @@
 #include "util.h"
 
-unsigned xorshift32(unsigned int *seed)
+unsigned int xorshift32(unsigned int *seed)
 {
 	unsigned int x = *seed;
 	x ^= x << 13;
