@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "mat4.h"
 #include "rend.h"
@@ -22,7 +23,7 @@
 
 #define INTERVAL_CNT  16
 
-#define MBVH_CHILD_CNT  4
+#define MBVH_CHILD_CNT  8
 #define LEAF_TRI_CNT    4
 
 struct bnode { // bvh node, 1-wide, 32 bytes
@@ -500,6 +501,8 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src,
 		struct bnode *s = &src[sn];
 		struct bmnode *t = &tgt[tn];
 
+		memset(t, 0, sizeof(*t));
+
 		t->min = s->min;
 		t->max = s->max;
 
@@ -937,15 +940,6 @@ void rend_prepdynamic(struct rdata *rd)
 	struct bnode nodes[rd->instcnt << 1]; // On stack, can break
 	rd->nodecnts[rd->bvhcnt + 1] = build_bvh(
 	  nodes, rd->aabbs, &rd->imap[tlasofs], rd->instcnt, rmin, rmax);
-	//dprintf("tlas node cnt: %d\n", count_nodes(nodes));
-
-	// Try to make leafs to contain 4 insts but not more
-	unsigned int sid, mergecnt = 0, splitcnt = 0;
-	merge_leafs(nodes, nodes, &sid, LEAF_TRI_CNT, &mergecnt);
-	//dprintf("merged which reduced %d nodes\n", 2 * mergecnt);
-	split_leafs(nodes, nodes, rd->aabbs, &rd->imap[tlasofs],
-	  &rd->nodecnts[rd->bvhcnt - 1], LEAF_TRI_CNT, &splitcnt);
-	//dprintf("splitted which added %d nodes\n", 2 * splitcnt);
 
 	convert_b2node(&rd->nodes[tlasofs << 1], nodes);
 }
