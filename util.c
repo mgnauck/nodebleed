@@ -11,7 +11,12 @@ unsigned int xorshift32(unsigned int *seed)
 
 float randf(unsigned int *seed)
 {
-	return xorshift32(seed) * 2.3283064365387e-10f;
+	union {
+		unsigned int  u32;
+		float         f32;
+	} u = {.u32 = xorshift32(seed) >> 9 | 0x3f800000};
+
+	return u.f32 - 1.0f;
 }
 
 void setflags(unsigned int *state, unsigned int flags)
