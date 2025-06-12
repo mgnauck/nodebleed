@@ -270,29 +270,29 @@ unsigned int count_nodes(struct bnode *nodes)
 	unsigned int stack[64];
 	unsigned int spos = 0;
 
-	unsigned int id = 0;
+	unsigned int nid = 0;
 
-	unsigned int cnt = 0;
+	unsigned int ncnt = 0;
 
 	while (true) {
-		struct bnode *n = &nodes[id];
-		cnt++;
+		struct bnode *n = &nodes[nid];
+		ncnt++;
 
 		if (n->cnt > 0) {
 			if (spos > 0) {
-				id = stack[--spos];
+				nid = stack[--spos];
 				continue;
 			} else
 				break;
 		}
 
-		id = n->sid;
+		nid = n->sid;
 
 		assert(spos < 64);
-		stack[spos++] = id + 1;
+		stack[spos++] = nid + 1;
 	}
 
-	return cnt;
+	return ncnt;
 }
 
 unsigned int count_mnodes(struct bmnode *nodes)
@@ -300,23 +300,23 @@ unsigned int count_mnodes(struct bmnode *nodes)
 	unsigned int stack[64];
 	unsigned int spos = 0;
 
-	unsigned int id = 0;
+	unsigned int nid = 0;
 
-	unsigned int cnt = 0;
+	unsigned int ncnt = 0;
 
 	while (true) {
-		struct bmnode *n = &nodes[id];
-		cnt++;
+		struct bmnode *n = &nodes[nid];
+		ncnt++;
 
 		if (n->childcnt == 0) {
 			if (spos > 0) {
-				id = stack[--spos];
+				nid = stack[--spos];
 				continue;
 			} else
 				break;
 		}
 
-		id = n->children[0];
+		nid = n->children[0];
 
 		for (unsigned int i = 1; i < n->childcnt; i++) {
 			assert(spos < 64 - n->childcnt + 1);
@@ -324,7 +324,7 @@ unsigned int count_mnodes(struct bmnode *nodes)
 		}
 	}
 
-	return cnt;
+	return ncnt;
 }
 
 void print_nodes(struct bnode *nodes)
@@ -332,28 +332,28 @@ void print_nodes(struct bnode *nodes)
 	unsigned int stack[64];
 	unsigned int spos = 0;
 
-	unsigned int id = 0;
+	unsigned int nid = 0;
 
 	while (true) {
-		struct bnode *n = &nodes[id];
+		struct bnode *n = &nodes[nid];
 
 		if (n->cnt > 0) {
 			dprintf("leaf %d with sid: %d, cnt: %d\n",
-			  id, n->sid, n->cnt);
+			  nid, n->sid, n->cnt);
 			if (spos > 0) {
-				id = stack[--spos];
+				nid = stack[--spos];
 				continue;
 			} else
 				break;
 		} else {
 			dprintf("interior %d with 2 children: %d %d\n",
-			  id, n->sid, n->sid + 1);
+			  nid, n->sid, n->sid + 1);
 		}
 
-		id = n->sid; // Continue with left
+		nid = n->sid; // Continue with left
 
 		assert(spos < 64);
-		stack[spos++] = id + 1; // Right
+		stack[spos++] = nid + 1; // Right
 	}
 }
 
@@ -362,28 +362,28 @@ void print_mnodes(struct bmnode *nodes)
 	unsigned int stack[64];
 	unsigned int spos = 0;
 
-	unsigned int id = 0;
+	unsigned int nid = 0;
 
 	while (true) {
-		struct bmnode *n = &nodes[id];
+		struct bmnode *n = &nodes[nid];
 
 		if (n->childcnt == 0) {
 			dprintf("leaf %d with sid: %d, cnt: %d\n",
-			  id, n->start, n->cnt);
+			  nid, n->start, n->cnt);
 			if (spos > 0) {
-				id = stack[--spos];
+				nid = stack[--spos];
 				continue;
 			} else
 				break;
 		} else {
 			dprintf("interior %d with %d children: ",
-			  id, n->childcnt);
+			  nid, n->childcnt);
 			for (unsigned int i = 0; i < n->childcnt; i++)
 				dprintf("%d ", n->children[i]);
 			dprintf("\n");
 		}
 
-		id = n->children[0];
+		nid = n->children[0];
 
 		for (unsigned int i = 1; i < n->childcnt; i++) {
 			assert(spos < 64 - n->childcnt + 1);
@@ -478,12 +478,12 @@ void convert_b2node(struct b2node *tgt, struct bnode *src)
 	unsigned int spos = 0;
 
 	// Current src and tgt node indices
-	unsigned int sn = 0;
-	unsigned int tn = 0;
+	unsigned int snid = 0;
+	unsigned int tnid = 0;
 
 	while (true) {
-		struct bnode *s = &src[sn];
-		struct b2node *t = &tgt[tn++];
+		struct bnode *s = &src[snid];
+		struct b2node *t = &tgt[tnid++];
 
 		if (s->cnt > 0) {
 			t->start = s->sid;
@@ -491,19 +491,19 @@ void convert_b2node(struct b2node *tgt, struct bnode *src)
 
 			if (spos > 0) {
 				// Assign tgt prnt's right index
-				tgt[stack[--spos]].r = tn;
-				sn = stack[--spos];
+				tgt[stack[--spos]].r = tnid;
+				snid = stack[--spos];
 			} else
 				return;
 		} else {
-			sn = s->sid; // Left child
+			snid = s->sid; // Left child
 
-			struct bnode *lc = &src[sn];
-			t->l = tn; // Left is next node in tgt
+			struct bnode *lc = &src[snid];
+			t->l = tnid; // Left is next node in tgt
 			t->lmin = lc->min;
 			t->lmax = lc->max;
 
-			struct bnode *rc = &src[sn + 1]; // Right = left + 1
+			struct bnode *rc = &src[snid + 1]; // Right = left + 1
 			t->rmin = rc->min;
 			t->rmax = rc->max;
 			// Set tgt's right child index when it gets off stack
@@ -511,26 +511,27 @@ void convert_b2node(struct b2node *tgt, struct bnode *src)
 			t->cnt = 0; // Mark as interior node
 
 			assert(spos < 63);
-			stack[spos++] = sn + 1; // Right src node
-			stack[spos++] = tn - 1; // Curr tgt (prnt of right)
+			stack[spos++] = snid + 1; // Right src node
+			stack[spos++] = tnid - 1; // Curr tgt (prnt of right)
 		}
 	}
 }
 
 unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 {
-	// Create compacted MBVH copy of src BVH
 	unsigned int stack[64];
 	unsigned int spos = 0;
 
-	unsigned int sn = 0; // Index of current src node
-	unsigned int tn = 0; // Index of current tgt node
+	// Current src and tgt node indices
+	unsigned int snid = 0;
+	unsigned int tnid = 0;
 
-	unsigned int tcnt = 1; // Tgt nodes count
+	unsigned int tncnt = 1; // Tgt nodes count (compaction and collapsing)
 
+	// Create compacted MBVH copy of src BVH
 	while (true) {
-		struct bnode *s = &src[sn];
-		struct bmnode *t = &tgt[tn];
+		struct bnode *s = &src[snid];
+		struct bmnode *t = &tgt[tnid];
 
 		memset(t, 0, sizeof(*t));
 
@@ -545,34 +546,34 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 			t->cnt = s->cnt;
 
 			if (spos > 0) {
-				tn = stack[--spos];
-				sn = stack[--spos];
+				tnid = stack[--spos];
+				snid = stack[--spos];
 			} else
 				break;
 		} else {
 			// Interior node
 			t->start = 0;
 			t->cnt = 0; // Interior node, no primitives attached
-			t->children[0] = tcnt;
-			t->children[1] = tcnt + 1;
+			t->children[0] = tncnt;
+			t->children[1] = tncnt + 1;
 			t->childcnt = 2;
 
-			sn = s->sid; // Continue with left src child
-			tn = tcnt; // Continue with left tgt child
+			snid = s->sid; // Continue with left src child
+			tnid = tncnt; // Continue with left tgt child
 
 			assert(spos < 63);
-			stack[spos++] = sn + 1; // Right src child for later
-			stack[spos++] = tn + 1; // Right tgt child for later
+			stack[spos++] = snid + 1; // Right src child for later
+			stack[spos++] = tnid + 1; // Right tgt child for later
 
-			tcnt += 2; // Allocated two new nodes in tgt
+			tncnt += 2; // Allocated two new nodes in tgt
 		}
 	}
 
-	tn = 0;
+	tnid = 0;
 
 	// Collapse transformed but still binary src nodes into M-wide nodes
 	while (true) {
-		struct bmnode *n = &tgt[tn];
+		struct bmnode *n = &tgt[tnid];
 		while (n->childcnt < MBVH_CHILD_CNT) {
 			struct bmnode *bc = NULL;
 			float bcost = 0.0f;
@@ -596,7 +597,7 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 				for (unsigned int i = 1; i < bc->childcnt; i++)
 					n->children[n->childcnt++] =
 					  bc->children[i]; // Append
-				tcnt--; // Replaced one node
+				tncnt--; // Replaced one node
 			} else
 				break; // No child found that can be merged
 		}
@@ -612,12 +613,12 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 
 		// Retrieve next node
 		if (spos > 0)
-			tn = stack[--spos];
+			tnid = stack[--spos];
 		else
 			break;
 	}
 
-	return tcnt;
+	return tncnt;
 }
 
 void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
