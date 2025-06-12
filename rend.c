@@ -21,7 +21,7 @@
 #define INST_ID_BITS  12
 #define INST_ID_MASK  0xfff
 
-#define INTERVAL_CNT  16
+#define INTERVAL_CNT  16 // Binning intervals
 
 #define MBVH_CHILD_CNT  8
 #define LEAF_TRI_CNT    4
@@ -295,6 +295,38 @@ unsigned int count_nodes(struct bnode *nodes)
 	return cnt;
 }
 
+unsigned int count_mnodes(struct bmnode *nodes)
+{
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	unsigned int id = 0;
+
+	unsigned int cnt = 0;
+
+	while (true) {
+		struct bmnode *n = &nodes[id];
+		cnt++;
+
+		if (n->childcnt == 0) {
+			if (spos > 0) {
+				id = stack[--spos];
+				continue;
+			} else
+				break;
+		}
+
+		id = n->children[0];
+
+		for (unsigned int i = 1; i < n->childcnt; i++) {
+			assert(spos < 64 - n->childcnt + 1);
+			stack[spos++] = n->children[i];
+		}
+	}
+
+	return cnt;
+}
+
 void print_nodes(struct bnode *nodes)
 {
 	unsigned int stack[64];
@@ -485,8 +517,7 @@ void convert_b2node(struct b2node *tgt, struct bnode *src)
 	}
 }
 
-unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src,
-                            unsigned int *mergecnt)
+unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 {
 	// Create compacted MBVH copy of src BVH
 	unsigned int stack[64];
@@ -564,8 +595,8 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src,
 				n->children[bci] = bc->children[0]; // Replace
 				for (unsigned int i = 1; i < bc->childcnt; i++)
 					n->children[n->childcnt++] =
-						bc->children[i]; // Append
-				*mergecnt += bc->childcnt;
+					  bc->children[i]; // Append
+				tcnt--; // Replaced one node
 			} else
 				break; // No child found that can be merged
 		}
@@ -586,7 +617,7 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src,
 			break;
 	}
 
-	return tcnt; // Compacted node count excl. merge operations
+	return tcnt;
 }
 
 void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
@@ -934,8 +965,7 @@ void rend_prepstatic(struct rdata *rd)
 			  nodes, aabbs, &rd->imap[triofs],
 			  tricnt, rmin, rmax);
 			unsigned int ncnt = count_nodes(nodes);
-			dprintf("blas node cnt: %d\n",
-			  ncnt);
+			dprintf("blas node cnt: %d\n", ncnt);
 			assert(ncnt == rd->nodecnts[rd->bvhcnt - 1] - 1);
 
 			// Make leafs to contain 4 tris at best but not more
@@ -954,13 +984,8 @@ void rend_prepstatic(struct rdata *rd)
 			// Create compacted mbvh with m = 4
 			struct bmnode *mnodes = malloc((tricnt << 1)
 			  * sizeof(*mnodes));
-			mergecnt = 0;
-			unsigned int mnodecnt =
-			  convert_bmnode(mnodes, nodes, &mergecnt);
-			dprintf("compacted mbvh node cnt %d with another %d merged nodes\n",
-			  mnodecnt, mergecnt);
-
-			//print_mnodes(mnodes);
+			unsigned int mnodecnt = convert_bmnode(mnodes, nodes);
+			dprintf("compacted mbvh node cnt: %d\n", mnodecnt);
 
 			free(mnodes);
 
