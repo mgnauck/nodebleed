@@ -641,6 +641,7 @@ void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
                     bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
+	float dstack[64]; // Distance stack
 	unsigned char spos = 0;
 
 	unsigned int curr = 0;
@@ -663,10 +664,10 @@ void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 				  imap[n->start + i], instid);
 
 			// Pop next node from stack if something is left
-			if (spos > 0)
-				curr = stack[--spos];
-			else
-				return;
+			while (spos > 0)
+				if (dstack[--spos] < h->t)
+					goto next_iter;
+			return;
 		} else {
 			// Interior node, check child aabbs
 			float t0xl = (dx ? n->lmin.x : n->lmax.x) * idx - rx;
@@ -707,20 +708,24 @@ void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 			if (d0 == FLT_MAX) {
 				// Did not hit any child, try the stack
-				if (spos > 0)
-					curr = stack[--spos];
-				else
-					return;
+				while (spos > 0)
+					if (dstack[--spos] < h->t)
+						goto next_iter;
+				return;
 			} else {
 				// Continue with nearer child node
 				curr = l;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
 					assert(spos < 64);
+					dstack[spos] = d1;
 					stack[spos++] = r;
 				}
+				continue;
 			}
 		}
+next_iter:
+		curr = stack[spos];
 	}
 }
 
@@ -738,6 +743,7 @@ void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
                     unsigned int tlasofs, bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
+	float dstack[64]; // Distance stack
 	unsigned char spos = 0;
 
 	unsigned int curr = 0;
@@ -774,10 +780,10 @@ void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 			}
 
 			// Pop next node from stack if something is left
-			if (spos > 0)
-				curr = stack[--spos];
-			else
-				return;
+			while (spos > 0)
+				if (dstack[--spos] < h->t)
+					goto next_iter;
+			return;
 		} else {
 			// Interior node, check child aabbs
 			float t0xl = (dx ? n->lmin.x : n->lmax.x) * idx - rx;
@@ -818,20 +824,24 @@ void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 			if (d0 == FLT_MAX) {
 				// Did not hit any child, try the stack
-				if (spos > 0)
-					curr = stack[--spos];
-				else
-					return;
+				while (spos > 0)
+					if (dstack[--spos] < h->t)
+						goto next_iter;
+				return;
 			} else {
 				// Continue with nearer child node
 				curr = l;
 				if (d1 != FLT_MAX) {
 					// Put farther child on stack
 					assert(spos < 64);
+					dstack[spos] = d1;
 					stack[spos++] = r;
 				}
+				continue;
 			}
 		}
+next_iter:
+		curr = stack[spos];
 	}
 }
 
