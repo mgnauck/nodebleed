@@ -14,7 +14,8 @@ float randf(unsigned int *seed)
 	union {
 		unsigned int  u32;
 		float         f32;
-	} u = {.u32 = xorshift32(seed) >> 9 | 0x3f800000};
+	// Keep mantissa (between 1.0 and 2.0) and null exponent bits
+	} u = {.u32 = xorshift32(seed) >> 9 | 127 << 23};
 
 	return u.f32 - 1.0f;
 }
