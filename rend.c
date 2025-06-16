@@ -23,7 +23,6 @@
 
 #define INTERVAL_CNT  16 // Binning intervals
 
-#define MBVH_CHILD_CNT  8
 #define LEAF_TRI_CNT    4
 
 struct bnode { // bvh node, 1-wide, 32 bytes
@@ -31,15 +30,6 @@ struct bnode { // bvh node, 1-wide, 32 bytes
 	unsigned int  sid; // Start index or left child node id
 	struct vec3   max;
 	unsigned int  cnt; // Tri or inst cnt
-};
-
-struct bmnode { // Mbvh node with M child nodes
-	struct vec3   min;
-	unsigned int  start; // Start index of tri or inst
-	struct vec3   max;
-	unsigned int  cnt; // Tri or inst cnt
-	unsigned int  children[MBVH_CHILD_CNT]; // Child node ids
-	unsigned int  childcnt;
 };
 
 struct hit { // 32 bytes
@@ -199,9 +189,8 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 			if (spos > 0) {
 				nid = stack[--spos];
 				continue;
-			} else {
+			} else
 				break;
-			}
 		}
 
 		// Partition in l and r of split plane
@@ -232,9 +221,8 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 			if (spos > 0) {
 				nid = stack[--spos];
 				continue;
-			} else {
+			} else
 				break;
-			}
 		}
 
 		// Init children
@@ -472,7 +460,7 @@ void split_leafs(struct bnode *nodes, struct bnode *n, struct aabb *aabbs,
 	}
 }
 
-void convert_b2node(struct b2node *tgt, struct bnode *src)
+unsigned int convert_b2node(struct b2node *tgt, struct bnode *src)
 {
 	unsigned int stack[64];
 	unsigned int spos = 0;
@@ -485,16 +473,18 @@ void convert_b2node(struct b2node *tgt, struct bnode *src)
 		struct bnode *s = &src[snid];
 		struct b2node *t = &tgt[tnid++];
 
+		memset(t, 0, sizeof(*t));
+
 		if (s->cnt > 0) {
 			t->start = s->sid;
 			t->cnt = s->cnt;
 
 			if (spos > 0) {
-				// Assign tgt prnt's right index
+				// Assign curr tgt node's prnt's right index
 				tgt[stack[--spos]].r = tnid;
 				snid = stack[--spos];
 			} else
-				return;
+				break;
 		} else {
 			snid = s->sid; // Left child
 
@@ -508,13 +498,13 @@ void convert_b2node(struct b2node *tgt, struct bnode *src)
 			t->rmax = rc->max;
 			// Set tgt's right child index when it gets off stack
 
-			t->cnt = 0; // Mark as interior node
-
 			assert(spos < 63);
 			stack[spos++] = snid + 1; // Right src node
 			stack[spos++] = tnid - 1; // Curr tgt (prnt of right)
 		}
 	}
+
+	return tnid;
 }
 
 unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
@@ -526,12 +516,10 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 	unsigned int snid = 0;
 	unsigned int tnid = 0;
 
-	unsigned int tncnt = 1; // Tgt nodes count (compaction and collapsing)
-
 	// Create compacted MBVH copy of src BVH
 	while (true) {
 		struct bnode *s = &src[snid];
-		struct bmnode *t = &tgt[tnid];
+		struct bmnode *t = &tgt[tnid++];
 
 		memset(t, 0, sizeof(*t));
 
@@ -540,66 +528,65 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 
 		if (s->cnt > 0) {
 			// Leaf node
-			t->childcnt = 0; // No children
-
 			t->start = s->sid; // Copy primitive references
 			t->cnt = s->cnt;
 
-			if (spos > 0) {
-				tnid = stack[--spos];
+			if (spos > 1) {
+				// Assign curr tgt node's prnt's right index
+				tgt[stack[--spos]].children[1] = tnid;
 				snid = stack[--spos];
 			} else
 				break;
 		} else {
-			// Interior node
-			t->start = 0;
-			t->cnt = 0; // Interior node, no primitives attached
-			t->children[0] = tncnt;
-			t->children[1] = tncnt + 1;
-			t->childcnt = 2;
-
 			snid = s->sid; // Continue with left src child
-			tnid = tncnt; // Continue with left tgt child
+
+			// Init tgt children with left src child only
+			t->children[0] = tnid;
+			t->childcnt = 2;
+			// Set tgt's child id for right child when it's popped
 
 			assert(spos < 63);
-			stack[spos++] = snid + 1; // Right src child for later
-			stack[spos++] = tnid + 1; // Right tgt child for later
-
-			tncnt += 2; // Allocated two new nodes in tgt
+			stack[spos++] = snid + 1; // Right src node
+			stack[spos++] = tnid - 1; // Curr tgt (prnt of right)
 		}
 	}
+
+	unsigned int ncnt = tnid;
 
 	tnid = 0;
 
 	// Collapse transformed but still binary src nodes into M-wide nodes
 	while (true) {
 		struct bmnode *n = &tgt[tnid];
+
 		while (n->childcnt < MBVH_CHILD_CNT) {
-			struct bmnode *bc = NULL;
 			float bcost = 0.0f;
-			unsigned int bci;
+			struct bmnode *bc = NULL; // Best child
+			unsigned int bcid;
 			for (unsigned int i = 0; i < n->childcnt; i++) {
 				struct bmnode *c = &tgt[n->children[i]];
 				if (c->cnt == 0 && n->childcnt - 1
 				  + c->childcnt <= MBVH_CHILD_CNT) {
 					float cost = calc_area(c->min, c->max);
 					if (cost > bcost) {
-						bc = c;
 						bcost = cost;
-						bci = i;
+						bc = c;
+						bcid = i;
 					}
 				}
 			}
 
+			// Merge children of best child into curr node
 			if (bc) {
-				// Merge children of best child into curr node
-				n->children[bci] = bc->children[0]; // Replace
+				// Replace first child into the gap
+				n->children[bcid] = bc->children[0];
 				for (unsigned int i = 1; i < bc->childcnt; i++)
+					// Append the other children if more
 					n->children[n->childcnt++] =
-					  bc->children[i]; // Append
-				tncnt--; // Replaced one node
+					  bc->children[i];
+				ncnt--; // Replaced one node
 			} else
-				break; // No child found that can be merged
+				break; // No child found that can be collapsed
 		}
 
 		// Schedule all interior child nodes for processing
@@ -618,7 +605,151 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 			break;
 	}
 
-	return tncnt;
+	return ncnt;
+}
+
+struct distid {
+	float          dist;
+	//unsigned char  id;
+	unsigned int   id; // TEMP
+};
+
+int comp_distid(const void *a, const void *b)
+{
+	return ((struct distid *)a)->dist < ((struct distid *)b)->dist ? 1 : -1;
+}
+
+// TODO
+// Use traversal order stored in perm depending on ray dir signs
+// Use SIMD version of b8node (__m256/__m256i)
+// Test 8 child aabbs at once
+// Embed tri data in bvh data
+// Test 4 tris at once
+// Clean unused intersection functions (bmnode intersection etc.)
+
+unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
+{
+	unsigned int stack[128];
+	unsigned int spos = 0;
+
+	// Current src and tgt node indices
+	unsigned int snid = 0;
+	unsigned int tnid = 0;
+
+	while (true) {
+		struct bmnode *s = &src[snid];
+		struct b8node *t = &tgt[tnid];
+
+		memset(t, 0, sizeof(*t));
+
+		for (unsigned int j = 0; j < 8; j++) {
+			// Copy and setup child node information
+			if (s->children[j]) {
+				assert(j < s->childcnt);
+				struct bmnode *c = &src[s->children[j]];
+				t->minx[j] = c->min.x;
+				t->maxx[j] = c->max.x;
+				t->miny[j] = c->min.y;
+				t->maxy[j] = c->max.y;
+				t->minz[j] = c->min.z;
+				t->maxz[j] = c->max.z;
+				if (c->cnt > 0) {
+					// Leaf node
+					t->children[j] = NODE_LEAF;
+					assert(c->cnt <= 4);
+					t->children[j] |= (c->cnt - 1) << 28;
+					assert(c->start <= 268435455);
+					t->children[j] |= c->start & TRIID_MASK;
+				} else {
+					// Interior node
+					// Push curr tgt node id and the child
+					// which id we update when popped
+					assert(spos < 128 - 1);
+					assert(tnid <= 0x1fffffff);
+					stack[spos++] = (tnid << 3) | j;
+					// Push id of src bmnode
+					stack[spos++] = s->children[j];
+				}
+			} else {
+				// Empty child node
+				t->minx[j] = FLT_MAX;
+				t->maxx[j] = -FLT_MAX;
+				t->miny[j] = FLT_MAX;
+				t->maxy[j] = -FLT_MAX;
+				t->minz[j] = FLT_MAX;
+				t->maxz[j] = -FLT_MAX;
+				t->children[j] = NODE_EMPTY;
+			}
+
+			// Create ordered child traversal permutation mask
+			// with j being current quadrant
+			struct vec3 dir = {
+			  j & 1 ? 1.0f : -1.0f,
+			  j & 2 ? 1.0f : -1.0f,
+			  j & 3 ? 1.0f : -1.0f};
+			struct distid cdi[8];
+			for (unsigned int i = 0; i < 8; i++) {
+				cdi[i].id = i; // 3 bit child index
+				if (s->children[i]) {
+					struct bmnode *c = &src[s->children[i]];
+					// Aabb corner of ray dir
+					struct vec3 corner = {
+					  j & 1 ? c->min.x : c->max.x,
+					  j & 2 ? c->min.y : c->max.y,
+					  j & 4 ? c->min.z : c->max.z};
+					cdi[i].dist= vec3_dot(dir, corner);
+				} else {
+					// No child assigned, still gets sorted
+					cdi[i].dist = FLT_MAX;
+				}
+			}
+
+			// Sort dists thereby sorting/permuting child indices
+			qsort(cdi, 8, sizeof(*cdi), comp_distid);
+
+			// Set perm mask for all children and curr quadrant
+			for (unsigned int i = 0; i < 8; i++)
+				t->perm[i] |= cdi[i].id << (j * 3);
+		}
+
+		tnid++; // Claim next tgt node
+
+		if (spos > 1) {
+			// Src bmnode to continue with
+			snid = stack[--spos];
+			// Set former tgt child node id to curr tgt node's id
+			unsigned int tm = stack[--spos];
+			assert(tnid <= 0x1fffffff);
+			tgt[tm >> 3].children[tm & 7] = tnid;
+		} else
+			break;
+	}
+
+	return tnid;
+}
+
+float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
+                     struct vec3 mi, struct vec3 ma)
+{
+	float tx0 = (mi.x - ori.x) * idir.x;
+	float tx1 = (ma.x - ori.x) * idir.x;
+	float tmin = min(tx0, tx1);
+	float tmax = max(tx0, tx1);
+
+	float ty0 = (mi.y - ori.y) * idir.y;
+	float ty1 = (ma.y - ori.y) * idir.y;
+	tmin = max(tmin, min(ty0, ty1));
+	tmax = min(tmax, max(ty0, ty1));
+
+	float tz0 = (mi.z - ori.z) * idir.z;
+	float tz1 = (ma.z - ori.z) * idir.z;
+	tmin = max(tmin, min(tz0, tz1));
+	tmax = min(tmax, max(tz0, tz1));
+
+	if (tmin <= tmax && tmin < tfar && tmax >= 0.0f)
+		return tmin;
+	else
+		return FLT_MAX;
 }
 
 void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
@@ -667,6 +798,117 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
+// Intersects b8nodes, temporarily used to check if 8-wide bvh is valid
+void intersect_blas4(struct hit *h, struct vec3 ori, struct vec3 dir,
+                    const struct b8node *blas, const unsigned int *imap,
+                    const struct rtri *tris, unsigned int instid)
+{
+	unsigned int stack[128];
+	unsigned int spos = 0;
+
+	unsigned int curr = 0;
+
+	struct vec3 idir = (struct vec3){
+	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
+
+	while (true) {
+		const struct b8node *n = &blas[curr];
+
+		struct distid dist[8];
+		unsigned int ccnt = 0;
+		for (unsigned int j = 0; j < 8; j++) {
+			unsigned int id = n->children[j];
+			if (id & NODE_LEAF) {
+				const unsigned int *ip = &imap[id & TRIID_MASK];
+				for (unsigned int i = 0;
+				  i < 1 + ((id >> 28) & 3); i++)
+					intersect_tri(h, ori, dir, tris,
+					  *ip++, instid);
+			} else if ((id & NODE_EMPTY) == 0) {
+				float d = intersect_aabb(ori, idir, h->t,
+				  (struct vec3){n->minx[j], n->miny[j],
+				    n->minz[j]},
+				  (struct vec3){n->maxx[j], n->maxy[j],
+				    n->maxz[j]});
+				if (d < FLT_MAX) {
+					dist[ccnt++] = (struct distid){
+					  .dist = d, .id = id & NODEID_MASK};
+				}
+			}
+		}
+
+		// Sort to descending dist order
+		qsort(dist, ccnt, sizeof(*dist), comp_distid);
+
+		// On stack
+		for (unsigned int i = 0; i < ccnt; i++) {
+			assert(spos < 128);
+			stack[spos++] = dist[i].id;
+		}
+
+		// Pop next node from stack if something is left
+		if (spos > 0)
+			curr = stack[--spos];
+		else
+			return;
+	}
+}
+
+// Intersects bmnodes (m-wide, currently 8)
+void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
+                    const struct bmnode *blas, const unsigned int *imap,
+                    const struct rtri *tris, unsigned int instid)
+{
+	unsigned int stack[128];
+	unsigned int spos = 0;
+
+	unsigned int curr = 0;
+
+	struct vec3 idir = (struct vec3){
+	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
+
+	while (true) {
+		const struct bmnode *n = &blas[curr];
+
+		if (n->cnt > 0) {
+			// Leaf, check triangles
+			for (unsigned int i = 0; i < n->cnt; i++)
+				intersect_tri(h, ori, dir, tris,
+				  imap[n->start + i], instid);
+		} else {
+			// Interior node, check child aabbs
+			struct distid dist[8];
+			unsigned int ccnt = 0;
+			for (unsigned int i = 0; i < n->childcnt; i++) {
+				unsigned int cid = n->children[i];
+				assert(cid > 0);
+				const struct bmnode *c = &blas[cid];
+				float d = intersect_aabb(ori, idir, h->t,
+				  c->min, c->max);
+				if (d < FLT_MAX)
+					dist[ccnt++] = (struct distid){
+					  .dist = d, .id = cid};
+			}
+
+			// Sort to descending dist order
+			qsort(dist, ccnt, sizeof(*dist), comp_distid);
+
+			// On stack
+			for (unsigned int i = 0; i < ccnt; i++) {
+				assert(spos < 128);
+				stack[spos++] = dist[i].id;
+			}
+		}
+
+		// Pop next node from stack if something is left
+		if (spos > 0)
+			curr = stack[--spos];
+		else
+			return;
+	}
+}
+
+// Intersects b2nodes (2-wide)
 void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct b2node *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid,
@@ -674,7 +916,7 @@ void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 {
 	unsigned int stack[64];
 	float dstack[64]; // Distance stack
-	unsigned char spos = 0;
+	unsigned int spos = 0;
 
 	unsigned int curr = 0;
 
@@ -770,13 +1012,14 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 }
 
 void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct b2node *nodes, const unsigned int *imap,
+                    const struct b2node *nodes, /// TEMP
+                    const struct b8node *mnodes, const unsigned int *imap,
                     const struct rinst *insts, const struct rtri *tris,
                     unsigned int tlasofs, bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
 	float dstack[64]; // Distance stack
-	unsigned char spos = 0;
+	unsigned int spos = 0;
 
 	unsigned int curr = 0;
 
@@ -806,9 +1049,9 @@ void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 				mat4_from3x4(inv, ri->globinv);
 
 				unsigned int o = ri->triofs;
-				intersect_blas(h,
+				intersect_blas4(h,
 				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
-				  &nodes[o << 1], &imap[o], &tris[o], instid);
+				  &mnodes[o << 1], &imap[o], &tris[o], instid);
 			}
 
 			// Pop next node from stack if something is left
@@ -878,11 +1121,12 @@ next_iter:
 }
 
 void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct b2node *nodes, const unsigned int *imap,
+                    const struct b2node *nodes, /// TEMP
+                    const struct b8node *mnodes, const unsigned int *imap,
                     const struct rinst *insts, const struct rtri *tris,
                     unsigned int tlasofs)
 {
-	intersect_tlas2(h, ori, dir, nodes, imap, insts, tris, tlasofs,
+	intersect_tlas2(h, ori, dir, nodes, mnodes, imap, insts, tris, tlasofs,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
@@ -906,20 +1150,19 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	for (unsigned int i = 0; i < idcnt * 2; i++)
 		rd->nodes[i].l = rd->nodes[i].r = 0;
 
-	// Reserve a node cnt slot for each inst + 1 tlas
-	// We do not know how many instances have a unique mesh yet
-	rd->nodecnts = malloc(maxinsts + 1 * sizeof(*rd->nodecnts));
+	/// TEMP TEMP
+	rd->bmnodes = aligned_alloc(64, maxtris * 2 * sizeof(*rd->bmnodes));
+	rd->b8nodes = aligned_alloc(64, maxtris * 2 * sizeof(*rd->b8nodes));
+	///
 
 	// Start of tlas index map and tlas nodes * 2
 	rd->tlasofs = maxtris;
-
-	// Total number of blas + 1 tlas
-	rd->bvhcnt = 0;
 }
 
 void rend_release(struct rdata *rd)
 {
-	free(rd->nodecnts);
+	free(rd->b8nodes);
+	free(rd->bmnodes);
 	free(rd->nodes);
 	free(rd->imap);
 	free(rd->aabbs);
@@ -962,35 +1205,35 @@ void rend_prepstatic(struct rdata *rd)
 			// Create normal sah based bvh
 			struct bnode *nodes = malloc((tricnt << 1)
 			  * sizeof(*nodes));
-			rd->nodecnts[rd->bvhcnt++] = build_bvh(
-			  nodes, aabbs, &rd->imap[triofs],
-			  tricnt, rmin, rmax);
-			unsigned int ncnt = count_nodes(nodes);
-			dprintf("blas node cnt: %d\n", ncnt);
-			assert(ncnt == rd->nodecnts[rd->bvhcnt - 1] - 1);
+			unsigned int ncnt = build_bvh(nodes, aabbs,
+			  &rd->imap[triofs], tricnt, rmin, rmax);
+			assert(ncnt == count_nodes(nodes) + 1);
+			dprintf("Initial bnode cnt: %d\n", ncnt);
 
 			// Make leafs to contain 4 tris at best but not more
 			unsigned int sid, mergecnt = 0, splitcnt = 0;
 			merge_leafs(nodes, nodes, &sid, LEAF_TRI_CNT,
 			  &mergecnt);
-			dprintf("merged which reduced %d nodes\n", 2 * mergecnt);
+			dprintf("Merged which reduced %d bnodes\n", 2 * mergecnt);
 			split_leafs(nodes, nodes, aabbs, &rd->imap[triofs],
-			  &rd->nodecnts[rd->bvhcnt - 1], LEAF_TRI_CNT,
-			  &splitcnt);
-			dprintf("splitted which added %d nodes\n",
+			  &ncnt, LEAF_TRI_CNT, &splitcnt);
+			dprintf("Splitted which added %d bnodes\n",
 			  2 * splitcnt);
-			dprintf("blas node cnt after merge and split: %d\n",
+			dprintf("After merge and split bnode cnt: %d\n",
 			  count_nodes(nodes));
 
-			// Create compacted mbvh with m = 4
-			struct bmnode *mnodes = malloc((tricnt << 1)
-			  * sizeof(*mnodes));
-			unsigned int mnodecnt = convert_bmnode(mnodes, nodes);
-			dprintf("compacted mbvh node cnt: %d\n", mnodecnt);
+			// Create compacted b2node bvh
+			ncnt = convert_b2node(&rd->nodes[triofs << 1], nodes);
+			dprintf("Compacted b2node cnt: %d\n", ncnt);
 
-			free(mnodes);
+			// Create compacted bmnode bvh
+			ncnt = convert_bmnode(&rd->bmnodes[triofs << 1], nodes);
+			dprintf("Compacted bmnode cnt: %d\n", ncnt);
 
-			convert_b2node(&rd->nodes[triofs << 1], nodes);
+			// Create compacted b8node bvh
+			ncnt = convert_b8node(&rd->b8nodes[triofs << 1],
+			  &rd->bmnodes[triofs << 1]);
+			dprintf("Compacted b8node cnt: %d\n", ncnt);
 
 			free(nodes);
 			free(aabbs);
@@ -1014,9 +1257,8 @@ void rend_prepdynamic(struct rdata *rd)
 	}
 
 	struct bnode nodes[rd->instcnt << 1]; // On stack, can break
-	rd->nodecnts[rd->bvhcnt + 1] = build_bvh(
-	  nodes, rd->aabbs, &rd->imap[tlasofs], rd->instcnt, rmin, rmax);
-
+	build_bvh(nodes, rd->aabbs, &rd->imap[tlasofs], rd->instcnt,
+	  rmin, rmax);
 	convert_b2node(&rd->nodes[tlasofs << 1], nodes);
 }
 
@@ -1055,7 +1297,7 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 {
 	struct hit h = {.t = FLT_MAX};
 
-	intersect_tlas(&h, o, d, rd->nodes, rd->imap, rd->insts,
+	intersect_tlas(&h, o, d, rd->nodes, rd->b8nodes, rd->imap, rd->insts,
 	  rd->tris, rd->tlasofs);
 
 	struct vec3 c = rd->bgcol;
@@ -1090,7 +1332,7 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
 
 	struct hit h = {.t = FLT_MAX};
 
-	intersect_tlas(&h, o, d, rd->nodes, rd->imap, rd->insts,
+	intersect_tlas(&h, o, d, rd->nodes, rd->b8nodes, rd->imap, rd->insts,
 	  rd->tris, rd->tlasofs);
 
 	if (h.t == FLT_MAX)

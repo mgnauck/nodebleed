@@ -1,7 +1,7 @@
 #ifndef REND_H
 #define REND_H
 
-#include <immintrin.h>
+//#include <immintrin.h>
 #include "vec3.h"
 
 struct b2node { // Bvh node, 2-wide, 64 bytes
@@ -15,20 +15,38 @@ struct b2node { // Bvh node, 2-wide, 64 bytes
 	unsigned int  cnt; // Tri or inst cnt
 };
 
+#define MBVH_CHILD_CNT  8
+struct bmnode { // Mbvh node with M child nodes, used to build b8node
+	struct vec3   min;
+	unsigned int  start; // Start index of tri or inst
+	struct vec3   max;
+	unsigned int  cnt; // Tri or inst cnt
+	unsigned int  children[MBVH_CHILD_CNT]; // Child node ids
+	unsigned int  childcnt;
+};
+
 // Node flags
-#define NODE_LEAF  (1 << 30)
-#define NODE_EMPTY (1 << 31)
+#define NODE_LEAF   0x40000000u
+#define NODE_EMPTY  0x80000000u
+
+#define NODEID_MASK  0x3fffffffu
+#define TRIID_MASK   0x0fffffffu
 
 // Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
+// 8 children, max 4 tris per leaf
 struct b8node { // Bvh node, 8-wide, 256 bytes
-	__m256   minx; // Aabbs of 8 child nodes
-	__m256   maxx;
-	__m256   miny;
-	__m256   maxy;
-	__m256   minz;
-	__m256   maxz;
-	__m256i  children; // Node flags, child node or leaf indices
-	__m256i  perm; // Permutations for ordered traversal
+	float         minx[8]; // Aabbs of 8 child nodes
+	float         maxx[8];
+	float         miny[8];
+	float         maxy[8];
+	float         minz[8];
+	float         maxz[8];
+	// Interior node: node flags << 30 | child node id
+	// Leaf node: node flags << 30 | (tri cnt - 1) << 28 | tri start
+	unsigned int  children[8];
+	// Ordered traversal permutation
+	// 8 children * 8 quadrants * 3 bit
+	unsigned int  perm[8];
 };
 
 struct aabb { // 32 bytes
@@ -103,6 +121,11 @@ struct rdata {
 	unsigned int  *imap; // Indices mapping tris/insts
 	struct b2node *nodes; // Bvh nodes all blas and tlas
 	unsigned int  tlasofs;
+
+/// TEMP TEMP
+	struct bmnode *bmnodes;
+	struct b8node *b8nodes;
+///
 
 	unsigned int  bvhcnt; // Total number of bvhs (blas + tlas)
 	unsigned int  *nodecnts; // Node cnt per blas and tlas
