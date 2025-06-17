@@ -560,8 +560,8 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 		struct bmnode *n = &tgt[tnid];
 
 		while (n->childcnt < MBVH_CHILD_CNT) {
-			float bcost = 0.0f;
 			struct bmnode *bc = NULL; // Best child
+			float bcost = 0.0f;
 			unsigned int bcid;
 			for (unsigned int i = 0; i < n->childcnt; i++) {
 				struct bmnode *c = &tgt[n->children[i]];
@@ -569,8 +569,8 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 				  + c->childcnt <= MBVH_CHILD_CNT) {
 					float cost = calc_area(c->min, c->max);
 					if (cost > bcost) {
-						bcost = cost;
 						bc = c;
+						bcost = cost;
 						bcid = i;
 					}
 				}
@@ -681,12 +681,12 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 				t->children[j] = NODE_EMPTY;
 			}
 
-			// Create ordered child traversal permutation mask
+			// Create ordered child traversal permutation map
 			// with j being current quadrant
 			struct vec3 dir = {
 			  j & 1 ? 1.0f : -1.0f,
 			  j & 2 ? 1.0f : -1.0f,
-			  j & 3 ? 1.0f : -1.0f};
+			  j & 4 ? 1.0f : -1.0f};
 			struct distid cdi[8];
 			for (unsigned int i = 0; i < 8; i++) {
 				cdi[i].id = i; // 3 bit child index
@@ -707,7 +707,7 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 			// Sort dists thereby sorting/permuting child indices
 			qsort(cdi, 8, sizeof(*cdi), comp_distid);
 
-			// Set perm mask for all children and curr quadrant
+			// Set perm map for all children and curr quadrant
 			for (unsigned int i = 0; i < 8; i++)
 				t->perm[i] |= cdi[i].id << (j * 3);
 		}
@@ -799,51 +799,64 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 }
 
 // Intersects b8nodes, temporarily used to check if 8-wide bvh is valid
-void intersect_blas4(struct hit *h, struct vec3 ori, struct vec3 dir,
+void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct b8node *blas, const unsigned int *imap,
-                    const struct rtri *tris, unsigned int instid)
+                    const struct rtri *tris, unsigned int instid,
+                    bool dx, bool dy, bool dz)
 {
 	unsigned int stack[128];
 	unsigned int spos = 0;
 
 	unsigned int curr = 0;
 
-	struct vec3 idir = (struct vec3){
-	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
+	float idx = 1.0f / dir.x;
+	float idy = 1.0f / dir.y;
+	float idz = 1.0f / dir.z;
+
+	float rx = ori.x * idx;
+	float ry = ori.y * idy;
+	float rz = ori.z * idz;
+
+	// Ray dir sign defines how to shift the permutation map
+	unsigned char sgnsh = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
 		const struct b8node *n = &blas[curr];
 
-		struct distid dist[8];
-		unsigned int ccnt = 0;
-		for (unsigned int j = 0; j < 8; j++) {
+		for (unsigned int k = 0; k < 8; k++) {
+			unsigned int j = (n->perm[k] >> sgnsh) & 7;
 			unsigned int id = n->children[j];
 			if (id & NODE_LEAF) {
+				// Intersect all assigned tris
 				const unsigned int *ip = &imap[id & TRIID_MASK];
 				for (unsigned int i = 0;
 				  i < 1 + ((id >> 28) & 3); i++)
 					intersect_tri(h, ori, dir, tris,
 					  *ip++, instid);
-			} else if ((id & NODE_EMPTY) == 0) {
-				float d = intersect_aabb(ori, idir, h->t,
-				  (struct vec3){n->minx[j], n->miny[j],
-				    n->minz[j]},
-				  (struct vec3){n->maxx[j], n->maxy[j],
-				    n->maxz[j]});
-				if (d < FLT_MAX) {
-					dist[ccnt++] = (struct distid){
-					  .dist = d, .id = id & NODEID_MASK};
+			} else if (id & ~NODE_EMPTY) {
+				// Interior node, check child aabbs
+				float t0x = (dx ? n->minx[j] : n->maxx[j])
+				  * idx - rx;
+				float t0y = (dy ? n->miny[j] : n->maxy[j])
+				  * idy - ry;
+				float t0z = (dz ? n->minz[j] : n->maxz[j])
+				  * idz - rz;
+
+				float t1x = (dx ? n->maxx[j] : n->minx[j])
+				  * idx - rx;
+				float t1y = (dy ? n->maxy[j] : n->miny[j])
+				  * idy - ry;
+				float t1z = (dz ? n->maxz[j] : n->minz[j])
+				  * idz - rz;
+
+				float tmin = max(max(t0x, t0y), max(t0z, 0.0f));
+				float tmax = min(min(t1x, t1y), min(t1z, h->t));
+
+				if (tmax >= tmin) {
+					assert(spos < 128);
+					stack[spos++] = id & NODEID_MASK;
 				}
 			}
-		}
-
-		// Sort to descending dist order
-		qsort(dist, ccnt, sizeof(*dist), comp_distid);
-
-		// On stack
-		for (unsigned int i = 0; i < ccnt; i++) {
-			assert(spos < 128);
-			stack[spos++] = dist[i].id;
 		}
 
 		// Pop next node from stack if something is left
@@ -854,18 +867,32 @@ void intersect_blas4(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-// Intersects bmnodes (m-wide, currently 8)
 void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct bmnode *blas, const unsigned int *imap,
+                    const struct b8node *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid)
+{
+	intersect_blas3_impl(h, ori, dir, blas, imap, tris, instid,
+	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
+}
+
+// Intersects bmnodes (m-wide, currently 8)
+void intersect_blas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
+                    const struct bmnode *blas, const unsigned int *imap,
+                    const struct rtri *tris, unsigned int instid,
+                    bool dx, bool dy, bool dz)
 {
 	unsigned int stack[128];
 	unsigned int spos = 0;
 
 	unsigned int curr = 0;
 
-	struct vec3 idir = (struct vec3){
-	  1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
+	float idx = 1.0f / dir.x;
+	float idy = 1.0f / dir.y;
+	float idz = 1.0f / dir.z;
+
+	float rx = ori.x * idx;
+	float ry = ori.y * idy;
+	float rz = ori.z * idz;
 
 	while (true) {
 		const struct bmnode *n = &blas[curr];
@@ -880,14 +907,31 @@ void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
 			struct distid dist[8];
 			unsigned int ccnt = 0;
 			for (unsigned int i = 0; i < n->childcnt; i++) {
+				// Interior node, check child aabbs
 				unsigned int cid = n->children[i];
 				assert(cid > 0);
 				const struct bmnode *c = &blas[cid];
-				float d = intersect_aabb(ori, idir, h->t,
-				  c->min, c->max);
-				if (d < FLT_MAX)
+
+				float t0x = (dx ? c->min.x : c->max.x)
+				  * idx - rx;
+				float t0y = (dy ? c->min.y : c->max.y)
+				  * idy - ry;
+				float t0z = (dz ? c->min.z : c->max.z)
+				  * idz - rz;
+
+				float t1x = (dx ? c->max.x : c->min.x)
+				  * idx - rx;
+				float t1y = (dy ? c->max.y : c->min.y)
+				  * idy - ry;
+				float t1z = (dz ? c->max.z : c->min.z)
+				  * idz - rz;
+
+				float tmin = max(max(t0x, t0y), max(t0z, 0.0f));
+				float tmax = min(min(t1x, t1y), min(t1z, h->t));
+
+				if (tmax >= tmin)
 					dist[ccnt++] = (struct distid){
-					  .dist = d, .id = cid};
+					  .dist = tmin, .id = cid};
 			}
 
 			// Sort to descending dist order
@@ -908,8 +952,16 @@ void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-// Intersects b2nodes (2-wide)
 void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
+                    const struct bmnode *blas, const unsigned int *imap,
+                    const struct rtri *tris, unsigned int instid)
+{
+	intersect_blas2_impl(h, ori, dir, blas, imap, tris, instid,
+	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
+}
+
+// Intersects b2nodes (2-wide)
+void intersect_blas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct b2node *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid,
                     bool dx, bool dy, bool dz)
@@ -1003,15 +1055,15 @@ next_iter:
 	}
 }
 
-void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
+void intersect_blas1(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct b2node *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid)
 {
-	intersect_blas2(h, ori, dir, blas, imap, tris, instid,
+	intersect_blas1_impl(h, ori, dir, blas, imap, tris, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
-void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
+void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct b2node *nodes, /// TEMP
                     const struct b8node *mnodes, const unsigned int *imap,
                     const struct rinst *insts, const struct rtri *tris,
@@ -1049,7 +1101,7 @@ void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 				mat4_from3x4(inv, ri->globinv);
 
 				unsigned int o = ri->triofs;
-				intersect_blas4(h,
+				intersect_blas3(h,
 				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
 				  &mnodes[o << 1], &imap[o], &tris[o], instid);
 			}
@@ -1126,8 +1178,8 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct rinst *insts, const struct rtri *tris,
                     unsigned int tlasofs)
 {
-	intersect_tlas2(h, ori, dir, nodes, mnodes, imap, insts, tris, tlasofs,
-	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
+	intersect_tlas_impl(h, ori, dir, nodes, mnodes, imap, insts, tris,
+	  tlasofs, dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
 void rend_init(struct rdata *rd, unsigned int maxmtls,
@@ -1147,8 +1199,7 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 
 	// Bvh nodes for blas and tlas combined in one array
 	rd->nodes = aligned_alloc(64, idcnt * 2 * sizeof(*rd->nodes));
-	for (unsigned int i = 0; i < idcnt * 2; i++)
-		rd->nodes[i].l = rd->nodes[i].r = 0;
+	memset(rd->nodes, 0, idcnt * 2 * sizeof(*rd->nodes));
 
 	/// TEMP TEMP
 	rd->bmnodes = aligned_alloc(64, maxtris * 2 * sizeof(*rd->bmnodes));
