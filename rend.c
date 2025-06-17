@@ -620,12 +620,12 @@ int comp_distid(const void *a, const void *b)
 }
 
 // TODO
-// Use traversal order stored in perm depending on ray dir signs
 // Use SIMD version of b8node (__m256/__m256i)
 // Test 8 child aabbs at once
 // Embed tri data in bvh data
 // Test 4 tris at once
 // Clean unused intersection functions (bmnode intersection etc.)
+// Make merge/split leaf functions non-recursive?
 
 unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 {
@@ -642,43 +642,37 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 
 		memset(t, 0, sizeof(*t));
 
+		unsigned int cid = 0; // 'Compacted' child index, i.e. no gaps
 		for (unsigned int j = 0; j < 8; j++) {
-			// Copy and setup child node information
+			// Copy/setup data of non-empty child nodes
 			if (s->children[j]) {
 				assert(j < s->childcnt);
 				struct bmnode *c = &src[s->children[j]];
-				t->minx[j] = c->min.x;
-				t->maxx[j] = c->max.x;
-				t->miny[j] = c->min.y;
-				t->maxy[j] = c->max.y;
-				t->minz[j] = c->min.z;
-				t->maxz[j] = c->max.z;
+				t->minx[cid] = c->min.x;
+				t->maxx[cid] = c->max.x;
+				t->miny[cid] = c->min.y;
+				t->maxy[cid] = c->max.y;
+				t->minz[cid] = c->min.z;
+				t->maxz[cid] = c->max.z;
 				if (c->cnt > 0) {
 					// Leaf node
-					t->children[j] = NODE_LEAF;
+					t->children[cid] = NODE_LEAF;
 					assert(c->cnt <= 4);
-					t->children[j] |= (c->cnt - 1) << 28;
+					t->children[cid] |= (c->cnt - 1) << 28;
 					assert(c->start <= 268435455);
-					t->children[j] |= c->start & TRIID_MASK;
+					t->children[cid] |=
+					  c->start & TRIID_MASK;
 				} else {
 					// Interior node
 					// Push curr tgt node id and the child
 					// which id we update when popped
 					assert(spos < 128 - 1);
 					assert(tnid <= 0x1fffffff);
-					stack[spos++] = (tnid << 3) | j;
+					stack[spos++] = (tnid << 3) | cid;
 					// Push id of src bmnode
 					stack[spos++] = s->children[j];
 				}
-			} else {
-				// Empty child node
-				t->minx[j] = FLT_MAX;
-				t->maxx[j] = -FLT_MAX;
-				t->miny[j] = FLT_MAX;
-				t->maxy[j] = -FLT_MAX;
-				t->minz[j] = FLT_MAX;
-				t->maxz[j] = -FLT_MAX;
-				t->children[j] = NODE_EMPTY;
+				cid++;
 			}
 
 			// Create ordered child traversal permutation map
@@ -710,6 +704,17 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 			// Set perm map for all children and curr quadrant
 			for (unsigned int i = 0; i < 8; i++)
 				t->perm[i] |= cdi[i].id << (j * 3);
+		}
+
+		// Set all the remaining children (if any left) to empty
+		for (; cid < 8; cid++) {
+			t->minx[cid] = FLT_MAX;
+			t->maxx[cid] = -FLT_MAX;
+			t->miny[cid] = FLT_MAX;
+			t->maxy[cid] = -FLT_MAX;
+			t->minz[cid] = FLT_MAX;
+			t->maxz[cid] = -FLT_MAX;
+			t->children[cid] = NODE_EMPTY;
 		}
 
 		tnid++; // Claim next tgt node
