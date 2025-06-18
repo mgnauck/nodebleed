@@ -578,7 +578,7 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 
 			// Merge children of best child into curr node
 			if (bc) {
-				// Replace first child into the gap
+				// Put first child into the newly formed gap
 				n->children[bcid] = bc->children[0];
 				for (unsigned int i = 1; i < bc->childcnt; i++)
 					// Append the other children if more
@@ -586,7 +586,7 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 					  bc->children[i];
 				ncnt--; // Replaced one node
 			} else
-				break; // No child found that can be collapsed
+				break; // No child found that could be collapsed
 		}
 
 		// Schedule all interior child nodes for processing
@@ -656,12 +656,12 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 				t->maxz[cid] = c->max.z;
 				if (c->cnt > 0) {
 					// Leaf node
-					t->children[cid] = NODE_LEAF;
 					assert(c->cnt <= 4);
-					t->children[cid] |= (c->cnt - 1) << 28;
 					assert(c->start <= 268435455);
-					t->children[cid] |=
-					  c->start & TRIID_MASK;
+					((unsigned int *)&t->children)[cid] =
+					  NODE_LEAF
+					  | (c->cnt - 1) << 28
+					  | (c->start & TRIID_MASK);
 				} else {
 					// Interior node
 					// Push curr tgt node id and the child
@@ -703,7 +703,8 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 
 			// Set perm map for all children and curr quadrant
 			for (unsigned int i = 0; i < 8; i++)
-				t->perm[i] |= cdi[i].id << (j * 3);
+				((unsigned int *)&t->perm)[i]
+				  |= cdi[i].id << (j * 3);
 		}
 
 		// Set all the remaining children (if any left) to empty
@@ -714,7 +715,7 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 			t->maxy[cid] = -FLT_MAX;
 			t->minz[cid] = FLT_MAX;
 			t->maxz[cid] = -FLT_MAX;
-			t->children[cid] = NODE_EMPTY;
+			((unsigned int *)&t->children)[cid] = NODE_EMPTY;
 		}
 
 		tnid++; // Claim next tgt node
@@ -725,7 +726,7 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 			// Set former tgt child node id to curr tgt node's id
 			unsigned int tm = stack[--spos];
 			assert(tnid <= 0x1fffffff);
-			tgt[tm >> 3].children[tm & 7] = tnid;
+			((unsigned int *)&tgt[tm >> 3].children)[tm & 7] = tnid;
 		} else
 			break;
 	}
@@ -823,14 +824,15 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	float rz = ori.z * idz;
 
 	// Ray dir sign defines how to shift the permutation map
-	unsigned char sgnsh = ((dz << 2) | (dy << 1) | dx) * 3;
+	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
 		const struct b8node *n = &blas[curr];
 
 		for (unsigned int k = 0; k < 8; k++) {
-			unsigned int j = (n->perm[k] >> sgnsh) & 7;
-			unsigned int id = n->children[j];
+			unsigned int j =
+			  (((unsigned int *)&n->perm)[k] >> s) & 7;
+			unsigned int id = ((unsigned int *)&n->children)[j];
 			if (id & NODE_LEAF) {
 				// Intersect all assigned tris
 				const unsigned int *ip = &imap[id & TRIID_MASK];
