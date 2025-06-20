@@ -804,11 +804,131 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-// Intersects b8nodes, temporarily used to check if 8-wide bvh is valid
-void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
+void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct b8node *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid,
                     bool dx, bool dy, bool dz)
+{
+	unsigned int stack[128];
+	unsigned int spos = 0;
+
+	unsigned int curr = 0;
+
+	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
+	float idx = 1.0f / dir.x;
+	float idy = 1.0f / dir.y;
+	float idz = 1.0f / dir.z;
+
+	__m256 idx8 = _mm256_set1_ps(idx);
+	__m256 idy8 = _mm256_set1_ps(idy);
+	__m256 idz8 = _mm256_set1_ps(idz);
+
+	__m256 rx8 = _mm256_set1_ps(ori.x * idx);
+	__m256 ry8 = _mm256_set1_ps(ori.y * idy);
+	__m256 rz8 = _mm256_set1_ps(ori.z * idz);
+
+	__m256 t8 = _mm256_set1_ps(h->t);
+	__m256 z8 = _mm256_setzero_ps();
+
+	// Ray dir sign defines how to shift the permutation map
+	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
+
+	while (true) {
+		while ((curr & NODE_LEAF) == 0) {
+			const struct b8node *n = &blas[curr];
+
+			// Slab test with fused multiply sub, swap per ray dir
+			__m256 tx0 = _mm256_fmsub_ps(dx ? n->minx : n->maxx,
+			  idx8, rx8);
+			__m256 ty0 = _mm256_fmsub_ps(dy ? n->miny : n->maxy,
+			  idy8, ry8);
+			__m256 tz0 = _mm256_fmsub_ps(dz ? n->minz : n->maxz,
+			  idz8, rz8);
+
+			__m256 tx1 = _mm256_fmsub_ps(dx ? n->maxx : n->minx,
+			  idx8, rx8);
+			__m256 ty1 = _mm256_fmsub_ps(dy ? n->maxy : n->miny,
+			  idy8, ry8);
+			__m256 tz1 = _mm256_fmsub_ps(dz ? n->maxz : n->minz,
+			  idz8, rz8);
+
+			__m256 tmin = _mm256_max_ps(_mm256_max_ps(_mm256_max_ps(
+			  tx0, ty0), tz0), z8);
+			__m256 tmax = _mm256_min_ps(_mm256_min_ps(_mm256_min_ps(
+			  tx1, ty1), tz1), t8);
+
+			// OQ = ordered/not signaling, 0 if any operand is NAN
+			__m256 hitmask8 = _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
+			unsigned int hitmask = _mm256_movemask_ps(hitmask8);
+			unsigned int hitcnt = __builtin_popcount(hitmask);
+
+			switch (hitcnt) {
+			case 0:
+				// No hit, consult stack
+				if (spos > 0)
+					curr = stack[--spos];
+				else
+					return;
+				break;
+			case 1:
+				// Single hit, directly continue with child node
+				curr = ((unsigned int *)&n->children)[
+				  // Invert count of leading zeros to get lane
+				  31 - __builtin_clz(hitmask)];
+				break;
+			default:
+				; // Compiler warn 'decl after label'
+
+				// More than one hit, order + compress + push
+				__m256i ord8 = _mm256_srli_epi32(n->perm, s);
+
+				__m256 hitmaskord8 =
+				  _mm256_permutevar8x32_ps(hitmask8, ord8);
+				unsigned int hitmaskord =
+				  _mm256_movemask_ps(hitmaskord8);
+
+				__m256i childrenord8 =
+				  _mm256_permutevar8x32_epi32(n->children,
+				    ord8);
+
+				/// TEMP
+				for (unsigned int i = 0; i < 8; i++) {
+					if ((hitmaskord >> i) & 1) {
+						stack[spos++] =
+						  ((unsigned int *)
+						    &childrenord8)[i];
+					}
+				}
+
+				curr = stack[--spos]; // Next node
+				///
+
+				// TODO Push ordered and compressed node ids
+				// and distances to stacks at once
+			}
+		}
+
+		// TODO Intersect 4 triangles at once when data is embedded
+
+		// TEMP: Intersect all assigned tris
+		const unsigned int *ip = &imap[curr & TRIID_MASK];
+		for (unsigned int i = 0; i < 1 + ((curr >> 28) & 3); i++)
+			intersect_tri(h, ori, dir, tris, *ip++, instid);
+
+		// TODO After a hit, compress the stack according to nearer h->t
+
+		if (spos > 0)
+			curr = stack[--spos];
+		else
+			return;
+	}
+}
+
+// Intersects b8nodes, temporarily used to check if 8-wide bvh is valid
+void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
+                   const struct b8node *blas, const unsigned int *imap,
+                   const struct rtri *tris, unsigned int instid,
+                   bool dx, bool dy, bool dz)
 {
 	unsigned int stack[128];
 	unsigned int spos = 0;
@@ -878,7 +998,7 @@ void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct b8node *blas, const unsigned int *imap,
                     const struct rtri *tris, unsigned int instid)
 {
-	intersect_blas3_impl(h, ori, dir, blas, imap, tris, instid,
+	intersect_blas3_impl_avx2(h, ori, dir, blas, imap, tris, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
