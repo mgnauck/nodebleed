@@ -647,12 +647,11 @@ int comp_distid(const void *a, const void *b)
 }
 
 // TODO
-// Use SIMD version of b8node (__m256/__m256i)
-// Test 8 child aabbs at once
 // Embed tri data in bvh data
 // Test 4 tris at once
 // Clean unused intersection functions (bmnode intersection etc.)
 // Make merge/split leaf functions non-recursive?
+// Create 8-wide BVH directly instead of transforming binary bvh? (Wald, 2008)
 
 unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 {
@@ -836,7 +835,9 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct rtri *tris, unsigned int instid,
                     bool dx, bool dy, bool dz)
 {
+	// TODO Align 64?
 	unsigned int stack[128];
+	float dstack[128];
 	unsigned int spos = 0;
 
 	unsigned int curr = 0;
@@ -904,9 +905,10 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 				  31 - __builtin_clz(hitmask)];
 				break;
 			default:
-				; // Compiler warn 'decl after label'
+				; // Avoid compiler warn 'decl after label'
 
-				// More than one hit, order + compress + push
+				// More than one hit
+				// Order, compress and push child nodes + dists
 				__m256i ord8 = _mm256_srli_epi32(n->perm, s);
 
 				__m256 hitmaskord8 =
@@ -914,24 +916,28 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 				unsigned int hitmaskord =
 				  _mm256_movemask_ps(hitmaskord8);
 
+				// Ordered min distances and child node ids
+				tmin = _mm256_permutevar8x32_ps(tmin, ord8);
 				__m256i childrenord8 =
 				  _mm256_permutevar8x32_epi32(n->children,
 				    ord8);
 
-				/// TEMP
-				for (unsigned int i = 0; i < 8; i++) {
-					if ((hitmaskord >> i) & 1) {
-						stack[spos++] =
-						  ((unsigned int *)
-						    &childrenord8)[i];
-					}
-				}
+				// Map ordered hit mask to compressed indices
+				__m256 cid = compr_lut[hitmaskord];
 
-				curr = stack[--spos]; // Next node
-				///
+				// Permute to compress dists and child node ids
+				__m256 distsfin8 = _mm256_permutevar8x32_ps(
+				  tmin, cid);
+				__m256 childfin8 = _mm256_permutevar8x32_epi32(
+				  childrenord8, cid);
 
-				// TODO Push ordered and compressed node ids
-				// and distances to stacks at once
+				// Unaligned store dists and children on stacks
+				_mm256_storeu_ps(dstack + spos, distsfin8);
+				_mm256_storeu_si256((__m256i *)(stack + spos),
+				  childfin8);
+
+				spos += hitcnt - 1; // Account for pushed nodes
+				curr = stack[spos]; // Next node
 			}
 		}
 
