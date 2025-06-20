@@ -144,6 +144,8 @@ struct rdata {
 	unsigned int  samplecnt;
 };
 
+void  rend_init_compresslut(void);
+
 void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
                 unsigned int maxinsts);
 void  rend_release(struct rdata *rd);

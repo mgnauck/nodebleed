@@ -25,6 +25,8 @@
 
 #define LEAF_TRI_CNT    4
 
+static __m256i compr_lut[256];
+
 struct bnode { // bvh node, 1-wide, 32 bytes
 	struct vec3   min;
 	unsigned int  sid; // Start index or left child node id
@@ -38,6 +40,31 @@ struct hit { // 32 bytes
 	float         v;
 	unsigned int  id; // triid << INST_ID_BITS | instid & INST_ID_MASK
 };
+
+unsigned long long get_perm(unsigned char mask)
+{
+	unsigned long long perm = 0ull;
+	unsigned char c = 0;
+	for (unsigned char i = 0; i < 8; i++)
+		if ((mask >> i) & 1) {
+			perm |= (unsigned long long)i << c;
+			c += 8; // Each byte
+		}
+	return perm;
+}
+
+// Generate LUT to emulate vpcompressq on AVX2
+// https://stackoverflow.com/questions/36932240/avx2-what-is-the-most-efficient-way-to-pack-left-based-on-a-mask/
+void rend_init_compresslut(void)
+{
+	// 8 bit mask: 0 will be compressed, 1's will be considered (= hit)
+	for (unsigned int bm = 0; bm < 256; bm++) {
+		unsigned long long p = get_perm(bm);
+		//printf("0x%llx\n", p);
+		compr_lut[bm] = _mm256_cvtepu8_epi32( // Convert 8x 8 bit to 32
+		  _mm_cvtsi64_si128(p)); // Copy to lower 128, zero upper
+	}
+}
 
 float calc_area(struct vec3 mi, struct vec3 ma)
 {

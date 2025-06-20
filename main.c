@@ -197,6 +197,7 @@ void init(struct scene *s, struct rdata *rd)
 	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
 	unsigned int instmax = get_max_insts(s->objs, s->nodecnt);
 
+	rend_init_compresslut();
 	rend_init(rd, s->mtlmax, trimax, instmax);
 	cpy_rdata(rd, s);
 
