@@ -23,7 +23,7 @@
 
 #define INTERVAL_CNT  16 // Binning intervals
 
-#define LEAF_TRI_CNT    4
+#define LEAF_TRI_CNT  4
 
 static __m256i compr_lut[256];
 
@@ -60,7 +60,7 @@ void rend_init_compresslut(void)
 	// 8 bit mask: 0 will be compressed, 1's will be considered (= hit)
 	for (unsigned int bm = 0; bm < 256; bm++) {
 		unsigned long long p = get_perm(bm);
-		//printf("0x%llx\n", p);
+		//dprintf("0x%llx\n", p);
 		compr_lut[bm] = _mm256_cvtepu8_epi32( // Convert 8x 8 bit to 32
 		  _mm_cvtsi64_si128(p)); // Copy to lower 128, zero upper
 	}
@@ -784,7 +784,7 @@ float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
 		return FLT_MAX;
 }
 
-void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
+bool intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
                    const struct rtri *tris,
                    unsigned int triid, unsigned int instid)
 {
@@ -800,7 +800,7 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 	if (fabsf(det) < EPS)
 		// Ray in plane of triangle
-		return;
+		return false;
 
 	float idet = 1.0f / det;
 
@@ -810,7 +810,7 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 	// Calculate param u and test bounds
 	float u = vec3_dot(tv, pv) * idet;
 	if (u < 0.0f || u > 1.0f)
-		return;
+		return false;
 
 	// Prepare to test for v
 	struct vec3 qv = vec3_cross(tv, e0);
@@ -818,7 +818,7 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 	// Calculate param v and test bounds
 	float v = vec3_dot(dir, qv) * idet;
 	if (v < 0.0f || u + v > 1.0f)
-		return;
+		return false;
 
 	// Calculate dist
 	float dist = vec3_dot(e1, qv) * idet;
@@ -827,7 +827,10 @@ void intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 		h->u = u;
 		h->v = v;
 		h->id = (triid << INST_ID_BITS) | instid;
+		return true;
 	}
+
+	return false;
 }
 
 void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
@@ -835,9 +838,8 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
                     const struct rtri *tris, unsigned int instid,
                     bool dx, bool dy, bool dz)
 {
-	// TODO Align 64?
-	unsigned int stack[128];
-	float dstack[128];
+	_Alignas(64) unsigned int stack[128];
+	_Alignas(64) float dstack[128];
 	unsigned int spos = 0;
 
 	unsigned int curr = 0;
@@ -865,7 +867,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 		while ((curr & NODE_LEAF) == 0) {
 			const struct b8node *n = &blas[curr];
 
-			// Slab test with fused multiply sub, swap per ray dir
+			// Slab test with fused mul sub, swap per ray dir
 			__m256 tx0 = _mm256_fmsub_ps(dx ? n->minx : n->maxx,
 			  idx8, rx8);
 			__m256 ty0 = _mm256_fmsub_ps(dy ? n->miny : n->maxy,
@@ -941,15 +943,50 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 			}
 		}
 
-		// TODO Intersect 4 triangles at once when data is embedded
+		// TODO Intersect 4 triangles at once when tri data is embedded
 
 		// TEMP: Intersect all assigned tris
+		bool hit = false;
 		const unsigned int *ip = &imap[curr & TRIID_MASK];
 		for (unsigned int i = 0; i < 1 + ((curr >> 28) & 3); i++)
-			intersect_tri(h, ori, dir, tris, *ip++, instid);
+			hit |= intersect_tri(h, ori, dir, tris, *ip++, instid);
 
-		// TODO After a hit, compress the stack according to nearer h->t
+		// There was a hit, compress the stack keeping only nearer h->t
+		if (hit) {
+			// Rewrite compressed stack in batches of 8
+			unsigned int spos2 = 0;
+			t8 = _mm256_set1_ps(h->t);
+			for (unsigned int i = 0; i < spos; i += 8) {
 
+				__m256 dists8 = _mm256_load_ps(dstack + i);
+				__m256i nids8 = _mm256_load_si256(
+				  (__m256i *)(stack + i));
+
+				// Nearer/eq ones are 1
+				unsigned int nearmask = _mm256_movemask_ps(
+				  _mm256_cmp_ps(dists8, t8, _CMP_LE_OQ));
+
+				// Map nearer mask to compressed indices
+				__m256i cid = compr_lut[nearmask];
+
+				// Permute to compress dists and node ids
+				dists8 = _mm256_permutevar8x32_ps(dists8, cid);
+				nids8 = _mm256_permutevar8x32_epi32(nids8, cid);
+
+				// Store compressed dists and node ids
+				_mm256_storeu_ps(dstack + spos2, dists8);
+				_mm256_storeu_si256((__m256i *)(stack + spos2),
+				  nids8);
+
+				unsigned int cnt = min(spos - i, 8); // For last
+				unsigned int cntmask = (1 << cnt) - 1;
+				spos2 += __builtin_popcount(cntmask & nearmask);
+			}
+
+			spos = spos2; // Stack rewrite done
+		}
+
+		// Pop next node from stack if something is left
 		if (spos > 0)
 			curr = stack[--spos];
 		else
