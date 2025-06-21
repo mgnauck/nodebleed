@@ -1017,43 +1017,46 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
-		const struct b8node *n = &blas[curr];
+		if ((curr & NODE_LEAF) == 0) {
+			const struct b8node *n = &blas[curr];
+			for (unsigned int k = 0; k < 8; k++) {
+				unsigned int j =
+				  (((unsigned int *)&n->perm)[k] >> s) & 7;
+				unsigned int id =
+				  ((unsigned int *)&n->children)[j];
+				if (id & ~NODE_EMPTY) {
+					// Interior node, check child aabbs
+					float t0x = (dx ? n->minx[j]
+					  : n->maxx[j]) * idx - rx;
+					float t0y = (dy ? n->miny[j]
+					  : n->maxy[j]) * idy - ry;
+					float t0z = (dz ? n->minz[j]
+					  : n->maxz[j]) * idz - rz;
 
-		for (unsigned int k = 0; k < 8; k++) {
-			unsigned int j =
-			  (((unsigned int *)&n->perm)[k] >> s) & 7;
-			unsigned int id = ((unsigned int *)&n->children)[j];
-			if (id & NODE_LEAF) {
-				// Intersect all assigned tris
-				const unsigned int *ip = &imap[id & TRIID_MASK];
-				for (unsigned int i = 0;
-				  i < 1 + ((id >> 28) & 3); i++)
-					intersect_tri(h, ori, dir, tris,
-					  *ip++, instid);
-			} else if (id & ~NODE_EMPTY) {
-				// Interior node, check child aabbs
-				float t0x = (dx ? n->minx[j] : n->maxx[j])
-				  * idx - rx;
-				float t0y = (dy ? n->miny[j] : n->maxy[j])
-				  * idy - ry;
-				float t0z = (dz ? n->minz[j] : n->maxz[j])
-				  * idz - rz;
+					float t1x = (dx ? n->maxx[j]
+					  : n->minx[j]) * idx - rx;
+					float t1y = (dy ? n->maxy[j]
+					  : n->miny[j]) * idy - ry;
+					float t1z = (dz ? n->maxz[j]
+					  : n->minz[j]) * idz - rz;
 
-				float t1x = (dx ? n->maxx[j] : n->minx[j])
-				  * idx - rx;
-				float t1y = (dy ? n->maxy[j] : n->miny[j])
-				  * idy - ry;
-				float t1z = (dz ? n->maxz[j] : n->minz[j])
-				  * idz - rz;
+					float tmin =
+					  max(max(t0x, t0y), max(t0z, 0.0f));
+					float tmax =
+					  min(min(t1x, t1y), min(t1z, h->t));
 
-				float tmin = max(max(t0x, t0y), max(t0z, 0.0f));
-				float tmax = min(min(t1x, t1y), min(t1z, h->t));
-
-				if (tmax >= tmin) {
-					assert(spos < 128);
-					stack[spos++] = id & NODEID_MASK;
+					if (tmax >= tmin) {
+						assert(spos < 128);
+						stack[spos++] = id;
+					}
 				}
 			}
+		} else {
+			// Intersect all assigned tris
+			const unsigned int *ip = &imap[curr & TRIID_MASK];
+			for (unsigned int i = 0; i < 1 + ((curr >> 28) & 3);
+			  i++)
+				intersect_tri(h, ori, dir, tris, *ip++, instid);
 		}
 
 		// Pop next node from stack if something is left
@@ -1065,8 +1068,8 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 }
 
 void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct b8node *blas, const unsigned int *imap,
-                    const struct rtri *tris, unsigned int instid)
+                     const struct b8node *blas, const unsigned int *imap,
+                     const struct rtri *tris, unsigned int instid)
 {
 	intersect_blas3_impl_avx2(h, ori, dir, blas, imap, tris, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
@@ -1074,9 +1077,9 @@ void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 // Intersects bmnodes (m-wide, currently 8)
 void intersect_blas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct bmnode *blas, const unsigned int *imap,
-                    const struct rtri *tris, unsigned int instid,
-                    bool dx, bool dy, bool dz)
+                          const struct bmnode *blas, const unsigned int *imap,
+                          const struct rtri *tris, unsigned int instid,
+                          bool dx, bool dy, bool dz)
 {
 	unsigned int stack[128];
 	unsigned int spos = 0;
@@ -1150,8 +1153,8 @@ void intersect_blas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 }
 
 void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct bmnode *blas, const unsigned int *imap,
-                    const struct rtri *tris, unsigned int instid)
+                     const struct bmnode *blas, const unsigned int *imap,
+                     const struct rtri *tris, unsigned int instid)
 {
 	intersect_blas2_impl(h, ori, dir, blas, imap, tris, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
@@ -1159,9 +1162,9 @@ void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 // Intersects b2nodes (2-wide)
 void intersect_blas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct b2node *blas, const unsigned int *imap,
-                    const struct rtri *tris, unsigned int instid,
-                    bool dx, bool dy, bool dz)
+                          const struct b2node *blas, const unsigned int *imap,
+                          const struct rtri *tris, unsigned int instid,
+                          bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
 	float dstack[64]; // Distance stack
@@ -1253,18 +1256,18 @@ next_iter:
 }
 
 void intersect_blas1(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct b2node *blas, const unsigned int *imap,
-                    const struct rtri *tris, unsigned int instid)
+                     const struct b2node *blas, const unsigned int *imap,
+                     const struct rtri *tris, unsigned int instid)
 {
 	intersect_blas1_impl(h, ori, dir, blas, imap, tris, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
 void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct b2node *nodes, /// TEMP
-                    const struct b8node *mnodes, const unsigned int *imap,
-                    const struct rinst *insts, const struct rtri *tris,
-                    unsigned int tlasofs, bool dx, bool dy, bool dz)
+                         const struct b2node *nodes, /// TEMP
+                         const struct b8node *mnodes, const unsigned int *imap,
+                         const struct rinst *insts, const struct rtri *tris,
+                         unsigned int tlasofs, bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
 	float dstack[64]; // Distance stack
