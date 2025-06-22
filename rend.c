@@ -1260,8 +1260,8 @@ void intersect_blas1(struct hit *h, struct vec3 ori, struct vec3 dir,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
-void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                         const struct b2node *nodes, /// TEMP
+void intersect_tlas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
+                         const struct b2node *nodes, // TODO tlas nodes
                          const struct b8node *mnodes, const unsigned int *imap,
                          const struct rinst *insts, const struct rtri *tris,
                          unsigned int tlasofs, bool dx, bool dy, bool dz)
@@ -1369,13 +1369,135 @@ next_iter:
 	}
 }
 
-void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct b2node *nodes, /// TEMP
-                    const struct b8node *mnodes, const unsigned int *imap,
-                    const struct rinst *insts, const struct rtri *tris,
-                    unsigned int tlasofs)
+void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
+                     const struct b2node *nodes, // TODO tlas nodes
+                     const struct b8node *mnodes, const unsigned int *imap,
+                     const struct rinst *insts, const struct rtri *tris,
+                     unsigned int tlasofs)
 {
-	intersect_tlas_impl(h, ori, dir, nodes, mnodes, imap, insts, tris,
+	intersect_tlas2_impl(h, ori, dir, nodes, mnodes, imap, insts, tris,
+	  tlasofs, dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
+}
+
+void intersect_tlas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
+                         const struct bnode *nodes, // TODO tlas nodes
+                         const struct b8node *mnodes, const unsigned int *imap,
+                         const struct rinst *insts, const struct rtri *tris,
+                         unsigned int tlasofs, bool dx, bool dy, bool dz)
+{
+	unsigned int stack[64];
+	float dstack[64]; // Distance stack
+	unsigned int spos = 0;
+
+	unsigned int curr = 0;
+
+	const struct bnode *tlas = &nodes[tlasofs << 1];
+	const unsigned int *tlasimap = &imap[tlasofs];
+
+	float idx = 1.0f / dir.x;
+	float idy = 1.0f / dir.y;
+	float idz = 1.0f / dir.z;
+
+	float rx = ori.x * idx;
+	float ry = ori.y * idy;
+	float rz = ori.z * idz;
+
+	while (true) {
+		const struct bnode *n = &tlas[curr];
+
+		if (n->cnt > 0) {
+			// Leaf, check instance blas
+			const unsigned int *ip = &tlasimap[n->sid];
+			for (unsigned int i = 0; i < n->cnt; i++) {
+				unsigned int instid = *ip++;
+				const struct rinst *ri = &insts[instid];
+
+				// Transform ray into object space of instance
+				float inv[16];
+				mat4_from3x4(inv, ri->globinv);
+
+				unsigned int o = ri->triofs;
+				intersect_blas3(h,
+				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
+				  &mnodes[o << 1], &imap[o], &tris[o], instid);
+			}
+
+			// Pop next node from stack if something is left
+			while (spos > 0)
+				if (dstack[--spos] < h->t)
+					goto next_iter;
+			return;
+		} else {
+			// Interior node, check child aabbs
+			unsigned int l = n->sid;
+			unsigned int r = l + 1;
+
+			const struct bnode *cl = &tlas[l];
+			const struct bnode *cr = &tlas[r];
+
+			float t0xl = (dx ? cl->min.x : cl->max.x) * idx - rx;
+			float t0yl = (dy ? cl->min.y : cl->max.y) * idy - ry;
+			float t0zl = (dz ? cl->min.z : cl->max.z) * idz - rz;
+			float t0xr = (dx ? cr->min.x : cr->max.x) * idx - rx;
+			float t0yr = (dy ? cr->min.y : cr->max.y) * idy - ry;
+			float t0zr = (dz ? cr->min.z : cr->max.z) * idz - rz;
+
+			float t1xl = (dx ? cl->max.x : cl->min.x) * idx - rx;
+			float t1yl = (dy ? cl->max.y : cl->min.y) * idy - ry;
+			float t1zl = (dz ? cl->max.z : cl->min.z) * idz - rz;
+			float t1xr = (dx ? cr->max.x : cr->min.x) * idx - rx;
+			float t1yr = (dy ? cr->max.y : cr->min.y) * idy - ry;
+			float t1zr = (dz ? cr->max.z : cr->min.z) * idz - rz;
+
+			float tminl = max(max(t0xl, t0yl), max(t0zl, 0.0f));
+			float tminr = max(max(t0xr, t0yr), max(t0zr, 0.0f));
+
+			float tmaxl = min(min(t1xl, t1yl), min(t1zl, h->t));
+			float tmaxr = min(min(t1xr, t1yr), min(t1zr, h->t));
+
+			float d0 = tmaxl >= tminl ? tminl : FLT_MAX;
+			float d1 = tmaxr >= tminr ? tminr : FLT_MAX;
+
+			if (d0 > d1) {
+				float t = d0;
+				d0 = d1;
+				d1 = t;
+
+				unsigned int tc = r;
+				r = l;
+				l = tc;
+			}
+
+			if (d0 == FLT_MAX) {
+				// Did not hit any child, try the stack
+				while (spos > 0)
+					if (dstack[--spos] < h->t)
+						goto next_iter;
+				return;
+			} else {
+				// Continue with nearer child node
+				curr = l;
+				if (d1 != FLT_MAX) {
+					// Put farther child on stack
+					assert(spos < 64);
+					dstack[spos] = d1;
+					stack[spos++] = r;
+				}
+				continue;
+			}
+		}
+next_iter:
+		curr = stack[spos];
+	}
+}
+
+void intersect_tlas1(struct hit *h, struct vec3 ori, struct vec3 dir,
+                     const struct bnode *nodes, // TODO tlas nodes
+                     const struct b8node *mnodes, const unsigned int *imap,
+                     const struct rinst *insts, const struct rtri *tris,
+                     unsigned int tlasofs)
+{
+	intersect_tlas1_impl(h, ori, dir, nodes, mnodes, imap, insts, tris,
 	  tlasofs, dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
@@ -1395,13 +1517,13 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	rd->imap = aligned_alloc(64, idcnt * sizeof(*rd->imap));
 
 	// Bvh nodes for blas and tlas combined in one array
-	rd->nodes = aligned_alloc(64, idcnt * 2 * sizeof(*rd->nodes));
-	memset(rd->nodes, 0, idcnt * 2 * sizeof(*rd->nodes));
+	rd->bnodes = aligned_alloc(64, idcnt * 2 * sizeof(*rd->bnodes));
+	rd->b2nodes = aligned_alloc(64, idcnt * 2 * sizeof(*rd->b2nodes));
+	memset(rd->b2nodes, 0, idcnt * 2 * sizeof(*rd->b2nodes));
 
-	/// TEMP TEMP
+	// Bvh nodes for blas only
 	rd->bmnodes = aligned_alloc(64, maxtris * 2 * sizeof(*rd->bmnodes));
 	rd->b8nodes = aligned_alloc(64, maxtris * 2 * sizeof(*rd->b8nodes));
-	///
 
 	// Start of tlas index map and tlas nodes * 2
 	rd->tlasofs = maxtris;
@@ -1411,7 +1533,8 @@ void rend_release(struct rdata *rd)
 {
 	free(rd->b8nodes);
 	free(rd->bmnodes);
-	free(rd->nodes);
+	free(rd->b2nodes);
+	free(rd->bnodes);
 	free(rd->imap);
 	free(rd->aabbs);
 	free(rd->insts);
@@ -1425,7 +1548,7 @@ void rend_prepstatic(struct rdata *rd)
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		struct rinst *ri = &rd->insts[j];
 		unsigned int triofs = ri->triofs;
-		struct b2node *rn = &rd->nodes[triofs << 1]; // Root node
+		struct b2node *rn = &rd->b2nodes[triofs << 1]; // Root node
 		if (rn->l + rn->r == 0) { // Not processed yet
 			unsigned int tricnt = ri->tricnt;
 			struct rtri *tp = &rd->tris[triofs];
@@ -1450,32 +1573,34 @@ void rend_prepstatic(struct rdata *rd)
 				ap++;
 			}
 
-			// Create normal sah based bvh
-			struct bnode *nodes = malloc((tricnt << 1)
-			  * sizeof(*nodes));
-			unsigned int ncnt = build_bvh(nodes, aabbs,
-			  &rd->imap[triofs], tricnt, rmin, rmax);
-			assert(ncnt == count_nodes(nodes) + 1);
+			// Create classic bvh
+			unsigned int ncnt = build_bvh(&rd->bnodes[triofs << 1],
+			  aabbs, &rd->imap[triofs], tricnt, rmin, rmax);
 			dprintf("Initial bnode cnt: %d\n", ncnt);
 
 			// Make leafs to contain 4 tris at best but not more
-			unsigned int sid, mergecnt = 0, splitcnt = 0;
-			merge_leafs(nodes, nodes, &sid, LEAF_TRI_CNT,
-			  &mergecnt);
-			dprintf("Merged which reduced %d bnodes\n", 2 * mergecnt);
-			split_leafs(nodes, nodes, aabbs, &rd->imap[triofs],
-			  &ncnt, LEAF_TRI_CNT, &splitcnt);
+			unsigned int sid, mcnt = 0, scnt = 0;
+			merge_leafs(&rd->bnodes[triofs << 1],
+			  &rd->bnodes[triofs << 1], &sid, LEAF_TRI_CNT,
+			  &mcnt);
+			dprintf("Merged which reduced %d bnodes\n", 2 * mcnt);
+
+			split_leafs(&rd->bnodes[triofs << 1],
+			  &rd->bnodes[triofs << 1], aabbs, &rd->imap[triofs],
+			  &ncnt, LEAF_TRI_CNT, &scnt);
 			dprintf("Splitted which added %d bnodes\n",
-			  2 * splitcnt);
+			  2 * scnt);
 			dprintf("After merge and split bnode cnt: %d\n",
-			  count_nodes(nodes));
+			  count_nodes(&rd->bnodes[triofs << 1]));
 
 			// Create compacted b2node bvh
-			ncnt = convert_b2node(&rd->nodes[triofs << 1], nodes);
+			ncnt = convert_b2node(&rd->b2nodes[triofs << 1],
+			  &rd->bnodes[triofs << 1]);
 			dprintf("Compacted b2node cnt: %d\n", ncnt);
 
 			// Create compacted bmnode bvh
-			ncnt = convert_bmnode(&rd->bmnodes[triofs << 1], nodes);
+			ncnt = convert_bmnode(&rd->bmnodes[triofs << 1],
+			  &rd->bnodes[triofs << 1]);
 			dprintf("Compacted bmnode cnt: %d\n", ncnt);
 
 			// Create compacted b8node bvh
@@ -1483,7 +1608,6 @@ void rend_prepstatic(struct rdata *rd)
 			  &rd->bmnodes[triofs << 1]);
 			dprintf("Compacted b8node cnt: %d\n", ncnt);
 
-			free(nodes);
 			free(aabbs);
 		}
 	}
@@ -1504,14 +1628,13 @@ void rend_prepdynamic(struct rdata *rd)
 		ap++;
 	}
 
-	struct bnode nodes[rd->instcnt << 1]; // On stack, can break
-	build_bvh(nodes, rd->aabbs, &rd->imap[tlasofs], rd->instcnt,
-	  rmin, rmax);
-	convert_b2node(&rd->nodes[tlasofs << 1], nodes);
+	build_bvh(&rd->bnodes[tlasofs << 1], rd->aabbs, &rd->imap[tlasofs],
+	  rd->instcnt, rmin, rmax);
+
+	convert_b2node(&rd->b2nodes[tlasofs << 1], &rd->bnodes[tlasofs << 1]);
 }
 
-struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
-                        float inv_transpose[16])
+struct vec3 calc_nrm(float u, float v, struct rnrm *rn, float inv_transpose[16])
 {
 	struct vec3 nrm = vec3_add(vec3_scale(rn->n1, u),
 	  vec3_add(vec3_scale(rn->n2, v), vec3_scale(rn->n0, 1.0f - u - v)));
@@ -1545,7 +1668,7 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 {
 	struct hit h = {.t = FLT_MAX};
 
-	intersect_tlas(&h, o, d, rd->nodes, rd->b8nodes, rd->imap, rd->insts,
+	intersect_tlas1(&h, o, d, rd->bnodes, rd->b8nodes, rd->imap, rd->insts,
 	  rd->tris, rd->tlasofs);
 
 	struct vec3 c = rd->bgcol;
@@ -1580,7 +1703,7 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
 
 	struct hit h = {.t = FLT_MAX};
 
-	intersect_tlas(&h, o, d, rd->nodes, rd->b8nodes, rd->imap, rd->insts,
+	intersect_tlas1(&h, o, d, rd->bnodes, rd->b8nodes, rd->imap, rd->insts,
 	  rd->tris, rd->tlasofs);
 
 	if (h.t == FLT_MAX)

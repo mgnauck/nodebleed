@@ -122,9 +122,11 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 
 		// Update instance aabbs by transforming blas root to world
 		float *m = t->glob;
-		struct b2node *n = &rd->nodes[ri->triofs << 1];
-		struct vec3 nmi = vec3_min(n->lmin, n->rmin);
-		struct vec3 nma = vec3_max(n->lmax, n->rmax);
+
+		struct bnode *n = &rd->bnodes[ri->triofs << 1];
+		struct vec3 nmi = n->min;
+		struct vec3 nma = n->max;
+
 		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
 		struct vec3 ma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 
@@ -184,7 +186,7 @@ void init(struct scene *s, struct rdata *rd)
 	import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
 	//import_gltf(s, "../data/sponza.gltf", "../data/sponza.bin");
 	//import_gltf(s, "../data/toycar.gltf", "../data/toycar.bin");
-	//import_gltf(s, "../raynin/data/good_5.gltf", "../raynin/data/good_5.bin");
+	//import_gltf(s, "../raynin/data/good_7.gltf", "../raynin/data/good_7.bin");
 
 	assert(s);
 

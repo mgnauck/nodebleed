@@ -4,7 +4,7 @@
 #include <immintrin.h>
 #include "vec3.h"
 
-struct bnode { // bvh node, 1-wide, 32 bytes
+struct bnode { // Bvh node, 1-wide, 32 bytes
 	struct vec3   min;
 	unsigned int  sid; // Start index or left child node id
 	struct vec3   max;
@@ -133,35 +133,36 @@ struct rview {
 };
 
 struct rdata {
-	struct rmtl   *mtls;
+	struct rmtl    *mtls;
 
-	struct rtri   *tris; // Tris of all meshes
-	struct rnrm   *nrms;
+	struct rtri    *tris; // Tris of all meshes
+	struct rnrm    *nrms;
 
-	unsigned int  instcnt;
-	struct rinst  *insts;
-	struct aabb   *aabbs; // World space instance aabbs
+	unsigned int   instcnt;
+	struct rinst   *insts;
+	struct aabb    *aabbs; // World space instance aabbs
 
-	unsigned int  *imap; // Indices mapping tris/insts
-	unsigned int  tlasofs;
+	unsigned int   *imap; // Indices mapping tris/insts
+	unsigned int   tlasofs;
 
 // TODO Remove unused BVH layouts once settled
-	struct b2node *nodes; // Bvh nodes all blas and tlas
-	struct bmnode *bmnodes;
-	struct b8node *b8nodes;
+	struct bnode   *bnodes;
+	struct b2node  *b2nodes;
+	struct bmnode  *bmnodes;
+	struct b8node  *b8nodes;
 
-	struct rcam   cam;
-	struct rview  view;
+	struct rcam    cam;
+	struct rview   view;
 
-	unsigned int  blksz; // Size of a block being rendered
-	int           blknum; // Block number, accessed atomically
+	unsigned int   blksz; // Size of a block being rendered
+	int            blknum; // Block number, accessed atomically
 
-	struct vec3   bgcol;
+	struct vec3    bgcol;
 
-	struct vec3   *acc; // Accumulator
-	unsigned int  *buf; // Color buffer
+	struct vec3    *acc; // Accumulator
+	unsigned int   *buf; // Color buffer
 
-	unsigned int  samplecnt;
+	unsigned int   samplecnt;
 };
 
 void  rend_init_compresslut(void);
