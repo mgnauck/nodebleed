@@ -27,13 +27,6 @@
 
 static __m256i compr_lut[256];
 
-struct bnode { // bvh node, 1-wide, 32 bytes
-	struct vec3   min;
-	unsigned int  sid; // Start index or left child node id
-	struct vec3   max;
-	unsigned int  cnt; // Tri or inst cnt
-};
-
 struct hit { // 32 bytes
 	float         t;
 	float         u;
