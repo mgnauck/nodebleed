@@ -1001,6 +1001,7 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                    bool dx, bool dy, bool dz)
 {
 	unsigned int stack[128];
+	float dstack[128]; // Distance stack
 	unsigned int spos = 0;
 
 	unsigned int curr = 0;
@@ -1047,6 +1048,7 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 					if (tmax >= tmin) {
 						assert(spos < 128);
+						dstack[spos] = tmin;
 						stack[spos++] = id;
 					}
 				}
@@ -1060,10 +1062,12 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 		}
 
 		// Pop next node from stack if something is left
-		if (spos > 0)
-			curr = stack[--spos];
-		else
-			return;
+		while (spos > 0)
+			if (dstack[--spos] < h->t)
+				goto next_iter;
+		return;
+next_iter:
+		curr = stack[spos];
 	}
 }
 
