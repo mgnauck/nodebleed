@@ -35,18 +35,32 @@ struct bmnode { // Mbvh node with M child nodes, used to build b8node
 // Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
 // 8 children, max 4 tris per leaf
 struct b8node { // Bvh node, 8-wide, 256 bytes
-	__m256       minx; // Aabbs of 8 child nodes
-	__m256        maxx;
-	__m256        miny;
-	__m256        maxy;
-	__m256        minz;
-	__m256        maxz;
+	__m256   minx; // Aabbs of 8 child nodes
+	__m256   maxx;
+	__m256   miny;
+	__m256   maxy;
+	__m256   minz;
+	__m256   maxz;
 	// Interior node: node flags << 30 | child node id
 	// Leaf node: node flags << 30 | (tri cnt - 1) << 28 | tri start
-	__m256i       children;
+	__m256i  children;
 	// Ordered traversal permutation
 	// 8 children * 8 quadrants * 3 bit
-	__m256i         perm;
+	__m256i  perm;
+};
+
+struct leaf4 { // Leaf data of 4 tris, 160 bytes
+	__m128        v0x; // 4x vertex 0
+	__m128        v0y;
+	__m128        v0z;
+	__m128        e0x; // 4x edge v1 - v0
+	__m128        e0y;
+	__m128        e0z;
+	__m128        e1x; // 4x edge v2 - v0
+	__m128        e1y;
+	__m128        e1z;
+	unsigned int  id[4]; // 4x tri id
+	// TODO Pad to 3x 64 bytes?
 };
 
 struct aabb { // 32 bytes
