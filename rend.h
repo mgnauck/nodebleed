@@ -4,6 +4,7 @@
 #include <immintrin.h>
 #include "vec3.h"
 
+// Classic layout, used to generated initial binary bvh, others are converted
 struct bnode { // Bvh node, 1-wide, 32 bytes
 	struct vec3   min;
 	unsigned int  sid; // Start index or left child node id
