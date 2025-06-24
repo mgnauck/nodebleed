@@ -49,10 +49,6 @@ struct b8node { // Bvh node, 8-wide, 256 bytes
 	__m256   maxy;
 	__m256   minz;
 	__m256   maxz;
-// TODO Tri data not embedded in BVH:
-	// Interior node: node flags << 30 | child node id
-	// Leaf node: node flags << 30 | (tri cnt - 1) << 28 | tri start
-// TODO Tri data data embedded in BVH:
 	// Leaf node flag << 31 | offset to child node or leaf data
 	__m256i  children;
 	// Ordered traversal permutation

@@ -34,6 +34,8 @@ struct hit { // 32 bytes
 	unsigned int  id; // triid << INST_ID_BITS | instid & INST_ID_MASK
 };
 
+// Generate LUT to emulate vpcompressq on AVX2
+// https://stackoverflow.com/questions/36932240/avx2-what-is-the-most-efficient-way-to-pack-left-based-on-a-mask/
 unsigned long long get_perm(unsigned char mask)
 {
 	unsigned long long perm = 0ull;
@@ -46,8 +48,6 @@ unsigned long long get_perm(unsigned char mask)
 	return perm;
 }
 
-// Generate LUT to emulate vpcompressq on AVX2
-// https://stackoverflow.com/questions/36932240/avx2-what-is-the-most-efficient-way-to-pack-left-based-on-a-mask/
 void rend_init_compresslut(void)
 {
 	// 8 bit mask: 0 will be compressed, 1's will be considered (= hit)
@@ -646,48 +646,82 @@ int comp_distid(const void *a, const void *b)
 // Make merge/split leaf functions non-recursive?
 // Create 8-wide BVH directly instead of transforming binary bvh? (Wald, 2008)
 
-unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
+unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
+                            unsigned int *imap, struct rtri *tris)
 {
 	unsigned int stack[128];
 	unsigned int spos = 0;
 
-	// Current src and tgt node indices
-	unsigned int snid = 0;
-	unsigned int tnid = 0;
+// TODO Try accessing b8node arr in 64byte steps (1 cache line) instead of bytes
+	// Access our b8node target byte-wise for offset calculation
+	unsigned char *tptr = (unsigned char *)tgt;
+
+	unsigned int snid = 0; // Current src node index
+	unsigned int tnofs = 0; // Offset to curr tgt node and leaf data
+	unsigned int tncnt = 0; // Tgt node cnt
 
 	while (true) {
 		struct bmnode *s = &src[snid];
-		struct b8node *t = &tgt[tnid];
+		struct b8node *t = (struct b8node *)(tptr + tnofs);
 
 		memset(t, 0, sizeof(*t));
+
+		tnofs += sizeof(*t);
+		tncnt++;
 
 		unsigned int cid = 0; // 'Compacted' child index, i.e. no gaps
 		for (unsigned int j = 0; j < 8; j++) {
 			// Copy/setup data of non-empty child nodes
 			if (s->children[j]) {
 				assert(j < s->childcnt);
-				struct bmnode *c = &src[s->children[j]];
-				t->minx[cid] = c->min.x;
-				t->maxx[cid] = c->max.x;
-				t->miny[cid] = c->min.y;
-				t->maxy[cid] = c->max.y;
-				t->minz[cid] = c->min.z;
-				t->maxz[cid] = c->max.z;
-				if (c->cnt > 0) {
+				struct bmnode *sc = &src[s->children[j]];
+				t->minx[cid] = sc->min.x;
+				t->maxx[cid] = sc->max.x;
+				t->miny[cid] = sc->min.y;
+				t->maxy[cid] = sc->max.y;
+				t->minz[cid] = sc->min.z;
+				t->maxz[cid] = sc->max.z;
+				if (sc->cnt > 0) {
 					// Leaf node
-					assert(c->cnt <= 4);
-					assert(c->start <= 268435455);
+					assert(sc->cnt <= 4);
+					assert(tnofs <= 0x7fffffff);
+					// Store offset to embedded leaf data
 					((unsigned int *)&t->children)[cid] =
-					  NODE_LEAF
-					  | (c->cnt - 1) << 28
-					  | (c->start & TRIID_MASK);
+					  NODE_LEAF | tnofs;
+					// Embedd leaf data
+					struct leaf4 *l = (struct leaf4 *)
+					  (tptr + tnofs);
+					unsigned int *ip = &imap[sc->start];
+					for (unsigned char i = 0; i < 4; i++) {
+						struct rtri *tri = &tris[*ip];
+						l->v0x[i] = tri->v0.x;
+						l->v0y[i] = tri->v0.y;
+						l->v0z[i] = tri->v0.z;
+						struct vec3 e0 = vec3_sub(
+						  tri->v1, tri->v0);
+						l->e0x[i] = e0.x;
+						l->e0y[i] = e0.y;
+						l->e0z[i] = e0.z;
+						struct vec3 e1 = vec3_sub(
+						  tri->v2, tri->v0);
+						l->e1x[i] = e1.x;
+						l->e1y[i] = e1.y;
+						l->e1z[i] = e1.z;
+						l->id[i] = *ip;
+						// Replicate last tri if not 4
+						if (i < s->cnt - 1)
+							ip++;
+					}
+					// Account for leaf data
+					tnofs += sizeof(*l);
 				} else {
 					// Interior node
-					// Push curr tgt node id and the child
-					// which id we update when popped
+					// Push offset to current child, so
+					// actual node ofs can be set later on
 					assert(spos < 128 - 1);
-					assert(tnid <= 0x1fffffff);
-					stack[spos++] = (tnid << 3) | cid;
+					stack[spos++] = (unsigned int)
+					  ((unsigned char *)&((unsigned int *)
+					    &t->children)[cid] - tptr);
 					// Push id of src bmnode
 					stack[spos++] = s->children[j];
 				}
@@ -737,20 +771,16 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src)
 			((unsigned int *)&t->children)[cid] = NODE_EMPTY;
 		}
 
-		tnid++; // Claim next tgt node
-
 		if (spos > 1) {
 			// Src bmnode to continue with
 			snid = stack[--spos];
-			// Set former tgt child node id to curr tgt node's id
-			unsigned int tm = stack[--spos];
-			assert(tnid <= 0x1fffffff);
-			((unsigned int *)&tgt[tm >> 3].children)[tm & 7] = tnid;
+			// Previous tgt child is set to curr ofs of new node
+			*(unsigned int *)(tptr + stack[--spos]) = tnofs;
 		} else
 			break;
 	}
 
-	return tnid;
+	return tncnt;
 }
 
 float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
@@ -777,16 +807,10 @@ float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
 		return FLT_MAX;
 }
 
-bool intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
-                   const struct rtri *tris,
-                   unsigned int triid, unsigned int instid)
+bool intersect_tri_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
+                        struct vec3 v0, struct vec3 e0, struct vec3 e1,
+                        unsigned int triid, unsigned int instid)
 {
-	// Vectors of two edges sharing v0
-	const struct rtri *t = &tris[triid];
-	struct vec3 v0 = t->v0;
-	struct vec3 e0 = vec3_sub(t->v1, v0);
-	struct vec3 e1 = vec3_sub(t->v2, v0);
-
 	// Calculate determinant
 	struct vec3 pv = vec3_cross(dir, e1);
 	float det = vec3_dot(e0, pv);
@@ -826,16 +850,27 @@ bool intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 	return false;
 }
 
+bool intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
+                   const struct rtri *tris,
+                   unsigned int triid, unsigned int instid)
+{
+	const struct rtri *t = &tris[triid];
+	struct vec3 v0 = t->v0;
+	return intersect_tri_impl(h, ori, dir, v0, vec3_sub(t->v1, v0),
+	  vec3_sub(t->v2, v0), triid, instid);
+}
+
 void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    const struct b8node *blas, const unsigned int *imap,
-                    const struct rtri *tris, unsigned int instid,
-                    bool dx, bool dy, bool dz)
+                               const struct b8node *blas, unsigned int instid,
+                               bool dx, bool dy, bool dz)
 {
 	_Alignas(64) unsigned int stack[128];
 	_Alignas(64) float dstack[128];
 	unsigned int spos = 0;
 
-	unsigned int curr = 0;
+// TODO Try accessing b8node arr in 64byte steps (1 cache line) instead of bytes
+	unsigned char *ptr = (unsigned char *)blas;
+	unsigned int ofs = 0; // Offset to curr node or leaf data
 
 	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
 	float idx = 1.0f / dir.x;
@@ -857,8 +892,8 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
-		while ((curr & NODE_LEAF) == 0) {
-			const struct b8node *n = &blas[curr];
+		while ((ofs & NODE_LEAF) == 0) {
+			const struct b8node *n = (struct b8node *)(ptr + ofs);
 
 			// Slab test with fused mul sub, swap per ray dir
 			__m256 tx0 = _mm256_fmsub_ps(dx ? n->minx : n->maxx,
@@ -889,13 +924,13 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 			case 0:
 				// No hit, consult stack
 				if (spos > 0)
-					curr = stack[--spos];
+					ofs = stack[--spos];
 				else
 					return;
 				break;
 			case 1:
 				// Single hit, directly continue with child node
-				curr = ((unsigned int *)&n->children)[
+				ofs = ((unsigned int *)&n->children)[
 				  // Invert count of leading zeros to get lane
 				  31 - __builtin_clz(hitmask)];
 				break;
@@ -932,7 +967,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 				  childfin8);
 
 				spos += hitcnt - 1; // Account for pushed nodes
-				curr = stack[spos]; // Next node
+				ofs = stack[spos]; // Next node
 			}
 		}
 
@@ -940,9 +975,20 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 		// TEMP: Intersect all assigned tris
 		bool hit = false;
-		const unsigned int *ip = &imap[curr & TRIID_MASK];
-		for (unsigned int i = 0; i < 1 + ((curr >> 28) & 3); i++)
-			hit |= intersect_tri(h, ori, dir, tris, *ip++, instid);
+		const struct leaf4 *l = (struct leaf4 *)(ptr
+		  + (ofs & ~NODE_LEAF));
+		for (unsigned char i = 0; i < 4; i++) {
+			hit = intersect_tri_impl(h, ori, dir,
+			  (struct vec3){l->v0x[i], l->v0y[i],
+			    l->v0z[i]},
+			  (struct vec3){l->e0x[i], l->e0y[i],
+			    l->e0z[i]},
+			  (struct vec3){l->e1x[i], l->e1y[i],
+			    l->e1z[i]},
+			  l->id[i], instid);
+			if (l->id[i] == l->id[i + 1])
+				break;
+		}
 
 		// There was a hit, compress the stack keeping only nearer h->t
 		if (hit) {
@@ -981,7 +1027,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 		// Pop next node from stack if something is left
 		if (spos > 0)
-			curr = stack[--spos];
+			ofs = stack[--spos];
 		else
 			return;
 	}
@@ -989,15 +1035,16 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 // Intersects b8nodes, temporarily used to check if 8-wide bvh is valid
 void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                   const struct b8node *blas, const unsigned int *imap,
-                   const struct rtri *tris, unsigned int instid,
-                   bool dx, bool dy, bool dz)
+                          const struct b8node *blas, unsigned int instid,
+                          bool dx, bool dy, bool dz)
 {
 	unsigned int stack[128];
 	float dstack[128]; // Distance stack
 	unsigned int spos = 0;
 
-	unsigned int curr = 0;
+// TODO Try accessing b8node arr in 64byte steps (1 cache line) instead of bytes
+	unsigned char *ptr = (unsigned char *)blas;
+	unsigned int ofs = 0; // Offset to curr node or leaf data
 
 	float idx = 1.0f / dir.x;
 	float idy = 1.0f / dir.y;
@@ -1011,28 +1058,28 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
-		if ((curr & NODE_LEAF) == 0) {
-			const struct b8node *n = &blas[curr];
-			for (unsigned int k = 0; k < 8; k++) {
-				unsigned int j =
-				  (((unsigned int *)&n->perm)[k] >> s) & 7;
-				unsigned int id =
-				  ((unsigned int *)&n->children)[j];
-				if (id & ~NODE_EMPTY) {
+		if ((ofs & NODE_LEAF) == 0) {
+			const struct b8node *n = (struct b8node *)(ptr + ofs);
+			for (unsigned char j = 0; j < 8; j++) {
+				unsigned int i =
+				  (((unsigned int *)&n->perm)[j] >> s) & 7;
+				unsigned int o =
+				  ((unsigned int *)&n->children)[i];
+				if (o & ~NODE_EMPTY) {
 					// Interior node, check child aabbs
-					float t0x = (dx ? n->minx[j]
-					  : n->maxx[j]) * idx - rx;
-					float t0y = (dy ? n->miny[j]
-					  : n->maxy[j]) * idy - ry;
-					float t0z = (dz ? n->minz[j]
-					  : n->maxz[j]) * idz - rz;
+					float t0x = (dx ? n->minx[i]
+					  : n->maxx[i]) * idx - rx;
+					float t0y = (dy ? n->miny[i]
+					  : n->maxy[i]) * idy - ry;
+					float t0z = (dz ? n->minz[i]
+					  : n->maxz[i]) * idz - rz;
 
-					float t1x = (dx ? n->maxx[j]
-					  : n->minx[j]) * idx - rx;
-					float t1y = (dy ? n->maxy[j]
-					  : n->miny[j]) * idy - ry;
-					float t1z = (dz ? n->maxz[j]
-					  : n->minz[j]) * idz - rz;
+					float t1x = (dx ? n->maxx[i]
+					  : n->minx[i]) * idx - rx;
+					float t1y = (dy ? n->maxy[i]
+					  : n->miny[i]) * idy - ry;
+					float t1z = (dz ? n->maxz[i]
+					  : n->minz[i]) * idz - rz;
 
 					float tmin =
 					  max(max(t0x, t0y), max(t0z, 0.0f));
@@ -1042,16 +1089,26 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 					if (tmax >= tmin) {
 						assert(spos < 128);
 						dstack[spos] = tmin;
-						stack[spos++] = id;
+						stack[spos++] = o;
 					}
 				}
 			}
 		} else {
-			// Intersect all assigned tris
-			const unsigned int *ip = &imap[curr & TRIID_MASK];
-			for (unsigned int i = 0; i < 1 + ((curr >> 28) & 3);
-			  i++)
-				intersect_tri(h, ori, dir, tris, *ip++, instid);
+			// Intersect all embedded tris
+			const struct leaf4 *l = (struct leaf4 *)(ptr
+			  + (ofs & ~NODE_LEAF));
+			for (unsigned char i = 0; i < 4; i++) {
+				intersect_tri_impl(h, ori, dir,
+				  (struct vec3){l->v0x[i], l->v0y[i],
+				    l->v0z[i]},
+				  (struct vec3){l->e0x[i], l->e0y[i],
+				    l->e0z[i]},
+				  (struct vec3){l->e1x[i], l->e1y[i],
+				    l->e1z[i]},
+				  l->id[i], instid);
+				if (l->id[i] == l->id[i + 1])
+					break;
+			}
 		}
 
 		// Pop next node from stack if something is left
@@ -1060,15 +1117,18 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				goto next_iter;
 		return;
 next_iter:
-		curr = stack[spos];
+		ofs = stack[spos];
 	}
 }
 
 void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
-                     const struct b8node *blas, const unsigned int *imap,
-                     const struct rtri *tris, unsigned int instid)
+                     const struct b8node *blas,
+// TODO Remove imap and tris, not needed with embedded data
+                     const unsigned int *imap,
+                     const struct rtri *tris,
+                     unsigned int instid)
 {
-	intersect_blas3_impl_avx2(h, ori, dir, blas, imap, tris, instid,
+	intersect_blas3_impl_avx2(h, ori, dir, blas, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
@@ -1605,7 +1665,8 @@ void rend_prepstatic(struct rdata *rd)
 
 			// Create compacted b8node bvh
 			ncnt = convert_b8node(&rd->b8nodes[triofs << 1],
-			  &rd->bmnodes[triofs << 1]);
+			  &rd->bmnodes[triofs << 1], &rd->imap[triofs],
+			  &rd->tris[triofs]);
 			dprintf("Compacted b8node cnt: %d\n", ncnt);
 
 			free(aabbs);
