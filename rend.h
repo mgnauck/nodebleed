@@ -56,7 +56,8 @@ struct b8node { // Bvh node, 8-wide, 256 bytes
 	__m256i  perm;
 };
 
-struct leaf4 { // Leaf data of 4 tris, 160 bytes
+struct leaf4 { // Leaf data of 4 tris, 160+32 bytes
+	//*
 	__m128        v0x; // 4x vertex 0
 	__m128        v0y;
 	__m128        v0z;
@@ -66,8 +67,14 @@ struct leaf4 { // Leaf data of 4 tris, 160 bytes
 	__m128        e1x; // 4x edge v2 - v0
 	__m128        e1y;
 	__m128        e1z;
+	//*/
+	/*
+	struct vec3   v0[4];
+	struct vec3   e0[4];
+	struct vec3   e1[4];
+	//*/
 	unsigned int  id[4]; // 4x tri id
-	// TODO Pad to 3x 64 bytes?
+	unsigned int  pad[8];
 };
 
 struct aabb { // 32 bytes

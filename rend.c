@@ -684,16 +684,18 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 				if (sc->cnt > 0) {
 					// Leaf node
 					assert(sc->cnt <= 4);
-					assert(tnofs <= 0x7fffffff);
+					//assert(tnofs <= 0x7fffffff);
+					assert(tnofs <= 0x1fffffff);
 					// Store offset to embedded leaf data
 					((unsigned int *)&t->children)[cid] =
-					  NODE_LEAF | tnofs;
+					  NODE_LEAF | ((sc->cnt - 1) << 29) | tnofs;
 					// Embedd leaf data
 					struct leaf4 *l = (struct leaf4 *)
 					  (tptr + tnofs);
 					unsigned int *ip = &imap[sc->start];
 					for (unsigned char i = 0; i < 4; i++) {
 						struct rtri *tri = &tris[*ip];
+						//*
 						l->v0x[i] = tri->v0.x;
 						l->v0y[i] = tri->v0.y;
 						l->v0z[i] = tri->v0.z;
@@ -707,6 +709,16 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 						l->e1x[i] = e1.x;
 						l->e1y[i] = e1.y;
 						l->e1z[i] = e1.z;
+						//*/
+						/*
+						l->v0[i] = tri->v0;
+						struct vec3 e0 = vec3_sub(
+						  tri->v1, tri->v0);
+						l->e0[i] = e0;
+						struct vec3 e1 = vec3_sub(
+						  tri->v2, tri->v0);
+						l->e1[i] = e1;
+						//*/
 						l->id[i] = *ip;
 						// Replicate last tri if not 4
 						if (i < s->cnt - 1)
@@ -976,8 +988,10 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 		// TEMP: Intersect all assigned tris
 		bool hit = false;
 		const struct leaf4 *l = (struct leaf4 *)(ptr
-		  + (ofs & ~NODE_LEAF));
-		for (unsigned char i = 0; i < 4; i++) {
+		  //+ (ofs & ~NODE_LEAF));
+		  + (ofs & 0x1fffffff));
+		for (unsigned char i = 0; i < 1 + ((ofs >> 29) & 3); i++) {
+			//*
 			hit = intersect_tri_impl(h, ori, dir,
 			  (struct vec3){l->v0x[i], l->v0y[i],
 			    l->v0z[i]},
@@ -986,8 +1000,12 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 			  (struct vec3){l->e1x[i], l->e1y[i],
 			    l->e1z[i]},
 			  l->id[i], instid);
-			if (l->id[i] == l->id[i + 1])
-				break;
+			//*/
+			/*
+			hit = intersect_tri_impl(h, ori, dir,
+			  l->v0[i], l->e0[i], l->e1[i],
+			  l->id[i], instid);
+			//*/
 		}
 
 		// There was a hit, compress the stack keeping only nearer h->t
@@ -1096,8 +1114,10 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 		} else {
 			// Intersect all embedded tris
 			const struct leaf4 *l = (struct leaf4 *)(ptr
-			  + (ofs & ~NODE_LEAF));
-			for (unsigned char i = 0; i < 4; i++) {
+			//  + (ofs & ~NODE_LEAF));
+			  + (ofs & 0x1fffffff));
+			for (unsigned char i = 0; i < 1 + ((ofs >> 29) & 3); i++) {
+				//*
 				intersect_tri_impl(h, ori, dir,
 				  (struct vec3){l->v0x[i], l->v0y[i],
 				    l->v0z[i]},
@@ -1106,8 +1126,12 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				  (struct vec3){l->e1x[i], l->e1y[i],
 				    l->e1z[i]},
 				  l->id[i], instid);
-				if (l->id[i] == l->id[i + 1])
-					break;
+				//*/
+				/*
+				intersect_tri_impl(h, ori, dir,
+				  l->v0[i], l->e0[i], l->e1[i],
+				  l->id[i], instid);
+				//*/
 			}
 		}
 
