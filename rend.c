@@ -34,6 +34,12 @@ struct hit { // 32 bytes
 	unsigned int  id; // triid << INST_ID_BITS | instid & INST_ID_MASK
 };
 
+// Pseudo type for b8node access in 64 byte blocks = 1 cache line
+#define B8NBLK_SZ  64
+struct b8nblk {
+	float data[B8NBLK_SZ / 4];
+};
+
 // Generate LUT to emulate vpcompressq on AVX2
 // https://stackoverflow.com/questions/36932240/avx2-what-is-the-most-efficient-way-to-pack-left-based-on-a-mask/
 unsigned long long get_perm(unsigned char mask)
@@ -222,8 +228,8 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 			unsigned int id = imap[l];
 			struct aabb *a = &aabbs[id];
 			float bin =
-			  ((vec3_getc(a->min, baxis) + vec3_getc(a->max, baxis))
-			    * 0.5f - nmina) * invda;
+			  ((vec3_getc(a->min, baxis) +
+			  vec3_getc(a->max, baxis)) * 0.5f - nmina) * invda;
 			if ((unsigned int)min(max((int)bin, 0),
 			  INTERVAL_CNT - 1) <= bpos) {
 				l++;
@@ -431,8 +437,8 @@ unsigned int merge_leafs(struct bnode *nodes, struct bnode *n,
 }
 
 void split_leafs(struct bnode *nodes, struct bnode *n, struct aabb *aabbs,
-                 unsigned int *imap, unsigned int *nodecnt, unsigned int maxcnt,
-                 unsigned int *splitcnt)
+                 unsigned int *imap, unsigned int *nodecnt,
+                 unsigned int maxcnt, unsigned int *splitcnt)
 {
 	if (n->cnt > maxcnt) {
 		//dprintf("Splitting node\n");
@@ -606,7 +612,7 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 					  bc->children[i];
 				ncnt--; // Replaced one node
 			} else
-				break; // No child found that could be collapsed
+				break; // No child found that can be collapsed
 		}
 
 		// Schedule all interior child nodes for processing
@@ -636,11 +642,11 @@ struct distid {
 
 int comp_distid(const void *a, const void *b)
 {
-	return ((struct distid *)a)->dist < ((struct distid *)b)->dist ? 1 : -1;
+	return ((struct distid *)a)->dist < ((struct distid *)b)->dist
+	  ? 1 : -1;
 }
 
 // TODO
-// Embed tri data in bvh data
 // Test 4 tris at once
 // Clean unused intersection functions (bmnode intersection etc.)
 // Make merge/split leaf functions non-recursive?
@@ -652,9 +658,8 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 	unsigned int stack[128];
 	unsigned int spos = 0;
 
-// TODO Try accessing b8node arr in 64byte steps (1 cache line) instead of bytes
 	// Access our b8node target byte-wise for offset calculation
-	unsigned char *tptr = (unsigned char *)tgt;
+	struct b8nblk *tptr = (struct b8nblk *)tgt;
 
 	unsigned int snid = 0; // Current src node index
 	unsigned int tnofs = 0; // Offset to curr tgt node and leaf data
@@ -666,7 +671,7 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 
 		memset(t, 0, sizeof(*t));
 
-		tnofs += sizeof(*t);
+		tnofs += sizeof(*t) / B8NBLK_SZ;
 		tncnt++;
 
 		unsigned int cid = 0; // 'Compacted' child index, i.e. no gaps
@@ -685,10 +690,12 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 					// Leaf node
 					assert(sc->cnt <= 4);
 					//assert(tnofs <= 0x7fffffff);
-					assert(tnofs <= 0x1fffffff);
+					assert(tnofs * B8NBLK_SZ <=
+					  0x1fffffff);
 					// Store offset to embedded leaf data
 					((unsigned int *)&t->children)[cid] =
-					  NODE_LEAF | ((sc->cnt - 1) << 29) | tnofs;
+					  NODE_LEAF | ((sc->cnt - 1) << 29)
+					  | tnofs;
 					// Embedd leaf data
 					struct leaf4 *l = (struct leaf4 *)
 					  (tptr + tnofs);
@@ -725,15 +732,15 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 							ip++;
 					}
 					// Account for leaf data
-					tnofs += sizeof(*l);
+					tnofs += sizeof(*l) / B8NBLK_SZ;
 				} else {
 					// Interior node
 					// Push offset to current child, so
 					// actual node ofs can be set later on
 					assert(spos < 128 - 1);
 					stack[spos++] = (unsigned int)
-					  ((unsigned char *)&((unsigned int *)
-					    &t->children)[cid] - tptr);
+					  (((unsigned int *)&t->children + cid)
+					  - (unsigned int *)tptr);
 					// Push id of src bmnode
 					stack[spos++] = s->children[j];
 				}
@@ -750,7 +757,8 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 			for (unsigned int i = 0; i < 8; i++) {
 				cdi[i].id = i; // 3 bit child index
 				if (s->children[i]) {
-					struct bmnode *c = &src[s->children[i]];
+					struct bmnode *c =
+					  &src[s->children[i]];
 					// Aabb corner of ray dir
 					struct vec3 corner = {
 					  j & 1 ? c->min.x : c->max.x,
@@ -787,7 +795,7 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 			// Src bmnode to continue with
 			snid = stack[--spos];
 			// Previous tgt child is set to curr ofs of new node
-			*(unsigned int *)(tptr + stack[--spos]) = tnofs;
+			*((unsigned int *)tptr + stack[--spos]) = tnofs;
 		} else
 			break;
 	}
@@ -880,8 +888,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 	_Alignas(64) float dstack[128];
 	unsigned int spos = 0;
 
-// TODO Try accessing b8node arr in 64byte steps (1 cache line) instead of bytes
-	unsigned char *ptr = (unsigned char *)blas;
+	struct b8nblk *ptr = (struct b8nblk *)blas;
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
 	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
@@ -922,13 +929,15 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 			__m256 tz1 = _mm256_fmsub_ps(dz ? n->maxz : n->minz,
 			  idz8, rz8);
 
-			__m256 tmin = _mm256_max_ps(_mm256_max_ps(_mm256_max_ps(
-			  tx0, ty0), tz0), z8);
-			__m256 tmax = _mm256_min_ps(_mm256_min_ps(_mm256_min_ps(
-			  tx1, ty1), tz1), t8);
+			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
+			  _mm256_max_ps(tx0, ty0), tz0), z8);
+
+			__m256 tmax = _mm256_min_ps(_mm256_min_ps(
+			  _mm256_min_ps(tx1, ty1), tz1), t8);
 
 			// OQ = ordered/not signaling, 0 if any operand is NAN
-			__m256 hitmask8 = _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
+			__m256 hitmask8 =
+			  _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
 			unsigned int hitmask = _mm256_movemask_ps(hitmask8);
 			unsigned int hitcnt = __builtin_popcount(hitmask);
 
@@ -941,7 +950,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 					return;
 				break;
 			case 1:
-				// Single hit, directly continue with child node
+				// Single hit, directly continue w/ child node
 				ofs = ((unsigned int *)&n->children)[
 				  // Invert count of leading zeros to get lane
 				  31 - __builtin_clz(hitmask)];
@@ -962,7 +971,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 				tmin = _mm256_permutevar8x32_ps(tmin, ord8);
 				__m256i childrenord8 =
 				  _mm256_permutevar8x32_epi32(n->children,
-				    ord8);
+				  ord8);
 
 				// Map ordered hit mask to compressed indices
 				__m256 cid = compr_lut[hitmaskord];
@@ -993,12 +1002,9 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 		for (unsigned char i = 0; i < 1 + ((ofs >> 29) & 3); i++) {
 			//*
 			hit = intersect_tri_impl(h, ori, dir,
-			  (struct vec3){l->v0x[i], l->v0y[i],
-			    l->v0z[i]},
-			  (struct vec3){l->e0x[i], l->e0y[i],
-			    l->e0z[i]},
-			  (struct vec3){l->e1x[i], l->e1y[i],
-			    l->e1z[i]},
+			  (struct vec3){l->v0x[i], l->v0y[i], l->v0z[i]},
+			  (struct vec3){l->e0x[i], l->e0y[i], l->e0z[i]},
+			  (struct vec3){l->e1x[i], l->e1y[i], l->e1z[i]},
 			  l->id[i], instid);
 			//*/
 			/*
@@ -1028,16 +1034,18 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 				// Permute to compress dists and node ids
 				dists8 = _mm256_permutevar8x32_ps(dists8, cid);
-				nids8 = _mm256_permutevar8x32_epi32(nids8, cid);
+				nids8 =
+				  _mm256_permutevar8x32_epi32(nids8, cid);
 
 				// Store compressed dists and node ids
 				_mm256_storeu_ps(dstack + spos2, dists8);
 				_mm256_storeu_si256((__m256i *)(stack + spos2),
 				  nids8);
 
-				unsigned int cnt = min(spos - i, 8); // For last
+				unsigned int cnt = min(spos - i, 8); // Last!
 				unsigned int cntmask = (1 << cnt) - 1;
-				spos2 += __builtin_popcount(cntmask & nearmask);
+				spos2 +=
+				  __builtin_popcount(cntmask & nearmask);
 			}
 
 			spos = spos2; // Stack rewrite done
@@ -1060,8 +1068,7 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	float dstack[128]; // Distance stack
 	unsigned int spos = 0;
 
-// TODO Try accessing b8node arr in 64byte steps (1 cache line) instead of bytes
-	unsigned char *ptr = (unsigned char *)blas;
+	struct b8nblk *ptr = (struct b8nblk *)blas;
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
 	float idx = 1.0f / dir.x;
@@ -1116,15 +1123,16 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 			const struct leaf4 *l = (struct leaf4 *)(ptr
 			//  + (ofs & ~NODE_LEAF));
 			  + (ofs & 0x1fffffff));
-			for (unsigned char i = 0; i < 1 + ((ofs >> 29) & 3); i++) {
+			for (unsigned char i = 0; i < 1 + ((ofs >> 29) & 3);
+			  i++) {
 				//*
 				intersect_tri_impl(h, ori, dir,
 				  (struct vec3){l->v0x[i], l->v0y[i],
-				    l->v0z[i]},
+				  l->v0z[i]},
 				  (struct vec3){l->e0x[i], l->e0y[i],
-				    l->e0z[i]},
+				  l->e0z[i]},
 				  (struct vec3){l->e1x[i], l->e1y[i],
-				    l->e1z[i]},
+				  l->e1z[i]},
 				  l->id[i], instid);
 				//*/
 				/*
@@ -1146,11 +1154,7 @@ next_iter:
 }
 
 void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
-                     const struct b8node *blas,
-// TODO Remove imap and tris, not needed with embedded data
-                     const unsigned int *imap,
-                     const struct rtri *tris,
-                     unsigned int instid)
+                     const struct b8node *blas, unsigned int instid)
 {
 	intersect_blas3_impl_avx2(h, ori, dir, blas, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
@@ -1207,8 +1211,10 @@ void intersect_blas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				float t1z = (dz ? c->max.z : c->min.z)
 				  * idz - rz;
 
-				float tmin = max(max(t0x, t0y), max(t0z, 0.0f));
-				float tmax = min(min(t1x, t1y), min(t1z, h->t));
+				float tmin =
+				  max(max(t0x, t0y), max(t0z, 0.0f));
+				float tmax =
+				  min(min(t1x, t1y), min(t1z, h->t));
 
 				if (tmax >= tmin)
 					dist[ccnt++] = (struct distid){
@@ -1347,7 +1353,8 @@ void intersect_blas1(struct hit *h, struct vec3 ori, struct vec3 dir,
 void intersect_tlas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                          const struct b2node *nodes, // TODO tlas nodes
                          const struct b8node *mnodes, const unsigned int *imap,
-                         const struct rinst *insts, const struct rtri *tris,
+                         const struct rinst *insts,
+                         const struct rtri *tris, // TODO Not used by b8nodes
                          unsigned int tlasofs, bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
@@ -1381,10 +1388,15 @@ void intersect_tlas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				float inv[16];
 				mat4_from3x4(inv, ri->globinv);
 
+				/*
 				unsigned int o = ri->triofs;
-				intersect_blas3(h,
+				intersect_blas2(h,
 				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
 				  &mnodes[o << 1], &imap[o], &tris[o], instid);
+				*/
+				intersect_blas3(h,
+				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
+				  &mnodes[ri->triofs << 1], instid);
 			}
 
 			// Pop next node from stack if something is left
@@ -1456,7 +1468,8 @@ next_iter:
 void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
                      const struct b2node *nodes, // TODO tlas nodes
                      const struct b8node *mnodes, const unsigned int *imap,
-                     const struct rinst *insts, const struct rtri *tris,
+                     const struct rinst *insts,
+                     const struct rtri *tris, // TODO Not used by b8nodes
                      unsigned int tlasofs)
 {
 	intersect_tlas2_impl(h, ori, dir, nodes, mnodes, imap, insts, tris,
@@ -1466,7 +1479,8 @@ void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 void intersect_tlas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                          const struct bnode *nodes, // TODO tlas nodes
                          const struct b8node *mnodes, const unsigned int *imap,
-                         const struct rinst *insts, const struct rtri *tris,
+                         const struct rinst *insts,
+                         const struct rtri *tris, // TODO Not used by b8nodes
                          unsigned int tlasofs, bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
@@ -1500,10 +1514,15 @@ void intersect_tlas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				float inv[16];
 				mat4_from3x4(inv, ri->globinv);
 
+				/*
 				unsigned int o = ri->triofs;
-				intersect_blas3(h,
+				intersect_blas2(h,
 				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
 				  &mnodes[o << 1], &imap[o], &tris[o], instid);
+				*/
+				intersect_blas3(h,
+				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
+				  &mnodes[ri->triofs << 1], instid);
 			}
 
 			// Pop next node from stack if something is left
@@ -1578,7 +1597,8 @@ next_iter:
 void intersect_tlas1(struct hit *h, struct vec3 ori, struct vec3 dir,
                      const struct bnode *nodes, // TODO tlas nodes
                      const struct b8node *mnodes, const unsigned int *imap,
-                     const struct rinst *insts, const struct rtri *tris,
+                     const struct rinst *insts,
+                     const struct rtri *tris, // TODO Not used by b8nodes
                      unsigned int tlasofs)
 {
 	intersect_tlas1_impl(h, ori, dir, nodes, mnodes, imap, insts, tris,
@@ -1719,7 +1739,8 @@ void rend_prepdynamic(struct rdata *rd)
 	convert_b2node(&rd->b2nodes[tlasofs << 1], &rd->bnodes[tlasofs << 1]);
 }
 
-struct vec3 calc_nrm(float u, float v, struct rnrm *rn, float inv_transpose[16])
+struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
+                     float inv_transpose[16])
 {
 	struct vec3 nrm = vec3_add(vec3_scale(rn->n1, u),
 	  vec3_add(vec3_scale(rn->n2, v), vec3_scale(rn->n0, 1.0f - u - v)));
@@ -1735,11 +1756,11 @@ struct vec3 calc_fnrm(struct rtri *t, float inv_transpose[16])
 
 void create_onb(struct vec3 *b1, struct vec3 *b2, struct vec3 n)
 {
-	float sign = copysignf(1.0f, n.z);
-	float a = -1.0f / (sign + n.z);
+	float sgn = copysignf(1.0f, n.z);
+	float a = -1.0f / (sgn + n.z);
 	float b = n.x * n.y * a;
-	*b1 = (struct vec3){1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x};
-	*b2 = (struct vec3){b, sign + n.y * n.y * a, -n.y};
+	*b1 = (struct vec3){1.0f + sgn * n.x * n.x * a, sgn * b, -sgn * n.x};
+	*b2 = (struct vec3){b, sgn + n.y * n.y * a, -n.y};
 }
 
 struct vec3 rand_hemicos(float r0, float r1)
@@ -1878,9 +1899,10 @@ int rend_render(void *d)
 				  vec3_scale(dy, randf(&seed) - 0.5f)));
 
 				struct vec3 c =
-				  //trace(eye, vec3_unit(vec3_sub(p, eye)), rd);
+				  //trace(eye, vec3_unit(vec3_sub(p, eye)),
+				  //rd);
 				  trace2(eye, vec3_unit(vec3_sub(p, eye)), rd,
-				    0, &seed);
+				  0, &seed);
 
 				acc[yofs + x] = vec3_add(acc[yofs + x], c);
 				c = vec3_scale(acc[yofs + x], rspp);
