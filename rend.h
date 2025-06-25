@@ -36,9 +36,7 @@ struct bmnode { // Multi branching bvh with M child nodes, used to build b8node
 };
 
 // Node flags
-#define NODE_EMPTY  0x40000000u // TODO Remove. Only for non-AVX temp version.
 #define NODE_LEAF   0x80000000u // Bit 31 set indicates leaf node
-#define TRIID_MASK  0x0fffffffu // TODO Remove. Only for non-AVX temp version.
 
 // Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
 // 8 children, max 4 tris per leaf
@@ -57,7 +55,6 @@ struct b8node { // Bvh node, 8-wide, 256 bytes
 };
 
 struct leaf4 { // Leaf data of 4 tris, 160+32 bytes
-	//*
 	__m128        v0x; // 4x vertex 0
 	__m128        v0y;
 	__m128        v0z;
@@ -67,12 +64,6 @@ struct leaf4 { // Leaf data of 4 tris, 160+32 bytes
 	__m128        e1x; // 4x edge v2 - v0
 	__m128        e1y;
 	__m128        e1z;
-	//*/
-	/*
-	struct vec3   v0[4];
-	struct vec3   e0[4];
-	struct vec3   e1[4];
-	//*/
 	unsigned int  id[4]; // 4x tri id
 	unsigned int  pad[8];
 };

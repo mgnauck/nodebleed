@@ -34,12 +34,6 @@ struct hit { // 32 bytes
 	unsigned int  id; // triid << INST_ID_BITS | instid & INST_ID_MASK
 };
 
-// Pseudo type for b8node access in 64 byte blocks = 1 cache line
-#define B8NBLK_SZ  64
-struct b8nblk {
-	float data[B8NBLK_SZ / 4];
-};
-
 // Generate LUT to emulate vpcompressq on AVX2
 // https://stackoverflow.com/questions/36932240/avx2-what-is-the-most-efficient-way-to-pack-left-based-on-a-mask/
 unsigned long long get_perm(unsigned char mask)
@@ -647,7 +641,7 @@ int comp_distid(const void *a, const void *b)
 }
 
 // TODO
-// Test 4 tris at once
+// Any hit intersection and traversal
 // Clean unused intersection functions (bmnode intersection etc.)
 // Make merge/split leaf functions non-recursive?
 // Create 8-wide BVH directly instead of transforming binary bvh? (Wald, 2008)
@@ -659,7 +653,7 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 	unsigned int spos = 0;
 
 	// Access our b8node target byte-wise for offset calculation
-	struct b8nblk *tptr = (struct b8nblk *)tgt;
+	unsigned char *tptr = (unsigned char *)tgt;
 
 	unsigned int snid = 0; // Current src node index
 	unsigned int tnofs = 0; // Offset to curr tgt node and leaf data
@@ -671,7 +665,7 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 
 		memset(t, 0, sizeof(*t));
 
-		tnofs += sizeof(*t) / B8NBLK_SZ;
+		tnofs += sizeof(*t);
 		tncnt++;
 
 		unsigned int cid = 0; // 'Compacted' child index, i.e. no gaps
@@ -689,50 +683,41 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 				if (sc->cnt > 0) {
 					// Leaf node
 					assert(sc->cnt <= 4);
-					//assert(tnofs <= 0x7fffffff);
-					assert(tnofs * B8NBLK_SZ <=
-					  0x1fffffff);
+					assert(tnofs <= 0x7fffffff);
 					// Store offset to embedded leaf data
 					((unsigned int *)&t->children)[cid] =
-					  NODE_LEAF | ((sc->cnt - 1) << 29)
-					  | tnofs;
+					  NODE_LEAF | tnofs;
 					// Embedd leaf data
 					struct leaf4 *l = (struct leaf4 *)
 					  (tptr + tnofs);
 					unsigned int *ip = &imap[sc->start];
 					for (unsigned char i = 0; i < 4; i++) {
 						struct rtri *tri = &tris[*ip];
-						//*
+
 						l->v0x[i] = tri->v0.x;
 						l->v0y[i] = tri->v0.y;
 						l->v0z[i] = tri->v0.z;
+
 						struct vec3 e0 = vec3_sub(
 						  tri->v1, tri->v0);
 						l->e0x[i] = e0.x;
 						l->e0y[i] = e0.y;
 						l->e0z[i] = e0.z;
+
 						struct vec3 e1 = vec3_sub(
 						  tri->v2, tri->v0);
 						l->e1x[i] = e1.x;
 						l->e1y[i] = e1.y;
 						l->e1z[i] = e1.z;
-						//*/
-						/*
-						l->v0[i] = tri->v0;
-						struct vec3 e0 = vec3_sub(
-						  tri->v1, tri->v0);
-						l->e0[i] = e0;
-						struct vec3 e1 = vec3_sub(
-						  tri->v2, tri->v0);
-						l->e1[i] = e1;
-						//*/
+
 						l->id[i] = *ip;
+
 						// Replicate last tri if not 4
 						if (i < s->cnt - 1)
 							ip++;
 					}
 					// Account for leaf data
-					tnofs += sizeof(*l) / B8NBLK_SZ;
+					tnofs += sizeof(*l);
 				} else {
 					// Interior node
 					// Push offset to current child, so
@@ -788,7 +773,6 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 			t->maxy[cid] = -FLT_MAX;
 			t->minz[cid] = FLT_MAX;
 			t->maxz[cid] = -FLT_MAX;
-			((unsigned int *)&t->children)[cid] = NODE_EMPTY;
 		}
 
 		if (spos > 1) {
@@ -801,30 +785,6 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 	}
 
 	return tncnt;
-}
-
-float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
-                     struct vec3 mi, struct vec3 ma)
-{
-	float tx0 = (mi.x - ori.x) * idir.x;
-	float tx1 = (ma.x - ori.x) * idir.x;
-	float tmin = min(tx0, tx1);
-	float tmax = max(tx0, tx1);
-
-	float ty0 = (mi.y - ori.y) * idir.y;
-	float ty1 = (ma.y - ori.y) * idir.y;
-	tmin = max(tmin, min(ty0, ty1));
-	tmax = min(tmax, max(ty0, ty1));
-
-	float tz0 = (mi.z - ori.z) * idir.z;
-	float tz1 = (ma.z - ori.z) * idir.z;
-	tmin = max(tmin, min(tz0, tz1));
-	tmax = min(tmax, max(tz0, tz1));
-
-	if (tmin <= tmax && tmin < tfar && tmax >= 0.0f)
-		return tmin;
-	else
-		return FLT_MAX;
 }
 
 bool intersect_tri_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
@@ -888,7 +848,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 	_Alignas(64) float dstack[128];
 	unsigned int spos = 0;
 
-	struct b8nblk *ptr = (struct b8nblk *)blas;
+	unsigned char *ptr = (unsigned char *)blas;
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
 	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
@@ -905,7 +865,19 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 	__m256 rz8 = _mm256_set1_ps(ori.z * idz);
 
 	__m256 t8 = _mm256_set1_ps(h->t);
-	__m256 z8 = _mm256_setzero_ps();
+	__m256 zero8 = _mm256_setzero_ps();
+
+	__m128 dx4 = _mm_set1_ps(dir.x);
+	__m128 dy4 = _mm_set1_ps(dir.y);
+	__m128 dz4 = _mm_set1_ps(dir.z);
+
+	__m128 ox4 = _mm_set1_ps(ori.x);
+	__m128 oy4 = _mm_set1_ps(ori.y);
+	__m128 oz4 = _mm_set1_ps(ori.z);
+
+	__m128 zero4 = _mm_setzero_ps();
+	__m128 one4 = _mm_set1_ps(1.0f);
+	__m128 fltmax4 = _mm_set1_ps(FLT_MAX);
 
 	// Ray dir sign defines how to shift the permutation map
 	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
@@ -930,7 +902,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 			  idz8, rz8);
 
 			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
-			  _mm256_max_ps(tx0, ty0), tz0), z8);
+			  _mm256_max_ps(tx0, ty0), tz0), zero8);
 
 			__m256 tmax = _mm256_min_ps(_mm256_min_ps(
 			  _mm256_min_ps(tx1, ty1), tz1), t8);
@@ -992,35 +964,100 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 			}
 		}
 
-		// TODO Intersect 4 triangles at once when tri data is embedded
-
-		// TEMP: Intersect all assigned tris
-		bool hit = false;
+		// Intersect 4 embedded tris at once
 		const struct leaf4 *l = (struct leaf4 *)(ptr
-		  //+ (ofs & ~NODE_LEAF));
-		  + (ofs & 0x1fffffff));
-		for (unsigned char i = 0; i < 1 + ((ofs >> 29) & 3); i++) {
-			//*
-			hit = intersect_tri_impl(h, ori, dir,
-			  (struct vec3){l->v0x[i], l->v0y[i], l->v0z[i]},
-			  (struct vec3){l->e0x[i], l->e0y[i], l->e0z[i]},
-			  (struct vec3){l->e1x[i], l->e1y[i], l->e1z[i]},
-			  l->id[i], instid);
-			//*/
-			/*
-			hit = intersect_tri_impl(h, ori, dir,
-			  l->v0[i], l->e0[i], l->e1[i],
-			  l->id[i], instid);
-			//*/
-		}
+		  + (ofs & ~NODE_LEAF));
 
-		// There was a hit, compress the stack keeping only nearer h->t
-		if (hit) {
-			// Rewrite compressed stack in batches of 8
-			unsigned int spos2 = 0;
+		// Moeller, Trumbore: Ray-triangle intersection
+		// https://fileadmin.cs.lth.se/cs/Personal/Tomas_Akenine-Moller/raytri/
+
+		// pv = cross(dir, e1)
+		__m128 pvx4 = _mm_fmsub_ps(dy4, l->e1z,
+		  _mm_mul_ps(dz4, l->e1y));
+		__m128 pvy4 = _mm_fmsub_ps(dz4, l->e1x,
+		  _mm_mul_ps(dx4, l->e1z));
+		__m128 pvz4 = _mm_fmsub_ps(dx4, l->e1y,
+		  _mm_mul_ps(dy4, l->e1x));
+
+		// tv = ori - v0
+		__m128 tvx4 = _mm_sub_ps(ox4, l->v0x);
+		__m128 tvy4 = _mm_sub_ps(oy4, l->v0y);
+		__m128 tvz4 = _mm_sub_ps(oz4, l->v0z);
+
+		// det = dot(e0, pv)
+		__m128 det4 = _mm_fmadd_ps(l->e0x, pvx4,
+		  _mm_fmadd_ps(l->e0y, pvy4, _mm_mul_ps(l->e0z, pvz4)));
+
+		// qv = cross(tv, e0)
+		__m128 qvx4 = _mm_fmsub_ps(tvy4, l->e0z,
+		  _mm_mul_ps(tvz4, l->e0y));
+		__m128 qvy4 = _mm_fmsub_ps(tvz4, l->e0x,
+		  _mm_mul_ps(tvx4, l->e0z));
+		__m128 qvz4 = _mm_fmsub_ps(tvx4, l->e0y,
+		  _mm_mul_ps(tvy4, l->e0x));
+
+		// idet = 1 / det
+		// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
+		__m128 r4 = _mm_rcp_ps(det4);
+		__m128 m4 = _mm_mul_ps(det4, _mm_mul_ps(r4, r4));
+		__m128 idet4 = _mm_sub_ps(_mm_add_ps(r4, r4), m4);
+
+		// u = idet4 * dot(tv, pv)
+		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
+		  _mm_fmadd_ps(tvy4, pvy4, _mm_mul_ps(tvz4, pvz4))));
+
+		// v = idet * dot(dir, qv)
+		__m128 v4 = _mm_mul_ps(idet4, _mm_fmadd_ps(dx4, qvx4,
+		  _mm_fmadd_ps(dy4, qvy4, _mm_mul_ps(dz4, qvz4))));
+
+		// t = idet * dot(e1, qv)
+		__m128 t4 = _mm_mul_ps(idet4, _mm_fmadd_ps(l->e1x, qvx4,
+		  _mm_fmadd_ps(l->e1y, qvy4, _mm_mul_ps(l->e1z, qvz4))));
+
+		// u >= 0
+		__m128 uzero4 = _mm_cmpge_ps(u4, zero4);
+
+		// v >= 0
+		__m128 vzero4 = _mm_cmpge_ps(v4, zero4);
+
+		// u + v <= 1
+		__m128 uvone4 = _mm_cmple_ps(_mm_add_ps(u4, v4), one4);
+
+		// t > 0
+		__m128 tzero4 = _mm_cmpgt_ps(t4, zero4);
+
+		// t < h->t
+		__m128 tcurr4 = _mm_cmplt_ps(t4, _mm256_extractf128_ps(t8, 0));
+
+		// Merge all comparison results into one final mask
+		__m128 mask4 = _mm_and_ps(tcurr4, _mm_and_ps(
+		  _mm_and_ps(uzero4, vzero4), _mm_and_ps(uvone4, tzero4)));
+
+		if (_mm_movemask_ps(mask4)) { // Any hit? (lowest 4 bits)
+			// Replace misses with FLT_MAX
+			t4 = _mm_blendv_ps(fltmax4, t4, mask4);
+
+			// Horizontal min of t4, result broadcasted
+			__m128 shf = _mm_min_ps(t4, _mm_shuffle_ps(t4, t4,
+			  _MM_SHUFFLE(2, 3, 0, 1)));
+			__m128 min4 = _mm_min_ps(shf, _mm_shuffle_ps(shf, shf,
+			  _MM_SHUFFLE(1, 0, 3, 2)));
+
+			// Invert count of leading zeros to get lane
+			unsigned int i = 31 - __builtin_clz(
+			  _mm_movemask_ps(_mm_cmpeq_ps(min4, t4)));
+
+			h->t = t4[i];
+			h->u = u4[i];
+			h->v = v4[i];
+			h->id = (l->id[i] << INST_ID_BITS) | instid;
+
+			// Track latest h->t for upcoming aabb+tri intersections
 			t8 = _mm256_set1_ps(h->t);
-			for (unsigned int i = 0; i < spos; i += 8) {
 
+			// Compress stack wrt to nearer h->t in batches of 8
+			unsigned int spos2 = 0;
+			for (i = 0; i < spos; i += 8) {
 				__m256 dists8 = _mm256_load_ps(dstack + i);
 				__m256i nids8 = _mm256_load_si256(
 				  (__m256i *)(stack + i));
@@ -1068,7 +1105,7 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	float dstack[128]; // Distance stack
 	unsigned int spos = 0;
 
-	struct b8nblk *ptr = (struct b8nblk *)blas;
+	unsigned char *ptr = (unsigned char *)blas;
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
 	float idx = 1.0f / dir.x;
@@ -1082,6 +1119,10 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	// Ray dir sign defines how to shift the permutation map
 	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
 
+	// Performance could be improved by a node empty flag and the tri cnt
+	// encoded in a leaf's child id, but this function is only for b8node
+	// bvh validation and the AVX2 traversal does not need the additions
+
 	while (true) {
 		if ((ofs & NODE_LEAF) == 0) {
 			const struct b8node *n = (struct b8node *)(ptr + ofs);
@@ -1090,7 +1131,7 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				  (((unsigned int *)&n->perm)[j] >> s) & 7;
 				unsigned int o =
 				  ((unsigned int *)&n->children)[i];
-				if (o & ~NODE_EMPTY) {
+				/*if (o & ~NODE_EMPTY)*/ {
 					// Interior node, check child aabbs
 					float t0x = (dx ? n->minx[i]
 					  : n->maxx[i]) * idx - rx;
@@ -1121,11 +1162,8 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 		} else {
 			// Intersect all embedded tris
 			const struct leaf4 *l = (struct leaf4 *)(ptr
-			//  + (ofs & ~NODE_LEAF));
-			  + (ofs & 0x1fffffff));
-			for (unsigned char i = 0; i < 1 + ((ofs >> 29) & 3);
-			  i++) {
-				//*
+			  + (ofs & ~NODE_LEAF));
+			for (unsigned char i = 0; i < 4; i++) {
 				intersect_tri_impl(h, ori, dir,
 				  (struct vec3){l->v0x[i], l->v0y[i],
 				  l->v0z[i]},
@@ -1134,12 +1172,6 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				  (struct vec3){l->e1x[i], l->e1y[i],
 				  l->e1z[i]},
 				  l->id[i], instid);
-				//*/
-				/*
-				intersect_tri_impl(h, ori, dir,
-				  l->v0[i], l->e0[i], l->e1[i],
-				  l->id[i], instid);
-				//*/
 			}
 		}
 
@@ -1907,10 +1939,10 @@ int rend_render(void *d)
 				acc[yofs + x] = vec3_add(acc[yofs + x], c);
 				c = vec3_scale(acc[yofs + x], rspp);
 
-				buf[yofs + x] = 0xffu << 24 |
-				  min(255, (unsigned int)(255 * c.x)) << 16 |
-				  min(255, (unsigned int)(255 * c.y)) <<  8 |
-				  min(255, (unsigned int)(255 * c.z));
+				buf[yofs + x] = 0xff << 24 |
+				  ((unsigned int)(255 * c.x) & 0xff) << 16 |
+				  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
+				  ((unsigned int)(255 * c.z) & 0xff);
 			}
 		}
 	}
