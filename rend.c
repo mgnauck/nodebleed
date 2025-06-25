@@ -107,9 +107,9 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 		  (float)INTERVAL_CNT / (n->max.x - n->min.x),
 		  (float)INTERVAL_CNT / (n->max.y - n->min.y),
 		  (float)INTERVAL_CNT / (n->max.z - n->min.z)};
-		const unsigned int *ip = &imap[n->sid];
+		unsigned int *ip = &imap[n->sid];
 		for (unsigned int i = 0; i < n->cnt; i++) {
-			const struct aabb *a = &aabbs[*ip++];
+			struct aabb *a = &aabbs[*ip++];
 
 			struct vec3 c = vec3_mul(vec3_sub(
 			  vec3_scale(vec3_add(a->min, a->max), 0.5f), n->min),
@@ -831,17 +831,16 @@ bool intersect_tri_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 }
 
 bool intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
-                   const struct rtri *tris,
-                   unsigned int triid, unsigned int instid)
+                   struct rtri *tris, unsigned int triid, unsigned int instid)
 {
-	const struct rtri *t = &tris[triid];
+	struct rtri *t = &tris[triid];
 	struct vec3 v0 = t->v0;
 	return intersect_tri_impl(h, ori, dir, v0, vec3_sub(t->v1, v0),
 	  vec3_sub(t->v2, v0), triid, instid);
 }
 
 void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
-                               const struct b8node *blas, unsigned int instid,
+                               struct b8node *blas, unsigned int instid,
                                bool dx, bool dy, bool dz)
 {
 	_Alignas(64) unsigned int stack[128];
@@ -884,7 +883,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 	while (true) {
 		while ((ofs & NODE_LEAF) == 0) {
-			const struct b8node *n = (struct b8node *)(ptr + ofs);
+			struct b8node *n = (struct b8node *)(ptr + ofs);
 
 			// Slab test with fused mul sub, swap per ray dir
 			__m256 tx0 = _mm256_fmsub_ps(dx ? n->minx : n->maxx,
@@ -965,8 +964,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 		}
 
 		// Intersect 4 embedded tris at once
-		const struct leaf4 *l = (struct leaf4 *)(ptr
-		  + (ofs & ~NODE_LEAF));
+		struct leaf4 *l = (struct leaf4 *)(ptr + (ofs & ~NODE_LEAF));
 
 		// Moeller, Trumbore: Ray-triangle intersection
 		// https://fileadmin.cs.lth.se/cs/Personal/Tomas_Akenine-Moller/raytri/
@@ -1038,9 +1036,9 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 			t4 = _mm_blendv_ps(fltmax4, t4, mask4);
 
 			// Horizontal min of t4, result broadcasted
-			__m128 shf = _mm_min_ps(t4, _mm_shuffle_ps(t4, t4,
+			__m128 sh4 = _mm_min_ps(t4, _mm_shuffle_ps(t4, t4,
 			  _MM_SHUFFLE(2, 3, 0, 1)));
-			__m128 min4 = _mm_min_ps(shf, _mm_shuffle_ps(shf, shf,
+			__m128 min4 = _mm_min_ps(sh4, _mm_shuffle_ps(sh4, sh4,
 			  _MM_SHUFFLE(1, 0, 3, 2)));
 
 			// Invert count of leading zeros to get lane
@@ -1052,7 +1050,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 			h->v = v4[i];
 			h->id = (l->id[i] << INST_ID_BITS) | instid;
 
-			// Track latest h->t for upcoming aabb+tri intersections
+			// Track closest h->t for future aabb+tri intersections
 			t8 = _mm256_set1_ps(h->t);
 
 			// Compress stack wrt to nearer h->t in batches of 8
@@ -1098,7 +1096,7 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 // Intersects b8nodes, temporarily used to check if 8-wide bvh is valid
 void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                          const struct b8node *blas, unsigned int instid,
+                          struct b8node *blas, unsigned int instid,
                           bool dx, bool dy, bool dz)
 {
 	unsigned int stack[128];
@@ -1125,7 +1123,7 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 	while (true) {
 		if ((ofs & NODE_LEAF) == 0) {
-			const struct b8node *n = (struct b8node *)(ptr + ofs);
+			struct b8node *n = (struct b8node *)(ptr + ofs);
 			for (unsigned char j = 0; j < 8; j++) {
 				unsigned int i =
 				  (((unsigned int *)&n->perm)[j] >> s) & 7;
@@ -1161,7 +1159,7 @@ void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 			}
 		} else {
 			// Intersect all embedded tris
-			const struct leaf4 *l = (struct leaf4 *)(ptr
+			struct leaf4 *l = (struct leaf4 *)(ptr
 			  + (ofs & ~NODE_LEAF));
 			for (unsigned char i = 0; i < 4; i++) {
 				intersect_tri_impl(h, ori, dir,
@@ -1186,7 +1184,7 @@ next_iter:
 }
 
 void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
-                     const struct b8node *blas, unsigned int instid)
+                     struct b8node *blas, unsigned int instid)
 {
 	intersect_blas3_impl_avx2(h, ori, dir, blas, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
@@ -1194,8 +1192,8 @@ void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 // Intersects bmnodes (m-wide, currently 8)
 void intersect_blas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                          const struct bmnode *blas, const unsigned int *imap,
-                          const struct rtri *tris, unsigned int instid,
+                          struct bmnode *blas, unsigned int *imap,
+                          struct rtri *tris, unsigned int instid,
                           bool dx, bool dy, bool dz)
 {
 	unsigned int stack[128];
@@ -1212,7 +1210,7 @@ void intersect_blas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	float rz = ori.z * idz;
 
 	while (true) {
-		const struct bmnode *n = &blas[curr];
+		struct bmnode *n = &blas[curr];
 
 		if (n->cnt > 0) {
 			// Leaf, check triangles
@@ -1227,7 +1225,7 @@ void intersect_blas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				// Interior node, check child aabbs
 				unsigned int cid = n->children[i];
 				assert(cid > 0);
-				const struct bmnode *c = &blas[cid];
+				struct bmnode *c = &blas[cid];
 
 				float t0x = (dx ? c->min.x : c->max.x)
 				  * idx - rx;
@@ -1272,8 +1270,8 @@ void intersect_blas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 }
 
 void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
-                     const struct bmnode *blas, const unsigned int *imap,
-                     const struct rtri *tris, unsigned int instid)
+                     struct bmnode *blas, unsigned int *imap,
+                     struct rtri *tris, unsigned int instid)
 {
 	intersect_blas2_impl(h, ori, dir, blas, imap, tris, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
@@ -1281,8 +1279,8 @@ void intersect_blas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 // Intersects b2nodes (2-wide)
 void intersect_blas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                          const struct b2node *blas, const unsigned int *imap,
-                          const struct rtri *tris, unsigned int instid,
+                          struct b2node *blas, unsigned int *imap,
+                          struct rtri *tris, unsigned int instid,
                           bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
@@ -1300,7 +1298,7 @@ void intersect_blas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	float rz = ori.z * idz;
 
 	while (true) {
-		const struct b2node *n = &blas[curr];
+		struct b2node *n = &blas[curr];
 
 		if (n->cnt > 0) {
 			// Leaf, check triangles
@@ -1375,18 +1373,18 @@ next_iter:
 }
 
 void intersect_blas1(struct hit *h, struct vec3 ori, struct vec3 dir,
-                     const struct b2node *blas, const unsigned int *imap,
-                     const struct rtri *tris, unsigned int instid)
+                     struct b2node *blas, unsigned int *imap,
+                     struct rtri *tris, unsigned int instid)
 {
 	intersect_blas1_impl(h, ori, dir, blas, imap, tris, instid,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
 void intersect_tlas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                         const struct b2node *nodes, // TODO tlas nodes
-                         const struct b8node *mnodes, const unsigned int *imap,
-                         const struct rinst *insts,
-                         const struct rtri *tris, // TODO Not used by b8nodes
+                         struct b2node *nodes, // TODO tlas nodes
+                         struct b8node *mnodes, unsigned int *imap,
+                         struct rinst *insts,
+                         struct rtri *tris, // TODO Not used by b8nodes
                          unsigned int tlasofs, bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
@@ -1395,8 +1393,8 @@ void intersect_tlas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 	unsigned int curr = 0;
 
-	const struct b2node *tlas = &nodes[tlasofs << 1];
-	const unsigned int *tlasimap = &imap[tlasofs];
+	struct b2node *tlas = &nodes[tlasofs << 1];
+	unsigned int *tlasimap = &imap[tlasofs];
 
 	float idx = 1.0f / dir.x;
 	float idy = 1.0f / dir.y;
@@ -1407,14 +1405,14 @@ void intersect_tlas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	float rz = ori.z * idz;
 
 	while (true) {
-		const struct b2node *n = &tlas[curr];
+		struct b2node *n = &tlas[curr];
 
 		if (n->cnt > 0) {
 			// Leaf, check instance blas
-			const unsigned int *ip = &tlasimap[n->start];
+			unsigned int *ip = &tlasimap[n->start];
 			for (unsigned int i = 0; i < n->cnt; i++) {
 				unsigned int instid = *ip++;
-				const struct rinst *ri = &insts[instid];
+				struct rinst *ri = &insts[instid];
 
 				// Transform ray into object space of instance
 				float inv[16];
@@ -1498,10 +1496,10 @@ next_iter:
 }
 
 void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
-                     const struct b2node *nodes, // TODO tlas nodes
-                     const struct b8node *mnodes, const unsigned int *imap,
-                     const struct rinst *insts,
-                     const struct rtri *tris, // TODO Not used by b8nodes
+                     struct b2node *nodes, // TODO tlas nodes
+                     struct b8node *mnodes, unsigned int *imap,
+                     struct rinst *insts,
+                     struct rtri *tris, // TODO Not used by b8nodes
                      unsigned int tlasofs)
 {
 	intersect_tlas2_impl(h, ori, dir, nodes, mnodes, imap, insts, tris,
@@ -1509,10 +1507,10 @@ void intersect_tlas2(struct hit *h, struct vec3 ori, struct vec3 dir,
 }
 
 void intersect_tlas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                         const struct bnode *nodes, // TODO tlas nodes
-                         const struct b8node *mnodes, const unsigned int *imap,
-                         const struct rinst *insts,
-                         const struct rtri *tris, // TODO Not used by b8nodes
+                         struct bnode *nodes, // TODO tlas nodes
+                         struct b8node *mnodes, unsigned int *imap,
+                         struct rinst *insts,
+                         struct rtri *tris, // TODO Not used by b8nodes
                          unsigned int tlasofs, bool dx, bool dy, bool dz)
 {
 	unsigned int stack[64];
@@ -1521,8 +1519,8 @@ void intersect_tlas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 	unsigned int curr = 0;
 
-	const struct bnode *tlas = &nodes[tlasofs << 1];
-	const unsigned int *tlasimap = &imap[tlasofs];
+	struct bnode *tlas = &nodes[tlasofs << 1];
+	unsigned int *tlasimap = &imap[tlasofs];
 
 	float idx = 1.0f / dir.x;
 	float idy = 1.0f / dir.y;
@@ -1533,14 +1531,14 @@ void intersect_tlas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	float rz = ori.z * idz;
 
 	while (true) {
-		const struct bnode *n = &tlas[curr];
+		struct bnode *n = &tlas[curr];
 
 		if (n->cnt > 0) {
 			// Leaf, check instance blas
-			const unsigned int *ip = &tlasimap[n->sid];
+			unsigned int *ip = &tlasimap[n->sid];
 			for (unsigned int i = 0; i < n->cnt; i++) {
 				unsigned int instid = *ip++;
-				const struct rinst *ri = &insts[instid];
+				struct rinst *ri = &insts[instid];
 
 				// Transform ray into object space of instance
 				float inv[16];
@@ -1567,8 +1565,8 @@ void intersect_tlas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 			unsigned int l = n->sid;
 			unsigned int r = l + 1;
 
-			const struct bnode *cl = &tlas[l];
-			const struct bnode *cr = &tlas[r];
+			struct bnode *cl = &tlas[l];
+			struct bnode *cr = &tlas[r];
 
 			float t0xl = (dx ? cl->min.x : cl->max.x) * idx - rx;
 			float t0yl = (dy ? cl->min.y : cl->max.y) * idy - ry;
@@ -1627,10 +1625,10 @@ next_iter:
 }
 
 void intersect_tlas1(struct hit *h, struct vec3 ori, struct vec3 dir,
-                     const struct bnode *nodes, // TODO tlas nodes
-                     const struct b8node *mnodes, const unsigned int *imap,
-                     const struct rinst *insts,
-                     const struct rtri *tris, // TODO Not used by b8nodes
+                     struct bnode *nodes, // TODO tlas nodes
+                     struct b8node *mnodes, unsigned int *imap,
+                     struct rinst *insts,
+                     struct rtri *tris, // TODO Not used by b8nodes
                      unsigned int tlasofs)
 {
 	intersect_tlas1_impl(h, ori, dir, nodes, mnodes, imap, insts, tris,
@@ -1802,7 +1800,7 @@ struct vec3 rand_hemicos(float r0, float r1)
 	return (struct vec3){cosf(phi) * sr1, sinf(phi) * sr1, sqrtf(1 - r1)};
 }
 
-struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
+struct vec3 trace(struct vec3 o, struct vec3 d, struct rdata *rd)
 {
 	struct hit h = {.t = FLT_MAX};
 
@@ -1833,7 +1831,7 @@ struct vec3 trace(struct vec3 o, struct vec3 d, const struct rdata *rd)
 	return c;
 }
 
-struct vec3 trace2(struct vec3 o, struct vec3 d, const struct rdata *rd,
+struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
                    unsigned char depth, unsigned int *seed)
 {
 	if (depth >= 2)
