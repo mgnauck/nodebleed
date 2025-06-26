@@ -641,10 +641,12 @@ int comp_distid(const void *a, const void *b)
 }
 
 // TODO
-// Any hit intersection and traversal
-// Clean unused intersection functions (bmnode intersection etc.)
-// Make merge/split leaf functions non-recursive?
+// Test any hit functions
+// NAN handling on AVX2 traversal functions
+// Do comparisons of bnode vs b2node tlas traversal
 // Create 8-wide BVH directly instead of transforming binary bvh? (Wald, 2008)
+// Make merge/split leaf functions non-recursive?
+// Clean unused intersection functions (bmnode intersection etc.)
 
 unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
                             unsigned int *imap, struct rtri *tris)
@@ -749,7 +751,7 @@ unsigned int convert_b8node(struct b8node *tgt, struct bmnode *src,
 					  j & 1 ? c->min.x : c->max.x,
 					  j & 2 ? c->min.y : c->max.y,
 					  j & 4 ? c->min.z : c->max.z};
-					cdi[i].dist= vec3_dot(dir, corner);
+					cdi[i].dist = vec3_dot(dir, corner);
 				} else {
 					// No child assigned, still gets sorted
 					cdi[i].dist = FLT_MAX;
@@ -830,6 +832,41 @@ bool intersect_tri_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	return false;
 }
 
+bool intersect_any_tri_impl(float tfar, struct vec3 ori, struct vec3 dir,
+                            struct vec3 v0, struct vec3 e0, struct vec3 e1)
+{
+	// Calculate determinant
+	struct vec3 pv = vec3_cross(dir, e1);
+	float det = vec3_dot(e0, pv);
+
+	if (fabsf(det) < EPS)
+		// Ray in plane of triangle
+		return false;
+
+	float idet = 1.0f / det;
+
+	// Distance v0 to origin
+	struct vec3 tv = vec3_sub(ori, v0);
+
+	// Calculate param u and test bounds
+	float u = vec3_dot(tv, pv) * idet;
+	if (u < 0.0f || u > 1.0f)
+		return false;
+
+	// Prepare to test for v
+	struct vec3 qv = vec3_cross(tv, e0);
+
+	// Calculate param v and test bounds
+	float v = vec3_dot(dir, qv) * idet;
+	if (v < 0.0f || u + v > 1.0f)
+		return false;
+
+	// Calculate dist
+	float dist = vec3_dot(e1, qv) * idet;
+
+	return dist > 0.0f && dist < tfar;
+}
+
 bool intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
                    struct rtri *tris, unsigned int triid, unsigned int instid)
 {
@@ -837,6 +874,14 @@ bool intersect_tri(struct hit *h, struct vec3 ori, struct vec3 dir,
 	struct vec3 v0 = t->v0;
 	return intersect_tri_impl(h, ori, dir, v0, vec3_sub(t->v1, v0),
 	  vec3_sub(t->v2, v0), triid, instid);
+}
+
+bool intersect_any_tri(float tfar, struct vec3 ori, struct vec3 dir,
+                       struct rtri *t)
+{
+	struct vec3 v0 = t->v0;
+	return intersect_any_tri_impl(tfar, ori, dir, v0, vec3_sub(t->v1, v0),
+	  vec3_sub(t->v2, v0));
 }
 
 void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
@@ -1094,7 +1139,186 @@ void intersect_blas3_impl_avx2(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-// Intersects b8nodes, temporarily used to check if 8-wide bvh is valid
+bool intersect_any_blas3_impl_avx2(float tfar, struct vec3 ori,
+                                   struct vec3 dir, struct b8node *blas,
+                                   bool dx, bool dy, bool dz)
+{
+	_Alignas(64) unsigned int stack[128];
+	unsigned int spos = 0;
+
+	unsigned char *ptr = (unsigned char *)blas;
+	unsigned int ofs = 0; // Offset to curr node or leaf data
+
+	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
+	float idx = 1.0f / dir.x;
+	float idy = 1.0f / dir.y;
+	float idz = 1.0f / dir.z;
+
+	__m256 idx8 = _mm256_set1_ps(idx);
+	__m256 idy8 = _mm256_set1_ps(idy);
+	__m256 idz8 = _mm256_set1_ps(idz);
+
+	__m256 rx8 = _mm256_set1_ps(ori.x * idx);
+	__m256 ry8 = _mm256_set1_ps(ori.y * idy);
+	__m256 rz8 = _mm256_set1_ps(ori.z * idz);
+
+	__m256 t8 = _mm256_set1_ps(tfar);
+	__m256 zero8 = _mm256_setzero_ps();
+
+	__m128 dx4 = _mm_set1_ps(dir.x);
+	__m128 dy4 = _mm_set1_ps(dir.y);
+	__m128 dz4 = _mm_set1_ps(dir.z);
+
+	__m128 ox4 = _mm_set1_ps(ori.x);
+	__m128 oy4 = _mm_set1_ps(ori.y);
+	__m128 oz4 = _mm_set1_ps(ori.z);
+
+	__m128 zero4 = _mm_setzero_ps();
+	__m128 one4 = _mm_set1_ps(1.0f);
+
+	while (true) {
+		while ((ofs & NODE_LEAF) == 0) {
+			struct b8node *n = (struct b8node *)(ptr + ofs);
+
+			// Slab test with fused mul sub, swap per ray dir
+			__m256 tx0 = _mm256_fmsub_ps(dx ? n->minx : n->maxx,
+			  idx8, rx8);
+			__m256 ty0 = _mm256_fmsub_ps(dy ? n->miny : n->maxy,
+			  idy8, ry8);
+			__m256 tz0 = _mm256_fmsub_ps(dz ? n->minz : n->maxz,
+			  idz8, rz8);
+
+			__m256 tx1 = _mm256_fmsub_ps(dx ? n->maxx : n->minx,
+			  idx8, rx8);
+			__m256 ty1 = _mm256_fmsub_ps(dy ? n->maxy : n->miny,
+			  idy8, ry8);
+			__m256 tz1 = _mm256_fmsub_ps(dz ? n->maxz : n->minz,
+			  idz8, rz8);
+
+			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
+			  _mm256_max_ps(tx0, ty0), tz0), zero8);
+
+			__m256 tmax = _mm256_min_ps(_mm256_min_ps(
+			  _mm256_min_ps(tx1, ty1), tz1), t8);
+
+			// OQ = ordered/not signaling, 0 if any operand is NAN
+			__m256 hitmask8 =
+			  _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
+			unsigned int hitmask = _mm256_movemask_ps(hitmask8);
+			unsigned int hitcnt = __builtin_popcount(hitmask);
+
+			switch (hitcnt) {
+			case 0:
+				// No hit, consult stack
+				if (spos > 0)
+					ofs = stack[--spos];
+				else
+					return false;
+				break;
+			case 1:
+				// Single hit, directly continue w/ child node
+				ofs = ((unsigned int *)&n->children)[
+				  // Invert count of leading zeros to get lane
+				  31 - __builtin_clz(hitmask)];
+				break;
+			default:
+				; // Avoid compiler warn 'decl after label'
+
+				// More than one hit
+
+				// Compress unordered child nodes via lut
+				__m256 childfin8 = _mm256_permutevar8x32_epi32(
+				  n->children, compr_lut[hitmask]);
+
+				// Unaligned store children on stack
+				_mm256_storeu_si256((__m256i *)(stack + spos),
+				  childfin8);
+
+				spos += hitcnt - 1; // Account for pushed nodes
+				ofs = stack[spos]; // Next node
+			}
+		}
+
+		// Intersect 4 embedded tris at once
+		struct leaf4 *l = (struct leaf4 *)(ptr + (ofs & ~NODE_LEAF));
+
+		// Moeller, Trumbore: Ray-triangle intersection
+		// https://fileadmin.cs.lth.se/cs/Personal/Tomas_Akenine-Moller/raytri/
+
+		// pv = cross(dir, e1)
+		__m128 pvx4 = _mm_fmsub_ps(dy4, l->e1z,
+		  _mm_mul_ps(dz4, l->e1y));
+		__m128 pvy4 = _mm_fmsub_ps(dz4, l->e1x,
+		  _mm_mul_ps(dx4, l->e1z));
+		__m128 pvz4 = _mm_fmsub_ps(dx4, l->e1y,
+		  _mm_mul_ps(dy4, l->e1x));
+
+		// tv = ori - v0
+		__m128 tvx4 = _mm_sub_ps(ox4, l->v0x);
+		__m128 tvy4 = _mm_sub_ps(oy4, l->v0y);
+		__m128 tvz4 = _mm_sub_ps(oz4, l->v0z);
+
+		// det = dot(e0, pv)
+		__m128 det4 = _mm_fmadd_ps(l->e0x, pvx4,
+		  _mm_fmadd_ps(l->e0y, pvy4, _mm_mul_ps(l->e0z, pvz4)));
+
+		// qv = cross(tv, e0)
+		__m128 qvx4 = _mm_fmsub_ps(tvy4, l->e0z,
+		  _mm_mul_ps(tvz4, l->e0y));
+		__m128 qvy4 = _mm_fmsub_ps(tvz4, l->e0x,
+		  _mm_mul_ps(tvx4, l->e0z));
+		__m128 qvz4 = _mm_fmsub_ps(tvx4, l->e0y,
+		  _mm_mul_ps(tvy4, l->e0x));
+
+		// idet = 1 / det
+		// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
+		__m128 r4 = _mm_rcp_ps(det4);
+		__m128 m4 = _mm_mul_ps(det4, _mm_mul_ps(r4, r4));
+		__m128 idet4 = _mm_sub_ps(_mm_add_ps(r4, r4), m4);
+
+		// u = idet4 * dot(tv, pv)
+		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
+		  _mm_fmadd_ps(tvy4, pvy4, _mm_mul_ps(tvz4, pvz4))));
+
+		// v = idet * dot(dir, qv)
+		__m128 v4 = _mm_mul_ps(idet4, _mm_fmadd_ps(dx4, qvx4,
+		  _mm_fmadd_ps(dy4, qvy4, _mm_mul_ps(dz4, qvz4))));
+
+		// t = idet * dot(e1, qv)
+		__m128 t4 = _mm_mul_ps(idet4, _mm_fmadd_ps(l->e1x, qvx4,
+		  _mm_fmadd_ps(l->e1y, qvy4, _mm_mul_ps(l->e1z, qvz4))));
+
+		// u >= 0
+		__m128 uzero4 = _mm_cmpge_ps(u4, zero4);
+
+		// v >= 0
+		__m128 vzero4 = _mm_cmpge_ps(v4, zero4);
+
+		// u + v <= 1
+		__m128 uvone4 = _mm_cmple_ps(_mm_add_ps(u4, v4), one4);
+
+		// t > 0
+		__m128 tzero4 = _mm_cmpgt_ps(t4, zero4);
+
+		// t < h->t
+		__m128 tcurr4 = _mm_cmplt_ps(t4, _mm256_extractf128_ps(t8, 0));
+
+		// Merge all comparison results into one final mask
+		__m128 mask4 = _mm_and_ps(tcurr4, _mm_and_ps(
+		  _mm_and_ps(uzero4, vzero4), _mm_and_ps(uvone4, tzero4)));
+
+		// Any hit? (lowest 4 bits)
+		if (_mm_movemask_ps(mask4))
+			return true;
+
+		// Pop next node from stack if something is left
+		if (spos > 0)
+			ofs = stack[--spos];
+		else
+			return false;
+	}
+}
+
 void intersect_blas3_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                           struct b8node *blas, unsigned int instid,
                           bool dx, bool dy, bool dz)
@@ -1183,6 +1407,84 @@ next_iter:
 	}
 }
 
+bool intersect_any_blas3_impl(float tfar, struct vec3 ori, struct vec3 dir,
+                              struct b8node *blas, bool dx, bool dy, bool dz)
+{
+	unsigned int stack[128];
+	unsigned int spos = 0;
+
+	unsigned char *ptr = (unsigned char *)blas;
+	unsigned int ofs = 0; // Offset to curr node or leaf data
+
+	float idx = 1.0f / dir.x;
+	float idy = 1.0f / dir.y;
+	float idz = 1.0f / dir.z;
+
+	float rx = ori.x * idx;
+	float ry = ori.y * idy;
+	float rz = ori.z * idz;
+
+	// Performance could be improved by a node empty flag and the tri cnt
+	// encoded in a leaf's child id, but this function is only for b8node
+	// bvh validation and the AVX2 traversal does not need the additions
+
+	while (true) {
+		if ((ofs & NODE_LEAF) == 0) {
+			struct b8node *n = (struct b8node *)(ptr + ofs);
+			for (unsigned char i = 0; i < 8; i++) {
+				unsigned int o =
+				  ((unsigned int *)&n->children)[i];
+				/*if (o & ~NODE_EMPTY)*/ {
+					// Interior node, check child aabbs
+					float t0x = (dx ? n->minx[i]
+					  : n->maxx[i]) * idx - rx;
+					float t0y = (dy ? n->miny[i]
+					  : n->maxy[i]) * idy - ry;
+					float t0z = (dz ? n->minz[i]
+					  : n->maxz[i]) * idz - rz;
+
+					float t1x = (dx ? n->maxx[i]
+					  : n->minx[i]) * idx - rx;
+					float t1y = (dy ? n->maxy[i]
+					  : n->miny[i]) * idy - ry;
+					float t1z = (dz ? n->maxz[i]
+					  : n->minz[i]) * idz - rz;
+
+					float tmin =
+					  max(max(t0x, t0y), max(t0z, 0.0f));
+					float tmax =
+					  min(min(t1x, t1y), min(t1z, tfar));
+
+					if (tmax >= tmin) {
+						assert(spos < 128);
+						stack[spos++] = o;
+					}
+				}
+			}
+		} else {
+			// Intersect all embedded tris
+			struct leaf4 *l = (struct leaf4 *)(ptr
+			  + (ofs & ~NODE_LEAF));
+			for (unsigned char i = 0; i < 4; i++) {
+				if (intersect_any_tri_impl(tfar, ori, dir,
+				  (struct vec3){l->v0x[i], l->v0y[i],
+				  l->v0z[i]},
+				  (struct vec3){l->e0x[i], l->e0y[i],
+				  l->e0z[i]},
+				  (struct vec3){l->e1x[i], l->e1y[i],
+				  l->e1z[i]}))
+					return true;
+			}
+		}
+
+		// Pop next node from stack if something is left
+		if (spos > 0)
+			ofs = stack[--spos];
+		else
+			return false;
+	}
+}
+
 void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
                      struct b8node *blas, unsigned int instid)
 {
@@ -1190,7 +1492,14 @@ void intersect_blas3(struct hit *h, struct vec3 ori, struct vec3 dir,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
-// Intersects bmnodes (m-wide, currently 8)
+bool intersect_any_blas3(float tfar, struct vec3 ori, struct vec3 dir,
+                        struct b8node *blas)
+{
+	return intersect_any_blas3_impl_avx2(tfar, ori, dir, blas,
+	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
+}
+
+// Debug only, intersect bmnodes (m-wide, currently 8)
 void intersect_blas2_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                           struct bmnode *blas, unsigned int *imap,
                           struct rtri *tris, unsigned int instid,
@@ -1624,6 +1933,103 @@ next_iter:
 	}
 }
 
+bool intersect_any_tlas1_impl(float tfar, struct vec3 ori, struct vec3 dir,
+                              struct bnode *nodes, // TODO tlas nodes
+                              struct b8node *mnodes, unsigned int *imap,
+                              struct rinst *insts,
+                              struct rtri *tris, // TODO Not used by b8nodes
+                              unsigned int tlasofs, bool dx, bool dy, bool dz)
+{
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	unsigned int curr = 0;
+
+	struct bnode *tlas = &nodes[tlasofs << 1];
+	unsigned int *tlasimap = &imap[tlasofs];
+
+	float idx = 1.0f / dir.x;
+	float idy = 1.0f / dir.y;
+	float idz = 1.0f / dir.z;
+
+	float rx = ori.x * idx;
+	float ry = ori.y * idy;
+	float rz = ori.z * idz;
+
+	while (true) {
+		struct bnode *n = &tlas[curr];
+
+		if (n->cnt > 0) {
+			// Leaf, check instance blas
+			unsigned int *ip = &tlasimap[n->sid];
+			for (unsigned int i = 0; i < n->cnt; i++) {
+				unsigned int instid = *ip++;
+				struct rinst *ri = &insts[instid];
+
+				// Transform ray into object space of instance
+				float inv[16];
+				mat4_from3x4(inv, ri->globinv);
+
+				if (intersect_any_blas3(tfar,
+				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
+				  &mnodes[ri->triofs << 1]))
+					return true;
+			}
+
+			// Pop next node from stack if something is left
+			if (spos > 0)
+				curr = stack[--spos];
+			else
+				return false;
+		} else {
+			// Interior node, check child aabbs
+			unsigned int l = n->sid;
+			unsigned int r = l + 1;
+
+			struct bnode *cl = &tlas[l];
+			struct bnode *cr = &tlas[r];
+
+			float t0xl = (dx ? cl->min.x : cl->max.x) * idx - rx;
+			float t0yl = (dy ? cl->min.y : cl->max.y) * idy - ry;
+			float t0zl = (dz ? cl->min.z : cl->max.z) * idz - rz;
+			float t0xr = (dx ? cr->min.x : cr->max.x) * idx - rx;
+			float t0yr = (dy ? cr->min.y : cr->max.y) * idy - ry;
+			float t0zr = (dz ? cr->min.z : cr->max.z) * idz - rz;
+
+			float t1xl = (dx ? cl->max.x : cl->min.x) * idx - rx;
+			float t1yl = (dy ? cl->max.y : cl->min.y) * idy - ry;
+			float t1zl = (dz ? cl->max.z : cl->min.z) * idz - rz;
+			float t1xr = (dx ? cr->max.x : cr->min.x) * idx - rx;
+			float t1yr = (dy ? cr->max.y : cr->min.y) * idy - ry;
+			float t1zr = (dz ? cr->max.z : cr->min.z) * idz - rz;
+
+			float tminl = max(max(t0xl, t0yl), max(t0zl, 0.0f));
+			float tminr = max(max(t0xr, t0yr), max(t0zr, 0.0f));
+
+			float tmaxl = min(min(t1xl, t1yl), min(t1zl, tfar));
+			float tmaxr = min(min(t1xr, t1yr), min(t1zr, tfar));
+
+			float d0 = tmaxl >= tminl ? tminl : FLT_MAX;
+			float d1 = tmaxr >= tminr ? tminr : FLT_MAX;
+
+			if (d0 != FLT_MAX) {
+				curr = l;
+				if (d1 != FLT_MAX) {
+					assert(spos < 64);
+					stack[spos++] = r;
+				}
+			} else if (d1 != FLT_MAX) {
+				curr = r;
+			} else {
+				if (spos > 0)
+					curr = stack[--spos];
+				else
+					return false;
+			}
+		}
+	}
+}
+
 void intersect_tlas1(struct hit *h, struct vec3 ori, struct vec3 dir,
                      struct bnode *nodes, // TODO tlas nodes
                      struct b8node *mnodes, unsigned int *imap,
@@ -1633,6 +2039,17 @@ void intersect_tlas1(struct hit *h, struct vec3 ori, struct vec3 dir,
 {
 	intersect_tlas1_impl(h, ori, dir, nodes, mnodes, imap, insts, tris,
 	  tlasofs, dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
+}
+
+bool intersect_any_tlas1(float tfar, struct vec3 ori, struct vec3 dir,
+                         struct bnode *nodes, // TODO tlas nodes
+                         struct b8node *mnodes, unsigned int *imap,
+                         struct rinst *insts,
+                         struct rtri *tris, // TODO Not used by b8nodes
+                         unsigned int tlasofs)
+{
+	return intersect_any_tlas1_impl(tfar, ori, dir, nodes, mnodes, imap,
+	  insts, tris, tlasofs, dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
 void rend_init(struct rdata *rd, unsigned int maxmtls,
