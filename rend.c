@@ -641,8 +641,8 @@ int comp_distid(const void *a, const void *b)
 }
 
 // TODO
-// Test any hit functions
 // NAN handling on AVX2 traversal functions
+// Try packet tracing to speed up first hit
 // Do comparisons of bnode vs b2node tlas traversal
 // Create 8-wide BVH directly instead of transforming binary bvh? (Wald, 2008)
 // Make merge/split leaf functions non-recursive?
