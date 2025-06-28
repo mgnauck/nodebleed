@@ -6,6 +6,7 @@ enum flags {
 	MESH        = 0x0001,
 	CAM         = 0x0002,
 	MTL         = 0x0004,
+	TRANSFORM   = 0x0008,
 
 	// State/behaviour
 	DISABLED    = 0x0100,

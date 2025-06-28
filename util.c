@@ -34,3 +34,8 @@ bool hasflags(unsigned int state, unsigned int flags)
 {
 	return (state & flags) == flags;
 }
+
+bool anyflags(unsigned int state, unsigned int flags)
+{
+	return (state & flags);
+}

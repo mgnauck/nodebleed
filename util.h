@@ -19,5 +19,6 @@ float  randf(unsigned int *seed);
 void   setflags(unsigned int *state, unsigned int flags);
 void   clrflags(unsigned int *state, unsigned int flags);
 bool   hasflags(unsigned int state, unsigned int flags);
+bool   anyflags(unsigned int state, unsigned int flags);
 
 #endif

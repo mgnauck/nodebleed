@@ -69,7 +69,7 @@ void scene_init(struct scene *s, unsigned int maxmeshes,
 
 	s->bgcol = (struct vec3){ 0.0f, 0.0f, 0.0f };
 
-	s->dirty = MESH | MTL | CAM;
+	s->dirty = MESH | MTL | CAM | TRANSFORM;
 }
 
 void scene_release(struct scene *s)
@@ -373,6 +373,13 @@ void scene_updanims(struct scene *s, float time)
 
 		struct tfmat *tfm = &s->tfmats[tr->nid];
 		combine_tfcomp(tfm->loc, &tfc->trans, tfc->rot, &tfc->scale);
+
+		// Make note in scene about change for rdata update later
+		unsigned int flags = s->objs[tr->nid].flags;
+		if (hasflags(flags, MESH))
+			setflags(&s->dirty, TRANSFORM);
+		else if (hasflags(flags, CAM))
+			setflags(&s->dirty, CAM);
 	}
 }
 
@@ -406,4 +413,3 @@ void scene_updcams(struct scene *s)
 		calc_cam(c, s->tfmats[c->nid].glob);
 	}
 }
-

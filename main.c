@@ -28,6 +28,10 @@
 #define dprintf(...) {}
 #endif
 
+long long  start;
+bool       converge = true;
+bool       cntrlcam = false;
+
 unsigned int get_max_tris(struct mesh *meshes, unsigned int meshcnt)
 {
 	unsigned int maxtris = 0;
@@ -154,6 +158,18 @@ void upd_rcam(struct rcam *rc, struct cam *c)
 	  .focdist = c->focdist};
 }
 
+void cam_calcbase(struct cam *c)
+{
+	c->ri = vec3_unit(vec3_cross((struct vec3){0.0f, 1.0f, 0.0f}, c->fwd));
+	c->up = vec3_unit(vec3_cross(c->fwd, c->ri));
+}
+
+void cam_setdir(struct cam *c, struct vec3 dir)
+{
+	c->fwd = vec3_unit(dir);
+	cam_calcbase(c);
+}
+
 void calc_view(struct rview *v, unsigned int width, unsigned int height,
                struct cam *c)
 {
@@ -214,6 +230,7 @@ void init(struct scene *s, struct rdata *rd)
 	for (unsigned int i = 0; i < WIDTH * HEIGHT; i++)
 		rd->acc[i] = (struct vec3){0.0f, 0.0f, 0.0f};
 
+	// In case we do not call update, initialize at least once here
 	scene_updanims(s, 0.0f);
 	scene_updtransforms(s);
 	scene_updcams(s);
@@ -221,67 +238,80 @@ void init(struct scene *s, struct rdata *rd)
 
 void update(struct rdata *rd, struct scene *s, float time)
 {
-	if (hasflags(s->dirty, CAM)) {
-		memset(rd->acc, 0, WIDTH * HEIGHT * sizeof(*rd->acc));
-		rd->samplecnt = 0;
-		clrflags(&s->dirty, CAM);
+	scene_updanims(s, time);
+
+	if (hasflags(s->dirty, TRANSFORM)) {
+		scene_updtransforms(s);
+
+		upd_rinsts(rd, s);
+
+		//long long last = SDL_GetTicks64();
+		rend_prepdynamic(rd);
+		//dprintf("TLAS update in %llu ms\n", SDL_GetTicks64() - last);
 	}
 
-	scene_updanims(s, time);
-	scene_updtransforms(s);
-	//scene_updcams(s);
+	if (hasflags(s->dirty, CAM)) {
+		if (!cntrlcam)
+			scene_updcams(s);
 
-	upd_rinsts(rd, s);
+		struct cam *c = &s->cams[s->currcam];
+		upd_rcam(&rd->cam, c);
 
-	//long long last = SDL_GetTicks64();
-	rend_prepdynamic(rd);
-	//dprintf("Created tlas in %llu ms\n", SDL_GetTicks64() - last);
+		calc_view(&rd->view, WIDTH, HEIGHT, c);
+	}
 
-	struct cam *c = &s->cams[s->currcam];
-	upd_rcam(&rd->cam, c);
-
-	calc_view(&rd->view, WIDTH, HEIGHT, c);
-}
-
-void cam_calcbase(struct cam *c)
-{
-	c->ri = vec3_unit(vec3_cross((struct vec3){0.0f, 1.0f, 0.0f}, c->fwd));
-	c->up = vec3_unit(vec3_cross(c->fwd, c->ri));
-}
-
-void cam_setdir(struct cam *c, struct vec3 dir)
-{
-	c->fwd = vec3_unit(dir);
-	cam_calcbase(c);
+	if (!converge || anyflags(s->dirty, TRANSFORM | CAM)) {
+		memset(rd->acc, 0, WIDTH * HEIGHT * sizeof(*rd->acc));
+		rd->samplecnt = 0;
+		clrflags(&s->dirty, TRANSFORM | CAM);
+	}
 }
 
 void keydown(struct scene *s, int key)
 {
-	struct cam *c = &s->cams[s->currcam];
+	if (cntrlcam) {
+		struct cam *c = &s->cams[s->currcam];
 
-	switch (key) {
-	case 'a':
-		c->eye = vec3_add(c->eye, vec3_scale(c->ri, -CAMMOV));
-		break;
-	case 'd':
-		c->eye = vec3_add(c->eye, vec3_scale(c->ri, CAMMOV));
-		break;
-	case 'w':
-		c->eye = vec3_add(c->eye, vec3_scale(c->fwd, -CAMMOV));
-		break;
-	case 's':
-		c->eye = vec3_add(c->eye, vec3_scale(c->fwd, CAMMOV));
-		break;
-	case 'r':
-		scene_updcams(s);
-		break;
+		switch (key) {
+		case 'a':
+			c->eye = vec3_add(c->eye, vec3_scale(c->ri, -CAMMOV));
+			setflags(&s->dirty, CAM);
+			break;
+		case 'd':
+			c->eye = vec3_add(c->eye, vec3_scale(c->ri, CAMMOV));
+			setflags(&s->dirty, CAM);
+			break;
+		case 'w':
+			c->eye = vec3_add(c->eye, vec3_scale(c->fwd, -CAMMOV));
+			setflags(&s->dirty, CAM);
+			break;
+		case 's':
+			c->eye = vec3_add(c->eye, vec3_scale(c->fwd, CAMMOV));
+			setflags(&s->dirty, CAM);
+			break;
+		}
 	}
 
-	setflags(&s->dirty, CAM);
+	switch(key) {
+	case 'r':
+		start = SDL_GetTicks64();
+		scene_updcams(s);
+		setflags(&s->dirty, CAM);
+		break;
+	case 'c':
+		cntrlcam = !cntrlcam;
+		break;
+	case ' ':
+		converge = !converge;
+		break;
+	}
 }
 
 void mousemove(struct scene *s, int dx, int dy)
 {
+	if (!cntrlcam)
+		return;
+
 	struct cam *c = &s->cams[s->currcam];
 
 	float theta = min(max(acosf(-c->fwd.y) + CAMLOOK * (float)dy,
@@ -296,7 +326,6 @@ void mousemove(struct scene *s, int dx, int dy)
 
 int main(void)
 {
-	// TODO Direct light sampling
 	// TODO Move code from main into some subsys
 	// TODO Subdiv surfaces
 
@@ -329,7 +358,6 @@ int main(void)
 	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	thrd_t thrds[thrdcnt];
 
-	long long start;
 	bool quit = false;
 	start = SDL_GetTicks64();
 	while (!quit) {
