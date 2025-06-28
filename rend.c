@@ -2337,6 +2337,7 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 			invtransp[4 * j + i] = invtransf[4 * i + j];
 
 	struct vec3 nrm = calc_nrm(h.u, h.v, rn, invtransp);
+	//struct vec3 nrm = calc_fnrm(&rd->tris[ri->triofs + triid], invtransp);
 
 	struct vec3 direct = {0.0f, 0.0f, 0.0f};
 
