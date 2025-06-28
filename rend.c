@@ -2217,7 +2217,7 @@ struct vec3 rand_hemicos(float r0, float r1)
 	return (struct vec3){cosf(phi) * sr1, sinf(phi) * sr1, sqrtf(1 - r1)};
 }
 
-struct vec3 trace(struct vec3 o, struct vec3 d, struct rdata *rd)
+struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd)
 {
 	struct hit h = {.t = FLT_MAX};
 
@@ -2277,8 +2277,8 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
 
 	struct vec3 nrm = calc_nrm(h.u, h.v, rn, it);
 	//struct vec3 nrm = calc_fnrm(&rd->tris[ri->triofs + triid], it);
-	if (vec3_dot(nrm, d) > 0.0f)
-		nrm = vec3_neg(nrm);
+	//if (vec3_dot(nrm, d) > 0.0f)
+	//	nrm = vec3_neg(nrm);
 
 	// New origin and direction
 	struct vec3 pos = vec3_add(o, vec3_scale(d, h.t));
@@ -2305,6 +2305,87 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return vec3_mul(
 	  vec3_scale(vec3_add(nrm, (struct vec3){1.0f, 1.0f, 1.0f}), 0.5f),
 	  vec3_mul(brdf, irr));
+}
+
+struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
+                   unsigned char depth, unsigned int *seed)
+{
+	struct hit h = {.t = FLT_MAX};
+	intersect_tlas1(&h, o, d, rd->bnodes, rd->b8nodes, rd->imap, rd->insts,
+	  rd->tris, rd->tlasofs);
+
+	if (h.t == FLT_MAX)
+		return rd->bgcol;
+
+	unsigned int instid = h.id & INST_ID_MASK;
+	unsigned int triid = h.id >> INST_ID_BITS;
+
+	struct rinst *ri = &rd->insts[instid];
+	struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+
+	unsigned int mtlid = rn->mtlid;
+
+	struct vec3 pos = vec3_add(o, vec3_scale(d, h.t));
+	//struct vec3 brdf = vec3_scale(rd->mtls[mtlid].col, INV_PI);
+	struct vec3 brdf = rd->mtls[mtlid].col;
+
+	// Inverse transpose, dir mul is 3x4
+	float invtransp[16];
+	float *invtransf = ri->globinv;
+	for (int j = 0; j < 4; j++)
+		for (int i = 0; i < 3; i++)
+			invtransp[4 * j + i] = invtransf[4 * i + j];
+
+	struct vec3 nrm = calc_nrm(h.u, h.v, rn, invtransp);
+
+	struct vec3 direct = {0.0f, 0.0f, 0.0f};
+
+#define SAMPLE_LIGHT
+#define SAMPLE_INDIRECT
+
+#ifdef SAMPLE_LIGHT
+	// Sample direct illumination
+	struct vec3 lcol = {15.0f, 15.0f, 15.0f};
+	struct vec3 lnrm = {0.0f, -1.0f, 0.0f};
+	struct vec3 lpos = {randf(seed) * 20.0f - 20.0f, 70.0f,
+	  randf(seed) * 20.0f + 50.0f};
+	float larea = 20.0f * 20.0f;
+	struct vec3 ldir = vec3_sub(lpos, pos);
+	float ldist = vec3_len(ldir);
+	ldir = vec3_scale(ldir, 1.0f / ldist);
+	float ndotl = vec3_dot(nrm, ldir);
+	if (ndotl > 0.0f)
+		if (!intersect_any_tlas1(ldist, vec3_add(pos,
+		  vec3_scale(ldir, EPS2)), ldir, rd->bnodes, rd->b8nodes,
+		  rd->imap, rd->insts, rd->tris, rd->tlasofs))
+			direct = vec3_scale(vec3_mul(brdf, lcol), INV_PI *
+			  ndotl * vec3_dot(lnrm, vec3_neg(ldir)) * larea *
+			  (1.0f / (ldist * ldist)));
+#endif
+
+	// Sample indirect
+	struct vec3 indirect = {0.0f, 0.0f, 0.0f};
+#ifdef SAMPLE_INDIRECT
+	if (depth < 2) {
+		struct vec3 dir = rand_hemicos(randf(seed), randf(seed));
+		struct vec3 ta, bta;
+		create_onb(&ta, &bta, nrm);
+		dir = vec3_add(vec3_add(vec3_scale(ta, dir.x),
+		  vec3_scale(bta, dir.y)), vec3_scale(nrm, dir.z));
+
+		//float cos_theta = vec3_dot(nrm, dir);
+		//float pdf = cos_theta / PI;
+
+		struct vec3 irr = trace3(vec3_add(pos,
+		  vec3_scale(dir, EPS2)), dir, rd, depth + 1, seed);
+
+		//colind = vec3_scale(vec3_mul(brdf, irr),
+		//  cos_theta / pdf);
+		indirect = vec3_mul(brdf, irr);
+	}
+#endif
+
+	return vec3_add(direct, indirect);
 }
 
 int rend_render(void *d)
@@ -2348,7 +2429,7 @@ int rend_render(void *d)
 				struct vec3 c =
 				  //trace(eye, vec3_unit(vec3_sub(p, eye)),
 				  //rd);
-				  trace2(eye, vec3_unit(vec3_sub(p, eye)), rd,
+				  trace3(eye, vec3_unit(vec3_sub(p, eye)), rd,
 				  0, &seed);
 
 				acc[yofs + x] = vec3_add(acc[yofs + x], c);

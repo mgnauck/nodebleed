@@ -194,7 +194,7 @@ void init(struct scene *s, struct rdata *rd)
 	  s->meshcnt, s->mtlcnt, s->camcnt, s->nodecnt, s->trackcnt,
 	  s->samplercnt);
 
-	s->bgcol = (struct vec3){1.0f, 1.0f, 1.0f};
+	s->bgcol = (struct vec3){0.4f, 0.4f, 0.4};
 
 	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
 	unsigned int instmax = get_max_insts(s->objs, s->nodecnt);
