@@ -27,6 +27,17 @@
 
 static __m256i compr_lut[256];
 
+struct split { // Result from SAH binning step
+	float          cost;
+	unsigned char  axis;
+	unsigned int   pos;
+	struct vec3    lmin;
+	struct vec3    lmax;
+	struct vec3    rmin;
+	struct vec3    rmax;
+	struct vec3    invd;
+};
+
 struct hit { // 32 bytes
 	float         t;
 	float         u;
@@ -65,6 +76,120 @@ float calc_area(struct vec3 mi, struct vec3 ma)
 	return d.x * d.y + d.y * d.z + d.z * d.x;
 }
 
+// SAH binning step to find best split for given node
+void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
+                     struct vec3 nmin, struct vec3 nmax, struct vec3 minext,
+                     struct aabb *aabbs, unsigned int *imap)
+{
+	// Init interval aabbs and counts
+	struct vec3 imin[3][INTERVAL_CNT];
+	struct vec3 imax[3][INTERVAL_CNT];
+	unsigned int icnt[3][INTERVAL_CNT];
+	for (unsigned char a = 0; a < 3; a++) {
+		for (unsigned int i = 0; i < INTERVAL_CNT; i++) {
+			imin[a][i] =
+			  (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX};
+			imax[a][i] =
+			  (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
+			icnt[a][i] = 0;
+		}
+	}
+
+	// Count objects per interval and find the combined bounds
+	best->invd = (struct vec3){ // 1 / interval dims (delta) per axis
+	  (float)INTERVAL_CNT / (nmax.x - nmin.x),
+	  (float)INTERVAL_CNT / (nmax.y - nmin.y),
+	  (float)INTERVAL_CNT / (nmax.z - nmin.z)};
+	unsigned int *ip = &imap[start];
+	for (unsigned int i = 0; i < cnt; i++) {
+		struct aabb *a = &aabbs[*ip++];
+
+		struct vec3 c = vec3_mul(vec3_sub(
+		  vec3_scale(vec3_add(a->min, a->max), 0.5f), nmin),
+		  best->invd);
+
+		// Clamp interval index per axis
+		int binx = min(max((int)c.x, 0), INTERVAL_CNT - 1);
+		int biny = min(max((int)c.y, 0), INTERVAL_CNT - 1);
+		int binz = min(max((int)c.z, 0), INTERVAL_CNT - 1);
+
+		icnt[0][binx]++;
+		imin[0][binx] = vec3_min(imin[0][binx], a->min);
+		imax[0][binx] = vec3_max(imax[0][binx], a->max);
+
+		icnt[1][biny]++;
+		imin[1][biny] = vec3_min(imin[1][biny], a->min);
+		imax[1][biny] = vec3_max(imax[1][biny], a->max);
+
+		icnt[2][binz]++;
+		imin[2][binz] = vec3_min(imin[2][binz], a->min);
+		imax[2][binz] = vec3_max(imax[2][binz], a->max);
+	}
+
+	best->cost = FLT_MAX;
+
+	for (unsigned char a = 0; a < 3; a++) {
+		// Skip 'empty axis'
+		if (vec3_getc(nmax, a) - vec3_getc(nmin, a) <
+		  vec3_getc(minext, a))
+			continue;
+		// Calc l/r areas, cnts and SAH for each interval plane
+		struct vec3 lmin[INTERVAL_CNT - 1];
+		struct vec3 rmin[INTERVAL_CNT - 1];
+		struct vec3 lmax[INTERVAL_CNT - 1];
+		struct vec3 rmax[INTERVAL_CNT - 1];
+		struct vec3 lmi = {FLT_MAX, FLT_MAX, FLT_MAX};
+		struct vec3 lma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+		struct vec3 rmi = {FLT_MAX, FLT_MAX, FLT_MAX};
+		struct vec3 rma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+		unsigned int lcnt = 0;
+		unsigned int rcnt = 0;
+		float lsah[INTERVAL_CNT - 1];
+		float rsah[INTERVAL_CNT - 1];
+		for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
+			// Sweep from left
+			lmi = vec3_min(lmi, imin[a][i]);
+			lmin[i] = lmi;
+
+			lma = vec3_max(lma, imax[a][i]);
+			lmax[i] = lma;
+
+			lcnt += icnt[a][i];
+
+			lsah[i] = lcnt > 0 ?
+			  (float)lcnt * calc_area(lmi, lma) : FLT_MAX;
+
+			// Sweep from right
+			rmi = vec3_min(rmi,
+			  imin[a][INTERVAL_CNT - 1 - i]);
+			rmin[INTERVAL_CNT - 2 - i] = rmi;
+
+			rma = vec3_max(rma,
+			  imax[a][INTERVAL_CNT - 1 - i]);
+			rmax[INTERVAL_CNT - 2 - i] = rma;
+
+			rcnt += icnt[a][INTERVAL_CNT - 1 - i];
+
+			rsah[INTERVAL_CNT - 2 - i] = rcnt > 0 ?
+			  (float)rcnt * calc_area(rmi, rma) : FLT_MAX;
+		}
+
+		// Find best surface area cost for interval planes
+		for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
+			float c = lsah[i] + rsah[i];
+			if (c < best->cost) {
+				best->cost = c;
+				best->axis = a;
+				best->pos = i;
+				best->lmin = lmin[i];
+				best->lmax = lmax[i];
+				best->rmin = rmin[i];
+				best->rmax = rmax[i];
+			}
+		}
+	}
+}
+
 unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
                        unsigned int *imap, unsigned int cnt,
                        struct vec3 rootmin, struct vec3 rootmax)
@@ -88,122 +213,13 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 	while (true) {
 		struct bnode *n = &nodes[nid];
 
-		// Init interval aabbs and counts
-		struct vec3 imin[3][INTERVAL_CNT];
-		struct vec3 imax[3][INTERVAL_CNT];
-		unsigned int icnt[3][INTERVAL_CNT];
-		for (unsigned char a = 0; a < 3; a++) {
-			for (unsigned int i = 0; i < INTERVAL_CNT; i++) {
-				imin[a][i] =
-				  (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX};
-				imax[a][i] =
-				  (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
-				icnt[a][i] = 0;
-			}
-		}
-
-		// Count objects per interval and find the combined bounds
-		struct vec3 invd = { // 1 / interval dims (delta) per axis
-		  (float)INTERVAL_CNT / (n->max.x - n->min.x),
-		  (float)INTERVAL_CNT / (n->max.y - n->min.y),
-		  (float)INTERVAL_CNT / (n->max.z - n->min.z)};
-		unsigned int *ip = &imap[n->sid];
-		for (unsigned int i = 0; i < n->cnt; i++) {
-			struct aabb *a = &aabbs[*ip++];
-
-			struct vec3 c = vec3_mul(vec3_sub(
-			  vec3_scale(vec3_add(a->min, a->max), 0.5f), n->min),
-			  invd);
-
-			// Clamp interval index per axis
-			int binx = min(max((int)c.x, 0), INTERVAL_CNT - 1);
-			int biny = min(max((int)c.y, 0), INTERVAL_CNT - 1);
-			int binz = min(max((int)c.z, 0), INTERVAL_CNT - 1);
-
-			icnt[0][binx]++;
-			imin[0][binx] = vec3_min(imin[0][binx], a->min);
-			imax[0][binx] = vec3_max(imax[0][binx], a->max);
-
-			icnt[1][biny]++;
-			imin[1][biny] = vec3_min(imin[1][biny], a->min);
-			imax[1][biny] = vec3_max(imax[1][biny], a->max);
-
-			icnt[2][binz]++;
-			imin[2][binz] = vec3_min(imin[2][binz], a->min);
-			imax[2][binz] = vec3_max(imax[2][binz], a->max);
-		}
-
-		float bcost = FLT_MAX; // Best split cost
-		unsigned int baxis; // Best split axis
-		unsigned int bpos; // Best split plane
-		struct vec3 blmin; // Best bounding box l/r
-		struct vec3 blmax;
-		struct vec3 brmin;
-		struct vec3 brmax;
-		for (unsigned char a = 0; a < 3; a++) {
-			// Skip 'empty axis'
-			if (vec3_getc(n->max, a) - vec3_getc(n->min, a) <
-			  vec3_getc(minext, a))
-				continue;
-			// Calc l/r areas, cnts and SAH for each interval plane
-			struct vec3 lmin[INTERVAL_CNT - 1];
-			struct vec3 rmin[INTERVAL_CNT - 1];
-			struct vec3 lmax[INTERVAL_CNT - 1];
-			struct vec3 rmax[INTERVAL_CNT - 1];
-			struct vec3 lmi = {FLT_MAX, FLT_MAX, FLT_MAX};
-			struct vec3 lma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
-			struct vec3 rmi = {FLT_MAX, FLT_MAX, FLT_MAX};
-			struct vec3 rma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
-			unsigned int lcnt = 0;
-			unsigned int rcnt = 0;
-			float lsah[INTERVAL_CNT - 1];
-			float rsah[INTERVAL_CNT - 1];
-			for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
-				// Sweep from left
-				lmi = vec3_min(lmi, imin[a][i]);
-				lmin[i] = lmi;
-
-				lma = vec3_max(lma, imax[a][i]);
-				lmax[i] = lma;
-
-				lcnt += icnt[a][i];
-
-				lsah[i] = lcnt > 0 ?
-				  (float)lcnt * calc_area(lmi, lma) : FLT_MAX;
-
-				// Sweep from right
-				rmi = vec3_min(rmi,
-				  imin[a][INTERVAL_CNT - 1 - i]);
-				rmin[INTERVAL_CNT - 2 - i] = rmi;
-
-				rma = vec3_max(rma,
-				  imax[a][INTERVAL_CNT - 1 - i]);
-				rmax[INTERVAL_CNT - 2 - i] = rma;
-
-				rcnt += icnt[a][INTERVAL_CNT - 1 - i];
-
-				rsah[INTERVAL_CNT - 2 - i] = rcnt > 0 ?
-				  (float)rcnt * calc_area(rmi, rma) : FLT_MAX;
-			}
-
-			// Find best surface area cost for interval planes
-			for (unsigned int i = 0; i < INTERVAL_CNT - 1; i++) {
-				float c = lsah[i] + rsah[i];
-				if (c < bcost) {
-					bcost = c;
-					baxis = a;
-					bpos = i;
-					blmin = lmin[i];
-					blmax = lmax[i];
-					brmin = rmin[i];
-					brmax = rmax[i];
-				}
-			}
-		}
+		struct split best;
+		find_best_split(&best, n->sid, n->cnt, n->min, n->max,
+		  minext, aabbs, imap);
 
 		// Decide if split or leaf has better cost
 		float nosplit = (float)n->cnt;
-		if (nosplit <= 1.0f + bcost / calc_area(n->min, n->max)) {
+		if (nosplit <= 1.0f + best.cost / calc_area(n->min, n->max)) {
 			//dprintf("no split of sid: %d, cnt: %d\n",
 			//  n->sid, n->cnt);
 			if (spos > 0) {
@@ -216,16 +232,16 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 		// Partition in l and r of split plane
 		unsigned int l = n->sid;
 		unsigned int r = l + n->cnt;
-		float invda = vec3_getc(invd, baxis); // Axis only
-		float nmina = vec3_getc(n->min, baxis);
+		float invda = vec3_getc(best.invd, best.axis); // Axis only
+		float nmina = vec3_getc(n->min, best.axis);
 		for (unsigned int i = 0; i < n->cnt; i++) {
 			unsigned int id = imap[l];
 			struct aabb *a = &aabbs[id];
-			float bin =
-			  ((vec3_getc(a->min, baxis) +
-			  vec3_getc(a->max, baxis)) * 0.5f - nmina) * invda;
+			float bin = ((vec3_getc(a->min, best.axis)
+			  + vec3_getc(a->max, best.axis)) * 0.5f - nmina)
+			  * invda;
 			if ((unsigned int)min(max((int)bin, 0),
-			  INTERVAL_CNT - 1) <= bpos) {
+			  INTERVAL_CNT - 1) <= best.pos) {
 				l++;
 			 } else {
 				// Swap tri indices
@@ -249,14 +265,14 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 		struct bnode *left = &nodes[ncnt];
 		left->sid = n->sid;
 		left->cnt = lcnt;
-		left->min = blmin;
-		left->max = blmax;
+		left->min = best.lmin;
+		left->max = best.lmax;
 
 		struct bnode *right = &nodes[ncnt + 1];
 		right->sid = r;
 		right->cnt = n->cnt - lcnt;
-		right->min = brmin;
-		right->max = brmax;
+		right->min = best.rmin;
+		right->max = best.rmax;
 
 		// Update current (interior) node's child link
 		n->sid = ncnt; // Right child is implicitly + 1
@@ -268,6 +284,133 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 		nid = ncnt;
 
 		ncnt += 2; // Account for two new nodes
+	}
+
+	return ncnt;
+}
+
+unsigned int build_bvh8(struct bmnode *nodes, struct aabb *aabbs,
+                        unsigned int *imap, unsigned int cnt,
+                        struct vec3 rootmin, struct vec3 rootmax)
+{
+	unsigned int stack[64];
+	unsigned int spos = 0;
+
+	unsigned int curr = 0;
+	unsigned int ncnt = 2; // Root + first dummy child
+
+	// Prepare root node and first child
+	memset(nodes, 0, 2 * sizeof(*nodes));
+	nodes[0].min = nodes[1].min = rootmin;
+	nodes[0].max = nodes[1].max = rootmax;
+	nodes[0].childcnt = 1;
+	nodes[0].children[0] = 1;
+	nodes[1].cnt = cnt;
+
+	struct vec3 minext = // Min extent relative to root aabb
+	  vec3_scale(vec3_sub(rootmax, rootmin), 0.00000001f);
+
+	while (true) {
+		struct bmnode *n = &nodes[curr];
+
+		// Horizontal split
+		while (n->childcnt < MBVH_CHILD_CNT) {
+			// Find child with biggest surface area
+			struct bmnode *bc = NULL;
+			float bcost = 0.0f;
+			unsigned int bcid;
+			for (unsigned int i = 0; i < n->childcnt; i++) {
+				unsigned int cid = n->children[i];
+				if ((cid & NODE_LEAF) == 0) {
+					struct bmnode *c = &nodes[cid];
+					float cost = calc_area(c->min, c->max);
+					if (cost > bcost) {
+						bc = c;
+						bcost = cost;
+						bcid = i;
+					}
+				}
+			}
+
+			if (!bc) // No child found that can be split
+				break;
+
+			// Run a SAH binning step to split the selected child
+			struct split best;
+			find_best_split(&best, bc->start, bc->cnt,
+			  bc->min, bc->max, minext, aabbs, imap);
+
+			// Compare no split cost vs best split
+			// (horiz. split doesn't increase traversal steps)
+			// 4 triangles per leaf
+			if ((float)n->cnt / 4 < best.cost / (4 *
+			  calc_area(n->min, n->max))) {
+				// Child doesn't want to get split, mark leaf
+				n->children[bcid] |= NODE_LEAF;
+				continue; // Try next child
+			}
+
+			// Partition in l and r of split plane
+			unsigned int l = bc->start;
+			unsigned int r = l + bc->cnt;
+			float invda = vec3_getc(best.invd, best.axis);
+			float nmina = vec3_getc(bc->min, best.axis);
+			for (unsigned int i = 0; i < bc->cnt; i++) {
+				unsigned int id = imap[l];
+				struct aabb *a = &aabbs[id];
+				float bin = ((vec3_getc(a->min, best.axis)
+				  + vec3_getc(a->max, best.axis)) * 0.5f
+				  - nmina) * invda;
+				if ((unsigned int)min(max((int)bin, 0),
+				  INTERVAL_CNT - 1) <= best.pos) {
+					l++;
+				 } else {
+					// Swap tri indices
+					imap[l] = imap[--r];
+					imap[r] = id;
+				}
+			}
+
+			unsigned int lcnt = l - bc->start;
+			if (lcnt == 0 || lcnt == bc->cnt) {
+				//dprintf("one side of the partition was empty at start: %d, l: %d, r: %d\n",
+				//  bc->start, lcnt, bc->cnt - lcnt);
+				break;
+			}
+
+			// Update former child with the left split data
+			bc->cnt = lcnt;
+			bc->min = best.lmin;
+			bc->max = best.lmax;
+
+			// Add a new child node with the right split data
+			struct bmnode *right = &nodes[ncnt];
+			memset(right, 0, sizeof(*right));
+			right->start = r;
+			right->cnt = n->cnt - lcnt;
+			right->min = best.rmin;
+			right->max = best.rmax;
+
+			// Append the new child to our original (parent) node
+			n->children[n->childcnt++] = ncnt++;
+		}
+
+		// Vertical splitting
+		for (unsigned int i = 0; i < n->childcnt; i++) {
+			unsigned int cid = n->children[i];
+			if ((cid & NODE_LEAF) == 0) {
+
+				// TODO Vertical split
+
+				// Schedule interior child node for processing
+				stack[spos++] = cid;
+			}
+		}
+
+		if (spos > 0)
+			curr = stack[--spos];
+		else
+			break;
 	}
 
 	return ncnt;
