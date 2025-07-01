@@ -79,7 +79,7 @@ float calc_area(struct vec3 mi, struct vec3 ma)
 // SAH binning step to find best split for given node
 void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
                      struct vec3 nmin, struct vec3 nmax, struct vec3 minext,
-                     struct aabb *aabbs, unsigned int *imap)
+                     unsigned int mbf, struct aabb *aabbs, unsigned int *imap)
 {
 	// Init interval aabbs and counts
 	struct vec3 imin[3][INTERVAL_CNT];
@@ -157,7 +157,7 @@ void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
 			lcnt += icnt[a][i];
 
 			lsah[i] = lcnt > 0 ?
-			  (float)lcnt * calc_area(lmi, lma) : FLT_MAX;
+			  (float)lcnt * calc_area(lmi, lma) / mbf : FLT_MAX;
 
 			// Sweep from right
 			rmi = vec3_min(rmi,
@@ -171,7 +171,7 @@ void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
 			rcnt += icnt[a][INTERVAL_CNT - 1 - i];
 
 			rsah[INTERVAL_CNT - 2 - i] = rcnt > 0 ?
-			  (float)rcnt * calc_area(rmi, rma) : FLT_MAX;
+			  (float)rcnt * calc_area(rmi, rma) / mbf : FLT_MAX;
 		}
 
 		// Find best surface area cost for interval planes
@@ -188,6 +188,33 @@ void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
 			}
 		}
 	}
+}
+
+unsigned int partition(unsigned int start, unsigned int cnt, struct vec3 nmin,
+                       unsigned int *imap, struct aabb *aabbs, struct split *s)
+{
+	// Partition in l and r of given split plane
+	unsigned int l = start;
+	unsigned int r = start + cnt;
+	float invda = vec3_getc(s->invd, s->axis);
+	float nmina = vec3_getc(nmin, s->axis);
+	for (unsigned int i = 0; i < cnt; i++) {
+		unsigned int id = imap[l];
+		struct aabb *a = &aabbs[id];
+		float bin = ((vec3_getc(a->min, s->axis)
+		  + vec3_getc(a->max, s->axis)) * 0.5f
+		  - nmina) * invda;
+		if ((unsigned int)min(max((int)bin, 0),
+		  INTERVAL_CNT - 1) <= s->pos) {
+			l++;
+		 } else {
+			// Swap indices
+			imap[l] = imap[--r];
+			imap[r] = id;
+		}
+	}
+
+	return l - start; // = left cnt
 }
 
 unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
@@ -215,10 +242,11 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 
 		struct split best;
 		find_best_split(&best, n->sid, n->cnt, n->min, n->max,
-		  minext, aabbs, imap);
+		  minext, 1 /* ignore 2 children in SAH for now */, aabbs,
+		  imap);
 
 		// Decide if split or leaf has better cost
-		float nosplit = (float)n->cnt;
+		float nosplit = (float)n->cnt / 1; // Ignore 2 children in SAH
 		if (nosplit <= 1.0f + best.cost / calc_area(n->min, n->max)) {
 			//dprintf("no split of sid: %d, cnt: %d\n",
 			//  n->sid, n->cnt);
@@ -229,31 +257,11 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 				break;
 		}
 
-		// Partition in l and r of split plane
-		unsigned int l = n->sid;
-		unsigned int r = l + n->cnt;
-		float invda = vec3_getc(best.invd, best.axis); // Axis only
-		float nmina = vec3_getc(n->min, best.axis);
-		for (unsigned int i = 0; i < n->cnt; i++) {
-			unsigned int id = imap[l];
-			struct aabb *a = &aabbs[id];
-			float bin = ((vec3_getc(a->min, best.axis)
-			  + vec3_getc(a->max, best.axis)) * 0.5f - nmina)
-			  * invda;
-			if ((unsigned int)min(max((int)bin, 0),
-			  INTERVAL_CNT - 1) <= best.pos) {
-				l++;
-			 } else {
-				// Swap tri indices
-				imap[l] = imap[--r];
-				imap[r] = id;
-			}
-		}
-
-		unsigned int lcnt = l - n->sid;
+		unsigned int lcnt = partition(n->sid, n->cnt, n->min, imap,
+		  aabbs, &best);
 		if (lcnt == 0 || lcnt == n->cnt) {
-			//dprintf("one side of the partition was empty at sid: %d, l: %d, r: %d\n",
-			//  n->sid, lcnt, n->cnt - lcnt);
+			dprintf("one side of the partition was empty at sid: %d, l: %d, r: %d\n",
+			  n->sid, lcnt, n->cnt - lcnt);
 			if (spos > 0) {
 				nid = stack[--spos];
 				continue;
@@ -269,7 +277,7 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 		left->max = best.lmax;
 
 		struct bnode *right = &nodes[ncnt + 1];
-		right->sid = r;
+		right->sid = n->sid + lcnt;
 		right->cnt = n->cnt - lcnt;
 		right->min = best.rmin;
 		right->max = best.rmax;
@@ -289,7 +297,7 @@ unsigned int build_bvh(struct bnode *nodes, struct aabb *aabbs,
 	return ncnt;
 }
 
-unsigned int build_bvh8(struct bmnode *nodes, struct aabb *aabbs,
+unsigned int build_bvhm8(struct bmnode *nodes, struct aabb *aabbs,
                         unsigned int *imap, unsigned int cnt,
                         struct vec3 rootmin, struct vec3 rootmax)
 {
@@ -297,9 +305,9 @@ unsigned int build_bvh8(struct bmnode *nodes, struct aabb *aabbs,
 	unsigned int spos = 0;
 
 	unsigned int curr = 0;
-	unsigned int ncnt = 2; // Root + first dummy child
+	unsigned int ncnt = 2; // Root + first child
 
-	// Prepare root node and first child
+	// Prepare root node and first dummy child w/ same data as root
 	memset(nodes, 0, 2 * sizeof(*nodes));
 	nodes[0].min = nodes[1].min = rootmin;
 	nodes[0].max = nodes[1].max = rootmax;
@@ -317,8 +325,8 @@ unsigned int build_bvh8(struct bmnode *nodes, struct aabb *aabbs,
 		while (n->childcnt < MBVH_CHILD_CNT) {
 			// Find child with biggest surface area
 			struct bmnode *bc = NULL;
+			unsigned int bi;
 			float bcost = 0.0f;
-			unsigned int bcid;
 			for (unsigned int i = 0; i < n->childcnt; i++) {
 				unsigned int cid = n->children[i];
 				if ((cid & NODE_LEAF) == 0) {
@@ -327,69 +335,57 @@ unsigned int build_bvh8(struct bmnode *nodes, struct aabb *aabbs,
 					if (cost > bcost) {
 						bc = c;
 						bcost = cost;
-						bcid = i;
+						bi = i;
 					}
 				}
 			}
 
-			if (!bc) // No child found that can be split
-				break;
+			if (!bc)
+				break; // No child found that can be split
 
-			// Run a SAH binning step to split the selected child
+			//*
+			// Do not split if 4 or less
+			if (bc->cnt <= 4) {
+				n->children[bi] |= NODE_LEAF;
+				continue;
+			}
+			//*/
+
 			struct split best;
 			find_best_split(&best, bc->start, bc->cnt,
-			  bc->min, bc->max, minext, aabbs, imap);
+			  bc->min, bc->max, minext, 8, aabbs, imap);
 
+			/*
 			// Compare no split cost vs best split
 			// (horiz. split doesn't increase traversal steps)
-			// 4 triangles per leaf
-			if ((float)n->cnt / 4 < best.cost / (4 *
-			  calc_area(n->min, n->max))) {
+			if ((float)bc->cnt / 8.0f < best.cost /
+			  calc_area(bc->min, bc->max) && bc->cnt <= 4) {
 				// Child doesn't want to get split, mark leaf
-				n->children[bcid] |= NODE_LEAF;
+				n->children[bi] |= NODE_LEAF;
 				continue; // Try next child
 			}
+			//*/
 
-			// Partition in l and r of split plane
-			unsigned int l = bc->start;
-			unsigned int r = l + bc->cnt;
-			float invda = vec3_getc(best.invd, best.axis);
-			float nmina = vec3_getc(bc->min, best.axis);
-			for (unsigned int i = 0; i < bc->cnt; i++) {
-				unsigned int id = imap[l];
-				struct aabb *a = &aabbs[id];
-				float bin = ((vec3_getc(a->min, best.axis)
-				  + vec3_getc(a->max, best.axis)) * 0.5f
-				  - nmina) * invda;
-				if ((unsigned int)min(max((int)bin, 0),
-				  INTERVAL_CNT - 1) <= best.pos) {
-					l++;
-				 } else {
-					// Swap tri indices
-					imap[l] = imap[--r];
-					imap[r] = id;
-				}
-			}
-
-			unsigned int lcnt = l - bc->start;
+			unsigned int lcnt = partition(bc->start, bc->cnt,
+			  bc->min, imap, aabbs, &best);
 			if (lcnt == 0 || lcnt == bc->cnt) {
-				//dprintf("one side of the partition was empty at start: %d, l: %d, r: %d\n",
-				//  bc->start, lcnt, bc->cnt - lcnt);
-				break;
+				dprintf("one side of the partition was empty (horiz. split) at sid: %d, l: %d, r: %d\n",
+				  bc->start, lcnt, bc->cnt - lcnt);
+				lcnt = min(max(lcnt, 1), lcnt - 1);
 			}
+
+			// Add a new child node with the right split data
+			struct bmnode *right = &nodes[ncnt];
+			memset(right, 0, sizeof(*right));
+			right->start = bc->start + lcnt;
+			right->cnt = bc->cnt - lcnt;
+			right->min = best.rmin;
+			right->max = best.rmax;
 
 			// Update former child with the left split data
 			bc->cnt = lcnt;
 			bc->min = best.lmin;
 			bc->max = best.lmax;
-
-			// Add a new child node with the right split data
-			struct bmnode *right = &nodes[ncnt];
-			memset(right, 0, sizeof(*right));
-			right->start = r;
-			right->cnt = n->cnt - lcnt;
-			right->min = best.rmin;
-			right->max = best.rmax;
 
 			// Append the new child to our original (parent) node
 			n->children[n->childcnt++] = ncnt++;
@@ -399,12 +395,68 @@ unsigned int build_bvh8(struct bmnode *nodes, struct aabb *aabbs,
 		for (unsigned int i = 0; i < n->childcnt; i++) {
 			unsigned int cid = n->children[i];
 			if ((cid & NODE_LEAF) == 0) {
+				struct bmnode *c = &nodes[cid];
 
-				// TODO Vertical split
+				//*
+				// Do not split if 4 or less
+				if (c->cnt <= 4)
+					continue;
+				//*/
 
-				// Schedule interior child node for processing
+				// Run a SAH binning step
+				struct split best;
+				find_best_split(&best, c->start, c->cnt,
+				  c->min, c->max, minext, 8, aabbs, imap);
+
+				/*
+				// Compare no split cost vs best split
+				if ((float)c->cnt / 8.0f < 1.0f + best.cost /
+				  calc_area(c->min, c->max) &&
+				  c->cnt <= 4) {
+					// Child doesn't want to get split
+					continue;
+				}
+				//*/
+
+				unsigned int lcnt = partition(c->start, c->cnt,
+				  c->min, imap, aabbs, &best);
+				if (lcnt == 0 || lcnt == c->cnt) {
+					dprintf("one side of the partition was empty (vert. split) at sid: %d, l: %d, r: %d\n",
+					  c->start, lcnt, c->cnt - lcnt);
+					// One side of partition is empty
+					continue;
+				}
+
+				// Introduce two new nodes for split
+				struct bmnode *left = &nodes[ncnt];
+				memset(left, 0, sizeof(*left));
+				left->start = c->start;
+				left->cnt = lcnt;
+				left->min = best.lmin;
+				left->max = best.lmax;
+
+				struct bmnode *right = &nodes[ncnt + 1];
+				memset(right, 0, sizeof(*right));
+				right->start = c->start + lcnt;
+				right->cnt = c->cnt - lcnt;
+				right->min = best.rmin;
+				right->max = best.rmax;
+
+				// Child is now interior node, link children
+				c->start = 0;
+				c->cnt = 0;
+				c->children[0] = ncnt;
+				c->children[1] = ncnt + 1;
+				c->childcnt = 2;
+
+				ncnt += 2; // Two new children after split
+
+				// Schedule new interior node for horiz. split
+				assert(spos < 64);
 				stack[spos++] = cid;
-			}
+			} else
+				// Remove temporary leaf flag
+				n->children[i] &= ~NODE_LEAF;
 		}
 
 		if (spos > 0)
@@ -510,7 +562,7 @@ void print_nodes(struct bnode *nodes)
 
 void print_mnodes(struct bmnode *nodes)
 {
-	unsigned int stack[64];
+	unsigned int stack[128];
 	unsigned int spos = 0;
 
 	unsigned int nid = 0;
@@ -537,7 +589,7 @@ void print_mnodes(struct bmnode *nodes)
 		nid = n->children[0];
 
 		for (unsigned int i = 1; i < n->childcnt; i++) {
-			assert(spos < 64 - n->childcnt + 1);
+			assert(spos < 128 - n->childcnt + 1);
 			stack[spos++] = n->children[i];
 		}
 	}
@@ -724,8 +776,8 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 
 		while (n->childcnt < MBVH_CHILD_CNT) {
 			struct bmnode *bc = NULL; // Best child
+			unsigned int bi;
 			float bcost = 0.0f;
-			unsigned int bcid;
 			for (unsigned int i = 0; i < n->childcnt; i++) {
 				struct bmnode *c = &tgt[n->children[i]];
 				if (c->cnt == 0 && n->childcnt - 1
@@ -734,7 +786,7 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 					if (cost > bcost) {
 						bc = c;
 						bcost = cost;
-						bcid = i;
+						bi = i;
 					}
 				}
 			}
@@ -742,7 +794,7 @@ unsigned int convert_bmnode(struct bmnode *tgt, struct bnode *src)
 			// Merge children of best child into curr node
 			if (bc) {
 				// Put first child into the newly formed gap
-				n->children[bcid] = bc->children[0];
+				n->children[bi] = bc->children[0];
 				for (unsigned int i = 1; i < bc->childcnt; i++)
 					// Append the other children if more
 					n->children[n->childcnt++] =
@@ -2001,10 +2053,11 @@ void intersect_tlas1_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				intersect_blas2(h,
 				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
 				  &mnodes[o << 1], &imap[o], &tris[o], instid);
-				*/
+				/*/
 				intersect_blas3(h,
 				  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
 				  &mnodes[ri->triofs << 1], instid);
+				//*/
 			}
 
 			// Pop next node from stack if something is left
@@ -2292,10 +2345,19 @@ void rend_prepstatic(struct rdata *rd)
 			  &rd->bnodes[triofs << 1]);
 			dprintf("Compacted b2node cnt: %d\n", ncnt);
 
+			/*
 			// Create compacted bmnode bvh
 			ncnt = convert_bmnode(&rd->bmnodes[triofs << 1],
 			  &rd->bnodes[triofs << 1]);
 			dprintf("Compacted bmnode cnt: %d\n", ncnt);
+			/*/
+			printf("NEW bmnode build\n");
+			ncnt = build_bvhm8(&rd->bmnodes[triofs << 1], aabbs,
+			  &rd->imap[triofs], tricnt, rmin, rmax);
+			dprintf("Compacted bmnode cnt: %d\n", ncnt);
+			//*/
+
+			//print_mnodes(&rd->bmnodes[triofs << 1]);
 
 			// Create compacted b8node bvh
 			ncnt = convert_b8node(&rd->b8nodes[triofs << 1],
@@ -2573,7 +2635,7 @@ int rend_render(void *d)
 				struct vec3 c =
 				  //trace(eye, vec3_unit(vec3_sub(p, eye)),
 				  //rd);
-				  trace3(eye, vec3_unit(vec3_sub(p, eye)), rd,
+				  trace2(eye, vec3_unit(vec3_sub(p, eye)), rd,
 				  0, &seed);
 
 				acc[yofs + x] = vec3_add(acc[yofs + x], c);
