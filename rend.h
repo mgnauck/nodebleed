@@ -13,6 +13,7 @@ struct bnode { // Bvh node, 1-wide, 32 bytes
 };
 
 // Aila, Laine, 2009, Understanding the Efficiency of Ray Traversal on GPUs
+// Converted from bnode bvh
 struct b2node { // Bvh node, 2-wide, 64 bytes
 	struct vec3   lmin;
 	unsigned int  l;
@@ -24,14 +25,19 @@ struct b2node { // Bvh node, 2-wide, 64 bytes
 	unsigned int  cnt; // Tri or inst cnt
 };
 
+// For bmnode and b8node bvhs
+#define BRANCH_MAX     8
+#define BLAS_LEAF_MAX  4
+#define TLAS_LEAF_MAX  1
+
 // Wald et al, 2008, Getting Rid of Packets
-#define MBVH_CHILD_CNT  8
+// Converted from bnode bvh or build directly by top down splitting
 struct bmnode { // Multi branching bvh with M child nodes, used to build b8node
 	struct vec3   min;
 	unsigned int  start; // Start index of tri or inst
 	struct vec3   max;
 	unsigned int  cnt; // Tri or inst cnt
-	unsigned int  children[MBVH_CHILD_CNT]; // Child node ids
+	unsigned int  children[BRANCH_MAX]; // Child node ids
 	unsigned int  childcnt;
 };
 
@@ -40,6 +46,7 @@ struct bmnode { // Multi branching bvh with M child nodes, used to build b8node
 
 // Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
 // 8 children, max 4 tris per leaf
+// Converted from bmnode bvh
 struct b8node { // Bvh node, 8-wide, 256 bytes
 	__m256   minx; // Aabbs of 8 child nodes
 	__m256   maxx;
@@ -47,14 +54,15 @@ struct b8node { // Bvh node, 8-wide, 256 bytes
 	__m256   maxy;
 	__m256   minz;
 	__m256   maxz;
-	// Leaf node flag << 31 | offset to child node or leaf data
+	// Leaf node flag << 31 | offset to child node in bytes or leaf data
+	// Leaf data: ofs to embedded leaf4 in bytes (blas) or inst id (tlas)
 	__m256i  children;
 	// Ordered traversal permutation
 	// 8 children * 8 quadrants * 3 bit
 	__m256i  perm;
 };
 
-struct leaf4 { // Leaf data of 4 tris, 160+32 bytes
+struct leaf4 { // Leaf data of 4 tris, 192 bytes
 	__m128        v0x; // 4x vertex 0
 	__m128        v0y;
 	__m128        v0z;
