@@ -4,31 +4,13 @@
 #include <immintrin.h>
 #include "vec3.h"
 
-// Classic layout, used to generated initial binary bvh, others are converted
-struct bnode { // Bvh node, 1-wide, 32 bytes
-	struct vec3   min;
-	unsigned int  sid; // Start index or left child node id
-	struct vec3   max;
-	unsigned int  cnt; // Tri or inst cnt
-};
-
-// Aila, Laine, 2009, Understanding the Efficiency of Ray Traversal on GPUs
-// Converted from bnode bvh
-struct b2node { // Bvh node, 2-wide, 64 bytes
-	struct vec3   lmin;
-	unsigned int  l;
-	struct vec3   lmax;
-	unsigned int  start; // Start index of tri or inst
-	struct vec3   rmin;
-	unsigned int  r;
-	struct vec3   rmax;
-	unsigned int  cnt; // Tri or inst cnt
-};
-
 // For bmnode and b8node bvhs
 #define BRANCH_MAX     8
 #define BLAS_LEAF_MAX  4
 #define TLAS_LEAF_MAX  1
+
+// Node flags
+#define NODE_LEAF   0x80000000u // Bit 31 set indicates leaf node
 
 // Wald et al, 2008, Getting Rid of Packets
 // Converted from bnode bvh or build directly by top down splitting
@@ -40,9 +22,6 @@ struct bmnode { // Multi branching bvh with M child nodes, used to build b8node
 	unsigned int  children[BRANCH_MAX]; // Child node ids
 	unsigned int  childcnt;
 };
-
-// Node flags
-#define NODE_LEAF   0x80000000u // Bit 31 set indicates leaf node
 
 // Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
 // 8 children, max 4 tris per leaf
@@ -147,10 +126,6 @@ struct rdata {
 
 	unsigned int   *imap; // Indices mapping tris/insts
 	unsigned int   tlasofs;
-
-// TODO Remove unused BVH layouts once settled
-	struct bnode   *bnodes;
-	struct b2node  *b2nodes;
 	struct bmnode  *bmnodes;
 	struct b8node  *b8nodes;
 
