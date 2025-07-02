@@ -334,8 +334,13 @@ void mousemove(struct scene *s, int dx, int dy)
 
 int main(void)
 {
-	// TODO Move code from main into some subsys
-	// TODO Subdiv surfaces
+	// TODO
+	// Build b8node bvh directly?
+	// Test bvh refit with b8nodes
+	// NAN handling on AVX2 traversal functions
+	// Packet trace primary rays for speed up?
+	// Subdiv surfaces
+	// Move code from main into some subsys
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		exit(1);

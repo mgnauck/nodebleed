@@ -4,13 +4,12 @@
 #include <immintrin.h>
 #include "vec3.h"
 
-// For bmnode and b8node bvhs
 #define BRANCH_MAX     8
 #define BLAS_LEAF_MAX  4
 #define TLAS_LEAF_MAX  1
 
 // Node flags
-#define NODE_LEAF   0x80000000u // Bit 31 set indicates leaf node
+#define NODE_LEAF   0x80000000 // Bit 31 set indicates leaf node
 
 // Wald et al, 2008, Getting Rid of Packets
 // Converted from bnode bvh or build directly by top down splitting

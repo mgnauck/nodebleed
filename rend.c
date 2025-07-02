@@ -214,6 +214,7 @@ unsigned int partition(unsigned int start, unsigned int cnt, struct vec3 nmin,
 	return l - start; // = left cnt
 }
 
+// Wald et al, 2008, Getting Rid of Packets
 unsigned int build_bvhm(struct bmnode *nodes, struct aabb *aabbs,
                         unsigned int *imap, unsigned int cnt,
                         struct vec3 rootmin, struct vec3 rootmax,
@@ -391,11 +392,6 @@ int comp_distid(const void *a, const void *b)
 	return ((struct distid *)a)->dist < ((struct distid *)b)->dist
 	  ? 1 : -1;
 }
-
-// TODO
-// Build b8node bvh directly with tri embedd and perm calc as 2nd step?
-// NAN handling on AVX2 traversal functions
-// Try packet tracing to speed up first hit?
 
 unsigned int convert_b8node_blas(struct b8node *tgt, struct bmnode *src,
                                  unsigned int *imap, struct rtri *tris)
@@ -647,6 +643,7 @@ unsigned int convert_b8node_tlas(struct b8node *tgt, struct bmnode *src,
 	return tncnt;
 }
 
+// Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
 void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                          struct b8node *blas, unsigned int instid,
                          bool dx, bool dy, bool dz)
