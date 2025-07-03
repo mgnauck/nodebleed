@@ -335,7 +335,7 @@ void mousemove(struct scene *s, int dx, int dy)
 int main(void)
 {
 	// TODO
-	// Build b8node bvh directly?
+	// Combine b8node blas and tlas build for code size? 
 	// Test bvh refit with b8nodes
 	// NAN handling on AVX2 traversal functions
 	// Packet trace primary rays for speed up?
