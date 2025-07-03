@@ -85,9 +85,11 @@ float calc_area(struct vec3 mi, struct vec3 ma)
 	return d.x * d.y + d.y * d.z + d.z * d.x;
 }
 
+// Wald et al, 2007, Ray Tracing Deformable Scenes Using Dynamic Bounding
+// Volume Hierarchies
 void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
                      struct vec3 nmin, struct vec3 nmax, struct vec3 minext,
-                     unsigned int mbf, struct aabb *aabbs, unsigned int *imap)
+                     struct aabb *aabbs, unsigned int *imap)
 {
 	// Init interval aabbs and counts
 	struct vec3 imin[3][INTERVAL_CNT];
@@ -165,7 +167,8 @@ void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
 			lcnt += icnt[a][i];
 
 			lsah[i] = lcnt > 0 ?
-			  (float)lcnt * calc_area(lmi, lma) / mbf : FLT_MAX;
+			  (float)lcnt * calc_area(lmi, lma) / BRANCH_MAX
+			  : FLT_MAX;
 
 			// Sweep from right
 			rmi = vec3_min(rmi,
@@ -179,7 +182,8 @@ void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
 			rcnt += icnt[a][INTERVAL_CNT - 1 - i];
 
 			rsah[INTERVAL_CNT - 2 - i] = rcnt > 0 ?
-			  (float)rcnt * calc_area(rmi, rma) / mbf : FLT_MAX;
+			  (float)rcnt * calc_area(rmi, rma) / BRANCH_MAX
+			  : FLT_MAX;
 		}
 
 		// Find best surface area cost for interval planes
@@ -225,174 +229,10 @@ unsigned int partition(unsigned int start, unsigned int cnt, struct vec3 nmin,
 	return l - start; // = left cnt
 }
 
-unsigned int build_bvhm(struct bmnode *nodes, struct aabb *aabbs,
-                        unsigned int *imap, unsigned int cnt,
-                        struct vec3 rootmin, struct vec3 rootmax,
-                        unsigned char leafmax)
-{
-	unsigned int stack[64];
-	unsigned int spos = 0;
-
-	unsigned int curr = 0;
-	unsigned int ncnt = 2; // Root + first child
-
-	// Prepare root node and first dummy child w/ same data as root
-	memset(nodes, 0, 2 * sizeof(*nodes));
-	nodes[0].min = nodes[1].min = rootmin;
-	nodes[0].max = nodes[1].max = rootmax;
-	nodes[0].childcnt = 1;
-	nodes[0].children[0] = 1;
-	nodes[1].cnt = cnt;
-
-	struct vec3 minext = // Min extent relative to root aabb
-	  vec3_scale(vec3_sub(rootmax, rootmin), 0.00000001f);
-
-	while (true) {
-		struct bmnode *n = &nodes[curr];
-
-		// Horizontal split
-		while (n->childcnt < BRANCH_MAX) {
-			// Find child with biggest surface area
-			struct bmnode *bc = NULL;
-			unsigned int bi;
-			float bcost = 0.0f;
-			for (unsigned int i = 0; i < n->childcnt; i++) {
-				unsigned int cid = n->children[i];
-				if ((cid & NODE_LEAF) == 0) {
-					struct bmnode *c = &nodes[cid];
-					float cost = calc_area(c->min, c->max);
-					if (cost > bcost) {
-						bc = c;
-						bcost = cost;
-						bi = i;
-					}
-				}
-			}
-
-			if (!bc)
-				break; // No child found that can be split
-
-			if (bc->cnt <= leafmax) {
-				n->children[bi] |= NODE_LEAF;
-				continue;
-			}
-
-			struct split best;
-			find_best_split(&best, bc->start, bc->cnt,
-			  bc->min, bc->max, minext, BRANCH_MAX, aabbs, imap);
-
-			/*
-			// Compare no split cost vs best split
-			// (horiz. split doesn't increase traversal steps)
-			if ((float)bc->cnt / BRANCH_MAX < best.cost /
-			  calc_area(bc->min, bc->max) && bc->cnt <= leafmax) {
-				// Child doesn't want to get split, mark leaf
-				n->children[bi] |= NODE_LEAF;
-				continue; // Try next child
-			}
-			//*/
-
-			unsigned int lcnt = partition(bc->start, bc->cnt,
-			  bc->min, aabbs, imap, &best);
-			if (lcnt == 0 || lcnt == bc->cnt) {
-				dprintf("one side of the partition was empty (horiz. split) at sid: %d, l: %d, r: %d\n",
-				  bc->start, lcnt, bc->cnt - lcnt);
-				lcnt = min(max(lcnt, 1), lcnt - 1);
-			}
-
-			// Add a new child node with the right split data
-			struct bmnode *right = &nodes[ncnt];
-			memset(right, 0, sizeof(*right));
-			right->start = bc->start + lcnt;
-			right->cnt = bc->cnt - lcnt;
-			right->min = best.rmin;
-			right->max = best.rmax;
-
-			// Update former child with the left split data
-			bc->cnt = lcnt;
-			bc->min = best.lmin;
-			bc->max = best.lmax;
-
-			// Append the new child to our original (parent) node
-			n->children[n->childcnt++] = ncnt++;
-		}
-
-		// Vertical splitting
-		for (unsigned int i = 0; i < n->childcnt; i++) {
-			unsigned int cid = n->children[i];
-			if ((cid & NODE_LEAF) == 0) {
-				struct bmnode *c = &nodes[cid];
-
-				if (c->cnt <= leafmax)
-					continue;
-
-				// Run a SAH binning step
-				struct split best;
-				find_best_split(&best, c->start, c->cnt,
-				  c->min, c->max, minext, BRANCH_MAX, aabbs,
-				  imap);
-
-				/*
-				// Compare no split cost vs best split
-				if ((float)c->cnt / BRANCH_MAX <
-				  1.0f + best.cost / calc_area(c->min, c->max)
-				  && c->cnt <= leafmax) {
-					// Child doesn't want to get split
-					continue;
-				}
-				//*/
-
-				unsigned int lcnt = partition(c->start, c->cnt,
-				  c->min, aabbs, imap, &best);
-				if (lcnt == 0 || lcnt == c->cnt) {
-					dprintf("one side of the partition was empty (vert. split) at sid: %d, l: %d, r: %d\n",
-					  c->start, lcnt, c->cnt - lcnt);
-					// One side of partition is empty
-					continue;
-				}
-
-				// Introduce two new nodes for split
-				struct bmnode *left = &nodes[ncnt];
-				memset(left, 0, sizeof(*left));
-				left->start = c->start;
-				left->cnt = lcnt;
-				left->min = best.lmin;
-				left->max = best.lmax;
-
-				struct bmnode *right = &nodes[ncnt + 1];
-				memset(right, 0, sizeof(*right));
-				right->start = c->start + lcnt;
-				right->cnt = c->cnt - lcnt;
-				right->min = best.rmin;
-				right->max = best.rmax;
-
-				// Child is now interior node, link children
-				c->start = 0;
-				c->cnt = 0;
-				c->children[0] = ncnt;
-				c->children[1] = ncnt + 1;
-				c->childcnt = 2;
-
-				ncnt += 2; // Two new children after split
-
-				// Schedule new interior node for horiz. split
-				assert(spos < 64);
-				stack[spos++] = cid;
-			} else
-				// Remove temporary leaf flag
-				n->children[i] &= ~NODE_LEAF;
-		}
-
-		if (spos > 0)
-			curr = stack[--spos];
-		else
-			break;
-	}
-
-	return ncnt;
-}
-
 // Wald et al, 2008, Getting Rid of Packets
+// Ernst et al, 2008, Multi Bounding Volume Hierarchies
+// Dammertz et al, 2008, Shallow Bounding Volume Hierarchies For Fast SIMD
+// Ray Tracing of Incorherent Rays
 unsigned int build_bvh8_blas(struct b8node *nodes, struct aabb *aabbs,
                              unsigned int *imap, struct rtri *tris,
                              unsigned int pcnt,
@@ -500,7 +340,7 @@ unsigned int build_bvh8_blas(struct b8node *nodes, struct aabb *aabbs,
 
 			struct split best;
 			find_best_split(&best, start, cnt, bmin, bmax, minext,
-			  BRANCH_MAX, aabbs, imap);
+			  aabbs, imap);
 
 			unsigned int lcnt = partition(start, cnt, bmin, aabbs,
 			  imap, &best);
@@ -590,7 +430,7 @@ unsigned int build_bvh8_blas(struct b8node *nodes, struct aabb *aabbs,
 				// Run a SAH binning step
 				struct split best;
 				find_best_split(&best, start, cnt,
-				  mi, ma, minext, BRANCH_MAX, aabbs, imap);
+				  mi, ma, minext, aabbs, imap);
 
 				unsigned int lcnt = partition(start, cnt, mi,
 				  aabbs, imap, &best);
@@ -763,7 +603,7 @@ unsigned int build_bvh8_tlas(struct b8node *nodes, struct aabb *aabbs,
 
 			struct split best;
 			find_best_split(&best, start, cnt, bmin, bmax, minext,
-			  BRANCH_MAX, aabbs, imap);
+			  aabbs, imap);
 
 			unsigned int lcnt = partition(start, cnt, bmin, aabbs,
 			  imap, &best);
@@ -817,7 +657,7 @@ unsigned int build_bvh8_tlas(struct b8node *nodes, struct aabb *aabbs,
 				// Run a SAH binning step
 				struct split best;
 				find_best_split(&best, start, cnt,
-				  mi, ma, minext, BRANCH_MAX, aabbs, imap);
+				  mi, ma, minext, aabbs, imap);
 
 				unsigned int lcnt = partition(start, cnt, mi,
 				  aabbs, imap, &best);
@@ -918,256 +758,6 @@ unsigned int build_bvh8_tlas(struct b8node *nodes, struct aabb *aabbs,
 	}
 
 	return ncnt;
-}
-
-unsigned int convert_b8node_blas(struct b8node *tgt, struct bmnode *src,
-                                 unsigned int *imap, struct rtri *tris)
-{
-	unsigned int stack[128];
-	unsigned int spos = 0;
-
-	// Access our b8node target byte-wise for offset calculation
-	unsigned char *tptr = (unsigned char *)tgt;
-
-	unsigned int snid = 0; // Current src node index
-	unsigned int tnofs = 0; // Offset to curr tgt node and leaf data
-	unsigned int tncnt = 0; // Tgt node cnt
-
-	while (true) {
-		struct bmnode *s = &src[snid];
-		struct b8node *t = (struct b8node *)(tptr + tnofs);
-
-		memset(t, 0, sizeof(*t));
-
-		tnofs += sizeof(*t);
-		tncnt++;
-
-		unsigned int cid = 0; // 'Compacted' child index, i.e. no gaps
-		for (unsigned int j = 0; j < 8; j++) {
-			// Copy/setup data of non-empty child nodes
-			if (s->children[j]) {
-				assert(j < s->childcnt);
-				struct bmnode *sc = &src[s->children[j]];
-				t->minx[cid] = sc->min.x;
-				t->maxx[cid] = sc->max.x;
-				t->miny[cid] = sc->min.y;
-				t->maxy[cid] = sc->max.y;
-				t->minz[cid] = sc->min.z;
-				t->maxz[cid] = sc->max.z;
-				if (sc->cnt > 0) {
-					// Leaf node
-					assert(sc->cnt <= 4);
-					assert(tnofs <= 0x7fffffff);
-					// Store offset to embedded leaf data
-					((unsigned int *)&t->children)[cid] =
-					  NODE_LEAF | tnofs;
-					// Embedd tri data
-					struct leaf4 *l = (struct leaf4 *)
-					  (tptr + tnofs);
-					unsigned int *ip = &imap[sc->start];
-					for (unsigned char i = 0; i < 4; i++) {
-						struct rtri *tri = &tris[*ip];
-
-						l->v0x[i] = tri->v0.x;
-						l->v0y[i] = tri->v0.y;
-						l->v0z[i] = tri->v0.z;
-
-						struct vec3 e0 = vec3_sub(
-						  tri->v1, tri->v0);
-						l->e0x[i] = e0.x;
-						l->e0y[i] = e0.y;
-						l->e0z[i] = e0.z;
-
-						struct vec3 e1 = vec3_sub(
-						  tri->v2, tri->v0);
-						l->e1x[i] = e1.x;
-						l->e1y[i] = e1.y;
-						l->e1z[i] = e1.z;
-
-						l->id[i] = *ip;
-
-						// Replicate last tri if not 4
-						if (i < s->cnt - 1)
-							ip++;
-					}
-					// Account for leaf data
-					tnofs += sizeof(*l);
-				} else {
-					// Interior node
-					// Push offset to current child, so
-					// actual node ofs can be set later on
-					assert(spos < 128 - 1);
-					stack[spos++] = (unsigned int)
-					  (((unsigned int *)&t->children + cid)
-					  - (unsigned int *)tptr);
-					// Push id of src bmnode
-					stack[spos++] = s->children[j];
-				}
-				cid++;
-			}
-
-			// Create ordered child traversal permutation map
-			// with j being current quadrant
-			struct vec3 dir = {
-			  j & 1 ? 1.0f : -1.0f,
-			  j & 2 ? 1.0f : -1.0f,
-			  j & 4 ? 1.0f : -1.0f};
-			struct distid cdi[8];
-			for (unsigned int i = 0; i < 8; i++) {
-				cdi[i].id = i; // 3 bit child index
-				if (s->children[i]) {
-					struct bmnode *c =
-					  &src[s->children[i]];
-					// Aabb corner of ray dir
-					struct vec3 corner = {
-					  j & 1 ? c->min.x : c->max.x,
-					  j & 2 ? c->min.y : c->max.y,
-					  j & 4 ? c->min.z : c->max.z};
-					cdi[i].dist = vec3_dot(dir, corner);
-				} else {
-					// No child assigned, still gets sorted
-					cdi[i].dist = FLT_MAX;
-				}
-			}
-
-			// Sort dists thereby sorting/permuting child indices
-			qsort(cdi, 8, sizeof(*cdi), comp_distid);
-
-			// Set perm map for all children and curr quadrant
-			for (unsigned int i = 0; i < 8; i++)
-				((unsigned int *)&t->perm)[i]
-				  |= cdi[i].id << (j * 3);
-		}
-
-		// Set all the remaining children (if any left) to empty
-		for (; cid < 8; cid++) {
-			t->minx[cid] = FLT_MAX;
-			t->maxx[cid] = -FLT_MAX;
-			t->miny[cid] = FLT_MAX;
-			t->maxy[cid] = -FLT_MAX;
-			t->minz[cid] = FLT_MAX;
-			t->maxz[cid] = -FLT_MAX;
-		}
-
-		if (spos > 1) {
-			// Src bmnode to continue with
-			snid = stack[--spos];
-			// Previous tgt child is set to curr ofs of new node
-			*((unsigned int *)tptr + stack[--spos]) = tnofs;
-		} else
-			break;
-	}
-
-	return tncnt;
-}
-
-unsigned int convert_b8node_tlas(struct b8node *tgt, struct bmnode *src,
-                                 unsigned int *imap)
-{
-	unsigned int stack[128];
-	unsigned int spos = 0;
-
-	// Access our b8node target byte-wise for offset calculation
-	unsigned char *tptr = (unsigned char *)tgt;
-
-	unsigned int snid = 0; // Current src node index
-	unsigned int tnofs = 0; // Offset to curr tgt node and leaf data
-	unsigned int tncnt = 0; // Tgt node cnt
-
-	while (true) {
-		struct bmnode *s = &src[snid];
-		struct b8node *t = (struct b8node *)(tptr + tnofs);
-
-		memset(t, 0, sizeof(*t));
-
-		tnofs += sizeof(*t);
-		tncnt++;
-
-		unsigned int cid = 0; // 'Compacted' child index, i.e. no gaps
-		for (unsigned int j = 0; j < 8; j++) {
-			// Copy/setup data of non-empty child nodes
-			if (s->children[j]) {
-				assert(j < s->childcnt);
-				struct bmnode *sc = &src[s->children[j]];
-				t->minx[cid] = sc->min.x;
-				t->maxx[cid] = sc->max.x;
-				t->miny[cid] = sc->min.y;
-				t->maxy[cid] = sc->max.y;
-				t->minz[cid] = sc->min.z;
-				t->maxz[cid] = sc->max.z;
-				if (sc->cnt > 0) {
-					// Leaf node, embedd inst id
-					assert(sc->cnt <= 1);
-					assert(imap[sc->start] <= 0x7fffffff);
-					((unsigned int *)&t->children)[cid] =
-					  NODE_LEAF | imap[sc->start];
-				} else {
-					// Interior node
-					// Push offset to current child, so
-					// actual node ofs can be set later on
-					assert(spos < 128 - 1);
-					stack[spos++] = (unsigned int)
-					  (((unsigned int *)&t->children + cid)
-					  - (unsigned int *)tptr);
-					// Push id of src bmnode
-					stack[spos++] = s->children[j];
-				}
-				cid++;
-			}
-
-			// Create ordered child traversal permutation map
-			// with j being current quadrant
-			struct vec3 dir = {
-			  j & 1 ? 1.0f : -1.0f,
-			  j & 2 ? 1.0f : -1.0f,
-			  j & 4 ? 1.0f : -1.0f};
-			struct distid cdi[8];
-			for (unsigned int i = 0; i < 8; i++) {
-				cdi[i].id = i; // 3 bit child index
-				if (s->children[i]) {
-					struct bmnode *c =
-					  &src[s->children[i]];
-					// Aabb corner of ray dir
-					struct vec3 corner = {
-					  j & 1 ? c->min.x : c->max.x,
-					  j & 2 ? c->min.y : c->max.y,
-					  j & 4 ? c->min.z : c->max.z};
-					cdi[i].dist = vec3_dot(dir, corner);
-				} else {
-					// No child assigned, still gets sorted
-					cdi[i].dist = FLT_MAX;
-				}
-			}
-
-			// Sort dists thereby sorting/permuting child indices
-			qsort(cdi, 8, sizeof(*cdi), comp_distid);
-
-			// Set perm map for all children and curr quadrant
-			for (unsigned int i = 0; i < 8; i++)
-				((unsigned int *)&t->perm)[i]
-				  |= cdi[i].id << (j * 3);
-		}
-
-		// Set all the remaining children (if any left) to empty
-		for (; cid < 8; cid++) {
-			t->minx[cid] = FLT_MAX;
-			t->maxx[cid] = -FLT_MAX;
-			t->miny[cid] = FLT_MAX;
-			t->maxy[cid] = -FLT_MAX;
-			t->minz[cid] = FLT_MAX;
-			t->maxz[cid] = -FLT_MAX;
-		}
-
-		if (spos > 1) {
-			// Src bmnode to continue with
-			snid = stack[--spos];
-			// Previous tgt child is set to curr ofs of new node
-			*((unsigned int *)tptr + stack[--spos]) = tnofs;
-		} else
-			break;
-	}
-
-	return tncnt;
 }
 
 // Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
@@ -1890,8 +1480,7 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	unsigned int idcnt = maxtris + maxinsts;
 	rd->imap = aligned_alloc(64, idcnt * sizeof(*rd->imap));
 
-	// Bvh nodes for blas and tlas (bmnodes only temporary for conversion)
-	rd->bmnodes = aligned_alloc(64, idcnt * 2 * sizeof(*rd->bmnodes));
+	// Bvh nodes for blas and tlas
 	rd->b8nodes = aligned_alloc(64, idcnt * 2 * sizeof(*rd->b8nodes));
 
 	// Start of tlas index map and tlas nodes * 2
@@ -1901,7 +1490,6 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 void rend_release(struct rdata *rd)
 {
 	free(rd->b8nodes);
-	free(rd->bmnodes);
 	free(rd->imap);
 	free(rd->aabbs);
 	free(rd->insts);
@@ -1915,8 +1503,8 @@ void rend_prepstatic(struct rdata *rd)
 	for (unsigned int j = 0; j < rd->instcnt; j++) {
 		struct rinst *ri = &rd->insts[j];
 		unsigned int triofs = ri->triofs;
-		struct bmnode *rn = &rd->bmnodes[triofs << 1]; // Root node
-		if (rn->childcnt == 0) { // Not processed yet
+		struct b8node *rn = &rd->b8nodes[triofs << 1]; // Root node
+		if (!((unsigned int *)&rn->children)[0]) { // Not processed
 			unsigned int tricnt = ri->tricnt;
 			struct rtri *tp = &rd->tris[triofs];
 			unsigned int *ip = &rd->imap[triofs];
@@ -1943,21 +1531,7 @@ void rend_prepstatic(struct rdata *rd)
 			unsigned int ncnt = build_bvh8_blas(
 			  &rd->b8nodes[triofs << 1], aabbs, &rd->imap[triofs],
 			  &rd->tris[triofs], tricnt, rmin, rmax);
-			dprintf("Blas b8node cnt (at once): %d\n", ncnt);
-
-			/*
-			// Create bmnode bvh from scratch by top down splitting
-			unsigned int ncnt = build_bvhm(
-			  &rd->bmnodes[triofs << 1], aabbs, &rd->imap[triofs],
-			  tricnt, rmin, rmax, BLAS_LEAF_MAX);
-			dprintf("Blas bmnode cnt (at once): %d\n", ncnt);
-
-			// Create compacted b8node bvh from bmnode bvh
-			ncnt = convert_b8node_blas(&rd->b8nodes[triofs << 1],
-			  &rd->bmnodes[triofs << 1], &rd->imap[triofs],
-			  &rd->tris[triofs]);
-			dprintf("Blas b8node cnt (compacted): %d\n", ncnt);
-			//*/
+			dprintf("Node cnt: %d\n", ncnt);
 
 			free(aabbs);
 		}
@@ -1982,18 +1556,7 @@ void rend_prepdynamic(struct rdata *rd)
 	unsigned int ncnt = build_bvh8_tlas(
 	  &rd->b8nodes[tlasofs << 1], rd->aabbs, &rd->imap[tlasofs],
 	  rd->instcnt, rmin, rmax);
-	dprintf("Tlas b8node cnt (at once): %d\n", ncnt);
-
-	/*
-	// Bmnode tlas from scratch
-	unsigned int ncnt = build_bvhm(&rd->bmnodes[tlasofs << 1], rd->aabbs,
-	  &rd->imap[tlasofs], rd->instcnt, rmin, rmax, TLAS_LEAF_MAX);
-	dprintf("Tlas bmnode cnt (at once): %d\n", ncnt);
-
-	ncnt = convert_b8node_tlas(&rd->b8nodes[tlasofs << 1],
-	  &rd->bmnodes[tlasofs << 1], &rd->imap[tlasofs]);
-	dprintf("Tlas b8node cnt (compacted): %d\n", ncnt);
-	//*/
+	dprintf("Node cnt: %d\n", ncnt);
 }
 
 struct vec3 calc_nrm(float u, float v, struct rnrm *rn,

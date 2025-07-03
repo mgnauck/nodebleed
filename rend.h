@@ -4,23 +4,11 @@
 #include <immintrin.h>
 #include "vec3.h"
 
-#define BRANCH_MAX     8
-#define BLAS_LEAF_MAX  4
-#define TLAS_LEAF_MAX  1
+#define BRANCH_MAX     8 // Child nodes
+#define BLAS_LEAF_MAX  4 // Tris
+#define TLAS_LEAF_MAX  1 // Instances
 
-// Node flags
-#define NODE_LEAF   0x80000000 // Bit 31 set indicates leaf node
-
-// Wald et al, 2008, Getting Rid of Packets
-// Converted from bnode bvh or build directly by top down splitting
-struct bmnode { // Multi branching bvh with M child nodes, used to build b8node
-	struct vec3   min;
-	unsigned int  start; // Start index of tri or inst
-	struct vec3   max;
-	unsigned int  cnt; // Tri or inst cnt
-	unsigned int  children[BRANCH_MAX]; // Child node ids
-	unsigned int  childcnt;
-};
+#define NODE_LEAF  0x80000000 // Bit 31 set indicates leaf node
 
 // Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
 // 8 children, max 4 tris per leaf
@@ -125,7 +113,6 @@ struct rdata {
 
 	unsigned int   *imap; // Indices mapping tris/insts
 	unsigned int   tlasofs;
-	struct bmnode  *bmnodes;
 	struct b8node  *b8nodes;
 
 	struct rcam    cam;
