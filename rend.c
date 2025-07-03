@@ -267,10 +267,10 @@ unsigned int embed_leaf4(unsigned char *ptr, unsigned int ofs,
 // Ernst et al, 2008, Multi Bounding Volume Hierarchies
 // Dammertz et al, 2008, Shallow Bounding Volume Hierarchies For Fast SIMD
 // Ray Tracing of Incoherent Rays
-unsigned int build_bvh8_blas(struct b8node *nodes, struct aabb *aabbs,
-                             unsigned int *imap, struct rtri *tris,
-                             unsigned int pcnt,
-                             struct vec3 rootmin, struct vec3 rootmax)
+unsigned int build_bvh8(struct b8node *nodes, struct aabb *aabbs,
+                        unsigned int *imap, struct rtri *tris,
+                        unsigned int pcnt,
+                        struct vec3 rootmin, struct vec3 rootmax)
 {
 	unsigned int stack[64];
 	unsigned int spos = 0;
@@ -328,351 +328,141 @@ unsigned int build_bvh8_blas(struct b8node *nodes, struct aabb *aabbs,
 
 			unsigned int cnt = ((unsigned int *)&n->children)[j];
 			unsigned int start = ((unsigned int *)&n->perm)[j];
-			if (cnt <= BLAS_LEAF_MAX) {
-				assert(ofs <= 0x7fffffff);
-				((unsigned int *)&n->children)[j] =
-				  NODE_LEAF | ofs; // Store ofs to leaf
-				ofs += embed_leaf4(ptr, ofs, start, cnt,
-				  imap, tris);
-				// Clear 'borrowed' permutation mask
-				((unsigned int *)&n->perm)[j] = 0;
-				continue;
-			}
 
-			struct split best;
-			find_best_split(&best, start, cnt, bmin, bmax, minext,
-			  aabbs, imap);
-
-			unsigned int lcnt = partition(start, cnt, bmin, aabbs,
-			  imap, &best);
-			if (lcnt == 0 || lcnt == cnt) {
-				dprintf("one side of the partition was empty (horiz. split) at sid: %d, l: %d, r: %d\n",
-				  start, lcnt, cnt - lcnt);
-				lcnt = min(max(lcnt, 1), lcnt - 1);
-			}
-
-			// Add new horiz child node from right split data
-			((unsigned int *)&n->children)[childcnt] = cnt - lcnt;
-			((unsigned int *)&n->perm)[childcnt] = start + lcnt;
-			n->minx[childcnt] = best.rmin.x;
-			n->miny[childcnt] = best.rmin.y;
-			n->minz[childcnt] = best.rmin.z;
-			n->maxx[childcnt] = best.rmax.x;
-			n->maxy[childcnt] = best.rmax.y;
-			n->maxz[childcnt] = best.rmax.z;
-
-			childcnt++;
-
-			// Update original child with the left split data
-			((unsigned int *)&n->children)[j] = lcnt;
-			n->minx[j] = best.lmin.x;
-			n->miny[j] = best.lmin.y;
-			n->minz[j] = best.lmin.z;
-			n->maxx[j] = best.lmax.x;
-			n->maxy[j] = best.lmax.y;
-			n->maxz[j] = best.lmax.z;
-		}
-
-		// Vertical splitting, process children in reverse for stack
-		for (unsigned char j = 0; j < childcnt; j++) {
-			unsigned int cnt = ((unsigned int *)&n->children)[j];
-			if ((cnt & NODE_LEAF) == 0) {
-				unsigned int start =
-				  ((unsigned int *)&n->perm)[j];
-				if (cnt <= BLAS_LEAF_MAX) {
+			// Do not split this node horizontally?
+			if (cnt <= (tris ? BLAS_LEAF_MAX : TLAS_LEAF_MAX)) {
+				if (tris) {
+					// Blas
 					assert(ofs <= 0x7fffffff);
 					((unsigned int *)&n->children)[j] =
-					  NODE_LEAF | ofs; // Store ofs to leaf
+					  NODE_LEAF | ofs; // Ofs to leaf
 					ofs += embed_leaf4(ptr, ofs, start,
 					  cnt, imap, tris);
-					// Clear 'borrowed' permutation mask
-					((unsigned int *)&n->perm)[j] = 0;
-					continue;
-				}
-
-				struct vec3 mi = {
-				  n->minx[j], n->miny[j], n->minz[j]};
-				struct vec3 ma = {
-				  n->maxx[j], n->maxy[j], n->maxz[j]};
-
-				// Run a SAH binning step
-				struct split best;
-				find_best_split(&best, start, cnt,
-				  mi, ma, minext, aabbs, imap);
-
-				unsigned int lcnt = partition(start, cnt, mi,
-				  aabbs, imap, &best);
-				if (lcnt == 0 || lcnt == cnt) {
-					dprintf("one side of the partition was empty (vert. split) at sid: %d, l: %d, r: %d\n",
-					  start, lcnt, cnt - lcnt);
-					// One side of partition is empty
-					continue;
-				}
-
-				// Add new b8node containing l/r split data
-				struct b8node *child = (struct b8node *)
-				  (ptr + ofs);
-				memset(child, 0, sizeof(*child));
-				((unsigned int *)&child->children)[0] = lcnt;
-				((unsigned int *)&child->perm)[0] = start;
-				child->minx[0] = best.lmin.x;
-				child->miny[0] = best.lmin.y;
-				child->minz[0] = best.lmin.z;
-				child->maxx[0] = best.lmax.x;
-				child->maxy[0] = best.lmax.y;
-				child->maxz[0] = best.lmax.z;
-
-				((unsigned int *)&child->children)[1] =
-				  cnt - lcnt;
-				((unsigned int *)&child->perm)[1] =
-				  start + lcnt;
-				child->minx[1] = best.rmin.x;
-				child->miny[1] = best.rmin.y;
-				child->minz[1] = best.rmin.z;
-				child->maxx[1] = best.rmax.x;
-				child->maxy[1] = best.rmax.y;
-				child->maxz[1] = best.rmax.z;
-
-				// Make interior node and link new vert child
-				assert(ofs <= 0x7fffffff);
-				((unsigned int *)&n->children)[j] = ofs;
-				((unsigned int *)&n->perm)[j] = 0;
-
-				// Schedule new interior node for horiz. split
-				assert(spos < 64);
-				stack[spos++] = ofs;
-
-				// Added one new node vertically
-				ofs += sizeof(*child);
-				ncnt++;
-			}
-		}
-
-		// Create ordered child traversal permutation map
-		for (unsigned char j = 0; j < BRANCH_MAX; j++) { // Quadrant
-			struct vec3 dir = {
-			  j & 1 ? 1.0f : -1.0f,
-			  j & 2 ? 1.0f : -1.0f,
-			  j & 4 ? 1.0f : -1.0f};
-			struct distid cdi[BRANCH_MAX];
-			for (unsigned char i = 0; i < BRANCH_MAX; i++) {
-				cdi[i].id = i; // 3 bit child index
-				if (i < childcnt) {
-					// Aabb corner of ray dir
-					struct vec3 corner = {
-					  j & 1 ? n->minx[i] : n->maxx[i],
-					  j & 2 ? n->miny[i] : n->maxy[i],
-					  j & 4 ? n->minz[i] : n->maxz[i]};
-					cdi[i].dist = vec3_dot(dir, corner);
 				} else {
-					// No child assigned, still gets sorted
-					cdi[i].dist = FLT_MAX;
-				}
-			}
-
-			// Sort dists thereby sorting/permuting child indices
-			qsort(cdi, BRANCH_MAX, sizeof(*cdi), comp_distid);
-
-			// Set perm map for all children and curr quadrant
-			for (unsigned char i = 0; i < BRANCH_MAX; i++)
-				((unsigned int *)&n->perm)[i]
-				  |= cdi[i].id << (j * 3);
-		}
-
-		// Set all the remaining children (if any left) to empty
-		for (; childcnt < BRANCH_MAX; childcnt++) {
-			n->minx[childcnt] = FLT_MAX;
-			n->miny[childcnt] = FLT_MAX;
-			n->minz[childcnt] = FLT_MAX;
-			n->maxx[childcnt] = -FLT_MAX;
-			n->maxy[childcnt] = -FLT_MAX;
-			n->maxz[childcnt] = -FLT_MAX;
-		}
-
-		if (spos > 0)
-			n = (struct b8node *)(ptr + stack[--spos]);
-		else
-			break;
-
-		// Newly added vert child always contains two horizontal nodes
-		childcnt = 2;
-	}
-
-	return ncnt;
-}
-
-unsigned int build_bvh8_tlas(struct b8node *nodes, struct aabb *aabbs,
-                             unsigned int *imap, unsigned int pcnt,
-                             struct vec3 rootmin, struct vec3 rootmax)
-{
-	unsigned int stack[64];
-	unsigned int spos = 0;
-
-	// Access our b8node nodes byte-wise for offset calculation
-	unsigned char *ptr = (unsigned char *)nodes;
-
-	struct b8node *n = nodes; // Curr node
-
-	unsigned int ofs = sizeof(*n); // Ofs to next in nodes arr
-	unsigned char childcnt = 1; // Horiz. child cnt, root starts with one
-	unsigned int ncnt = 1; // Total node cnt
-
-	// Prepare start/root node
-	memset(n, 0, sizeof(*n));
-	n->minx[0] = rootmin.x;
-	n->miny[0] = rootmin.y;
-	n->minz[0] = rootmin.z;
-	n->maxx[0] = rootmax.x;
-	n->maxy[0] = rootmax.y;
-	n->maxz[0] = rootmax.z;
-	((unsigned int *)&n->children)[0] = pcnt;
-	// nodes' permutation mask will be used to temporarily store start id
-
-	struct vec3 minext = // Min extent relative to root aabb
-	  vec3_scale(vec3_sub(rootmax, rootmin), 0.00000001f);
-
-	while (true) {
-		// Horizontal split
-		while (childcnt < BRANCH_MAX) {
-			// Find child with biggest surface area
-			int j = -1;
-			float bcost = 0.0f;
-			struct vec3 bmin;
-			struct vec3 bmax;
-			for (unsigned int i = 0; i < childcnt; i++) {
-				if ((((unsigned int *)&n->children)[i]
-				  & NODE_LEAF) == 0) {
-					struct vec3 mi = {
-					  n->minx[i], n->miny[i], n->minz[i]};
-					struct vec3 ma = {
-					  n->maxx[i], n->maxy[i], n->maxz[i]};
-					float cost = calc_area(mi, ma);
-					if (cost > bcost) {
-						bcost = cost;
-						j = i;
-						bmin = mi;
-						bmax = ma;
-					}
-				}
-			}
-
-			if (j < 0)
-				break; // No child found that can be split
-
-			unsigned int cnt = ((unsigned int *)&n->children)[j];
-			unsigned int start = ((unsigned int *)&n->perm)[j];
-			if (cnt <= TLAS_LEAF_MAX) {
-				assert(imap[start] <= 0x7fffffff);
-				((unsigned int *)&n->children)[j] =
-				  NODE_LEAF | imap[start];
-				((unsigned int *)&n->perm)[j] = 0;
-				continue;
-			}
-
-			struct split best;
-			find_best_split(&best, start, cnt, bmin, bmax, minext,
-			  aabbs, imap);
-
-			unsigned int lcnt = partition(start, cnt, bmin, aabbs,
-			  imap, &best);
-			if (lcnt == 0 || lcnt == cnt) {
-				dprintf("one side of the partition was empty (horiz. split) at sid: %d, l: %d, r: %d\n",
-				  start, lcnt, cnt - lcnt);
-				lcnt = min(max(lcnt, 1), lcnt - 1);
-			}
-
-			// Add new horiz child node from right split data
-			((unsigned int *)&n->children)[childcnt] = cnt - lcnt;
-			((unsigned int *)&n->perm)[childcnt] = start + lcnt;
-			n->minx[childcnt] = best.rmin.x;
-			n->miny[childcnt] = best.rmin.y;
-			n->minz[childcnt] = best.rmin.z;
-			n->maxx[childcnt] = best.rmax.x;
-			n->maxy[childcnt] = best.rmax.y;
-			n->maxz[childcnt] = best.rmax.z;
-
-			childcnt++;
-
-			// Update original child with the left split data
-			((unsigned int *)&n->children)[j] = lcnt;
-			n->minx[j] = best.lmin.x;
-			n->miny[j] = best.lmin.y;
-			n->minz[j] = best.lmin.z;
-			n->maxx[j] = best.lmax.x;
-			n->maxy[j] = best.lmax.y;
-			n->maxz[j] = best.lmax.z;
-		}
-
-		// Vertical splitting, process children in reverse for stack
-		for (unsigned char j = 0; j < childcnt; j++) {
-			unsigned int cnt = ((unsigned int *)&n->children)[j];
-			if ((cnt & NODE_LEAF) == 0) {
-				unsigned int start =
-				  ((unsigned int *)&n->perm)[j];
-				if (cnt <= TLAS_LEAF_MAX) {
+					// Tlas
 					assert(imap[start] <= 0x7fffffff);
 					((unsigned int *)&n->children)[j] =
 					  NODE_LEAF | imap[start];
-					((unsigned int *)&n->perm)[j] = 0;
-					continue;
 				}
-
-				struct vec3 mi = {
-				  n->minx[j], n->miny[j], n->minz[j]};
-				struct vec3 ma = {
-				  n->maxx[j], n->maxy[j], n->maxz[j]};
-
-				// Run a SAH binning step
-				struct split best;
-				find_best_split(&best, start, cnt,
-				  mi, ma, minext, aabbs, imap);
-
-				unsigned int lcnt = partition(start, cnt, mi,
-				  aabbs, imap, &best);
-				if (lcnt == 0 || lcnt == cnt) {
-					dprintf("one side of the partition was empty (vert. split) at sid: %d, l: %d, r: %d\n",
-					  start, lcnt, cnt - lcnt);
-					// One side of partition is empty
-					continue;
-				}
-
-				// Add new b8node containing l/r split data
-				struct b8node *child = (struct b8node *)
-				  (ptr + ofs);
-				memset(child, 0, sizeof(*child));
-				((unsigned int *)&child->children)[0] = lcnt;
-				((unsigned int *)&child->perm)[0] = start;
-				child->minx[0] = best.lmin.x;
-				child->miny[0] = best.lmin.y;
-				child->minz[0] = best.lmin.z;
-				child->maxx[0] = best.lmax.x;
-				child->maxy[0] = best.lmax.y;
-				child->maxz[0] = best.lmax.z;
-
-				((unsigned int *)&child->children)[1] =
-				  cnt - lcnt;
-				((unsigned int *)&child->perm)[1] =
-				  start + lcnt;
-				child->minx[1] = best.rmin.x;
-				child->miny[1] = best.rmin.y;
-				child->minz[1] = best.rmin.z;
-				child->maxx[1] = best.rmax.x;
-				child->maxy[1] = best.rmax.y;
-				child->maxz[1] = best.rmax.z;
-
-				// Make interior node and link new vert child
-				assert(ofs <= 0x7fffffff);
-				((unsigned int *)&n->children)[j] = ofs;
+				// Clear 'borrowed' permutation mask
 				((unsigned int *)&n->perm)[j] = 0;
 
-				// Schedule new interior node for horiz. split
-				assert(spos < 64);
-				stack[spos++] = ofs;
-
-				// Added one new node vertically
-				ofs += sizeof(*child);
-				ncnt++;
+				continue;
 			}
+
+			struct split best;
+			find_best_split(&best, start, cnt, bmin, bmax, minext,
+			  aabbs, imap);
+
+			unsigned int lcnt = partition(start, cnt, bmin, aabbs,
+			  imap, &best);
+			if (lcnt == 0 || lcnt == cnt) {
+				dprintf("one side of the partition was empty (horiz. split) at sid: %d, l: %d, r: %d\n",
+				  start, lcnt, cnt - lcnt);
+				lcnt = min(max(lcnt, 1), lcnt - 1);
+			}
+
+			// Add new horiz child node from right split data
+			((unsigned int *)&n->children)[childcnt] = cnt - lcnt;
+			((unsigned int *)&n->perm)[childcnt] = start + lcnt;
+			n->minx[childcnt] = best.rmin.x;
+			n->miny[childcnt] = best.rmin.y;
+			n->minz[childcnt] = best.rmin.z;
+			n->maxx[childcnt] = best.rmax.x;
+			n->maxy[childcnt] = best.rmax.y;
+			n->maxz[childcnt] = best.rmax.z;
+
+			childcnt++;
+
+			// Update original child with the left split data
+			((unsigned int *)&n->children)[j] = lcnt;
+			n->minx[j] = best.lmin.x;
+			n->miny[j] = best.lmin.y;
+			n->minz[j] = best.lmin.z;
+			n->maxx[j] = best.lmax.x;
+			n->maxy[j] = best.lmax.y;
+			n->maxz[j] = best.lmax.z;
+		}
+
+		// Vertical splitting, process children in reverse for stack
+		for (unsigned char j = 0; j < childcnt; j++) {
+			unsigned int cnt = ((unsigned int *)&n->children)[j];
+			if (cnt & NODE_LEAF)
+				continue;
+
+			// Do not split this node vertically?
+			unsigned int start = ((unsigned int *)&n->perm)[j];
+			if (cnt <= (tris ? BLAS_LEAF_MAX : TLAS_LEAF_MAX)) {
+				if (tris) {
+					// Blas
+					assert(ofs <= 0x7fffffff);
+					((unsigned int *)&n->children)[j] =
+					  NODE_LEAF | ofs; // Ofs to leaf
+					ofs += embed_leaf4(ptr, ofs,
+					  start, cnt, imap, tris);
+				} else {
+					// Tlas
+					assert(imap[start] <= 0x7fffffff);
+					((unsigned int *)&n->children)[j] =
+					  NODE_LEAF | imap[start];
+				}
+				// Clear 'borrowed' permutation mask
+				((unsigned int *)&n->perm)[j] = 0;
+
+				continue;
+			}
+
+			struct vec3 mi = {n->minx[j], n->miny[j], n->minz[j]};
+			struct vec3 ma = {n->maxx[j], n->maxy[j], n->maxz[j]};
+
+			// Run a SAH binning step
+			struct split best;
+			find_best_split(&best, start, cnt, mi, ma, minext,
+			  aabbs, imap);
+
+			unsigned int lcnt = partition(start, cnt, mi,
+			  aabbs, imap, &best);
+			if (lcnt == 0 || lcnt == cnt) {
+				dprintf("one side of the partition was empty (vert. split) at sid: %d, l: %d, r: %d\n",
+				  start, lcnt, cnt - lcnt);
+				// One side of partition is empty
+				continue;
+			}
+
+			// Add new b8node containing l/r split data
+			struct b8node *child = (struct b8node *)(ptr + ofs);
+			memset(child, 0, sizeof(*child));
+
+			((unsigned int *)&child->children)[0] = lcnt;
+			((unsigned int *)&child->perm)[0] = start;
+			child->minx[0] = best.lmin.x;
+			child->miny[0] = best.lmin.y;
+			child->minz[0] = best.lmin.z;
+			child->maxx[0] = best.lmax.x;
+			child->maxy[0] = best.lmax.y;
+			child->maxz[0] = best.lmax.z;
+
+			((unsigned int *)&child->children)[1] = cnt - lcnt;
+			((unsigned int *)&child->perm)[1] = start + lcnt;
+			child->minx[1] = best.rmin.x;
+			child->miny[1] = best.rmin.y;
+			child->minz[1] = best.rmin.z;
+			child->maxx[1] = best.rmax.x;
+			child->maxy[1] = best.rmax.y;
+			child->maxz[1] = best.rmax.z;
+
+			// Make interior node and link new vert child
+			assert(ofs <= 0x7fffffff);
+			((unsigned int *)&n->children)[j] = ofs;
+			((unsigned int *)&n->perm)[j] = 0;
+
+			// Schedule new interior node for horiz. split
+			assert(spos < 64);
+			stack[spos++] = ofs;
+
+			// Added one new node vertically
+			ofs += sizeof(*child);
+			ncnt++;
 		}
 
 		// Create ordered child traversal permutation map
@@ -1491,7 +1281,7 @@ void rend_prepstatic(struct rdata *rd)
 				ap++;
 			}
 
-			unsigned int ncnt = build_bvh8_blas(
+			unsigned int ncnt = build_bvh8(
 			  &rd->b8nodes[triofs << 1], aabbs, imap,
 			  &rd->tris[triofs], tricnt, rmin, rmax);
 			dprintf("Node cnt: %d\n", ncnt);
@@ -1516,8 +1306,8 @@ void rend_prepdynamic(struct rdata *rd)
 		ap++;
 	}
 
-	unsigned int ncnt = build_bvh8_tlas(&rd->b8nodes[rd->tlasofs],
-	  rd->aabbs, imap, rd->instcnt, rmin, rmax);
+	unsigned int ncnt = build_bvh8(&rd->b8nodes[rd->tlasofs],
+	  rd->aabbs, imap, NULL /* no tris */, rd->instcnt, rmin, rmax);
 	dprintf("Node cnt: %d\n", ncnt);
 }
 
