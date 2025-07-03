@@ -111,9 +111,8 @@ struct rdata {
 	struct rinst   *insts;
 	struct aabb    *aabbs; // World space instance aabbs
 
-	unsigned int   *imap; // Indices mapping tris/insts
 	unsigned int   tlasofs;
-	struct b8node  *b8nodes;
+	struct b8node  *b8nodes; // All blas + tlas
 
 	struct rcam    cam;
 	struct rview   view;

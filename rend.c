@@ -765,8 +765,8 @@ void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                          struct b8node *blas, unsigned int instid,
                          bool dx, bool dy, bool dz)
 {
-	_Alignas(64) unsigned int stack[128];
-	_Alignas(64) float dstack[128];
+	_Alignas(64) unsigned int stack[64];
+	_Alignas(64) float dstack[64];
 	unsigned int spos = 0;
 
 	unsigned char *ptr = (unsigned char *)blas;
@@ -1019,7 +1019,7 @@ void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 bool intersect_any_blas_impl(float tfar, struct vec3 ori, struct vec3 dir,
                              struct b8node *blas, bool dx, bool dy, bool dz)
 {
-	_Alignas(64) unsigned int stack[128];
+	_Alignas(64) unsigned int stack[64];
 	unsigned int spos = 0;
 
 	unsigned char *ptr = (unsigned char *)blas;
@@ -1213,11 +1213,11 @@ void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
                          struct b8node *nodes, struct rinst *insts,
                          unsigned int tlasofs, bool dx, bool dy, bool dz)
 {
-	_Alignas(64) unsigned int stack[128];
-	_Alignas(64) float dstack[128];
+	_Alignas(64) unsigned int stack[64];
+	_Alignas(64) float dstack[64];
 	unsigned int spos = 0;
 
-	unsigned char *ptr = (unsigned char *)&nodes[tlasofs << 1];
+	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
 	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
@@ -1345,10 +1345,10 @@ bool intersect_any_tlas_impl(float tfar, struct vec3 ori, struct vec3 dir,
                              struct b8node *nodes, struct rinst *insts,
                              unsigned int tlasofs, bool dx, bool dy, bool dz)
 {
-	_Alignas(64) unsigned int stack[128];
+	_Alignas(64) unsigned int stack[64];
 	unsigned int spos = 0;
 
-	unsigned char *ptr = (unsigned char *)&nodes[tlasofs << 1];
+	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
 	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
@@ -1476,21 +1476,17 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	rd->insts = aligned_alloc(64, maxinsts * sizeof(*rd->insts));
 	rd->aabbs = aligned_alloc(64, maxinsts * sizeof(*rd->aabbs));
 
-	// Index map contains tri and instance ids
-	unsigned int idcnt = maxtris + maxinsts;
-	rd->imap = aligned_alloc(64, idcnt * sizeof(*rd->imap));
-
 	// Bvh nodes for blas and tlas
-	rd->b8nodes = aligned_alloc(64, idcnt * 2 * sizeof(*rd->b8nodes));
+	rd->b8nodes = aligned_alloc(64, 2 * (maxtris + maxinsts)
+	  * sizeof(*rd->b8nodes));
 
-	// Start of tlas index map and tlas nodes * 2
-	rd->tlasofs = maxtris;
+	// Start of tlas nodes
+	rd->tlasofs = 2 * maxtris;
 }
 
 void rend_release(struct rdata *rd)
 {
 	free(rd->b8nodes);
-	free(rd->imap);
 	free(rd->aabbs);
 	free(rd->insts);
 	free(rd->nrms);
@@ -1507,8 +1503,7 @@ void rend_prepstatic(struct rdata *rd)
 		if (!((unsigned int *)&rn->children)[0]) { // Not processed
 			unsigned int tricnt = ri->tricnt;
 			struct rtri *tp = &rd->tris[triofs];
-			unsigned int *ip = &rd->imap[triofs];
-			//struct aabb aabbs[tricnt]; // On stack, can break
+			unsigned int *imap = malloc(tricnt * sizeof(*imap));
 			struct aabb *aabbs = malloc(tricnt * sizeof(*aabbs));
 			struct aabb *ap = aabbs;
 			struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
@@ -1523,17 +1518,18 @@ void rend_prepstatic(struct rdata *rd)
 				ap->max = vec3_max(ap->max, tp->v2);
 				rmin = vec3_min(rmin, ap->min);
 				rmax = vec3_max(rmax, ap->max);
-				*ip++ = i;
+				imap[i] = i;
 				tp++;
 				ap++;
 			}
 
 			unsigned int ncnt = build_bvh8_blas(
-			  &rd->b8nodes[triofs << 1], aabbs, &rd->imap[triofs],
+			  &rd->b8nodes[triofs << 1], aabbs, imap,
 			  &rd->tris[triofs], tricnt, rmin, rmax);
 			dprintf("Node cnt: %d\n", ncnt);
 
 			free(aabbs);
+			free(imap);
 		}
 	}
 }
@@ -1544,18 +1540,16 @@ void rend_prepdynamic(struct rdata *rd)
 	struct aabb *ap = rd->aabbs; // World space aabbs of instances
 	struct vec3 rmin = {FLT_MAX, FLT_MAX, FLT_MAX};
 	struct vec3 rmax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
-	unsigned int tlasofs = rd->tlasofs;
-	unsigned int *ip = &rd->imap[tlasofs];
+	unsigned int imap[rd->instcnt]; // On stack
 	for (unsigned int i = 0; i < rd->instcnt; i++) {
 		rmin = vec3_min(rmin, ap->min);
 		rmax = vec3_max(rmax, ap->max);
-		*ip++ = i;
+		imap[i] = i;
 		ap++;
 	}
 
-	unsigned int ncnt = build_bvh8_tlas(
-	  &rd->b8nodes[tlasofs << 1], rd->aabbs, &rd->imap[tlasofs],
-	  rd->instcnt, rmin, rmax);
+	unsigned int ncnt = build_bvh8_tlas(&rd->b8nodes[rd->tlasofs],
+	  rd->aabbs, imap, rd->instcnt, rmin, rmax);
 	dprintf("Node cnt: %d\n", ncnt);
 }
 
