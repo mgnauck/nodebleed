@@ -85,8 +85,7 @@ float calc_area(struct vec3 mi, struct vec3 ma)
 	return d.x * d.y + d.y * d.z + d.z * d.x;
 }
 
-// Wald et al, 2007, Ray Tracing Deformable Scenes Using Dynamic Bounding
-// Volume Hierarchies
+// Wald et al, 2007, Ray Tracing Deformable Scenes Using Dynamic BVH
 void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
                      struct vec3 nmin, struct vec3 nmax, struct vec3 minext,
                      struct aabb *aabbs, unsigned int *imap)
@@ -229,10 +228,45 @@ unsigned int partition(unsigned int start, unsigned int cnt, struct vec3 nmin,
 	return l - start; // = left cnt
 }
 
+unsigned int embed_leaf4(unsigned char *ptr, unsigned int ofs,
+                          unsigned int start, unsigned int cnt,
+                          unsigned int *imap, struct rtri *tris)
+{
+	struct leaf4 *l = (struct leaf4 *)(ptr + ofs);
+	unsigned int *ip = &imap[start];
+	for (unsigned char i = 0; i < 4; i++) {
+		struct rtri *tri = &tris[*ip];
+
+		l->v0x[i] = tri->v0.x;
+		l->v0y[i] = tri->v0.y;
+		l->v0z[i] = tri->v0.z;
+
+		struct vec3 e0 = vec3_sub(
+		  tri->v1, tri->v0);
+		l->e0x[i] = e0.x;
+		l->e0y[i] = e0.y;
+		l->e0z[i] = e0.z;
+
+		struct vec3 e1 = vec3_sub(
+		  tri->v2, tri->v0);
+		l->e1x[i] = e1.x;
+		l->e1y[i] = e1.y;
+		l->e1z[i] = e1.z;
+
+		l->id[i] = *ip;
+
+		// Replicate last tri if not 4
+		if (i < cnt - 1)
+			ip++;
+	}
+
+	return sizeof(*l);
+}
+
 // Wald et al, 2008, Getting Rid of Packets
 // Ernst et al, 2008, Multi Bounding Volume Hierarchies
 // Dammertz et al, 2008, Shallow Bounding Volume Hierarchies For Fast SIMD
-// Ray Tracing of Incorherent Rays
+// Ray Tracing of Incoherent Rays
 unsigned int build_bvh8_blas(struct b8node *nodes, struct aabb *aabbs,
                              unsigned int *imap, struct rtri *tris,
                              unsigned int pcnt,
@@ -298,43 +332,10 @@ unsigned int build_bvh8_blas(struct b8node *nodes, struct aabb *aabbs,
 				assert(ofs <= 0x7fffffff);
 				((unsigned int *)&n->children)[j] =
 				  NODE_LEAF | ofs; // Store ofs to leaf
-
-				// Embedd tri data
-				struct leaf4 *l = (struct leaf4 *)
-				  (ptr + ofs);
-				unsigned int *ip = &imap[start];
-				for (unsigned char i = 0; i < 4; i++) {
-					struct rtri *tri = &tris[*ip];
-
-					l->v0x[i] = tri->v0.x;
-					l->v0y[i] = tri->v0.y;
-					l->v0z[i] = tri->v0.z;
-
-					struct vec3 e0 = vec3_sub(
-					  tri->v1, tri->v0);
-					l->e0x[i] = e0.x;
-					l->e0y[i] = e0.y;
-					l->e0z[i] = e0.z;
-
-					struct vec3 e1 = vec3_sub(
-					  tri->v2, tri->v0);
-					l->e1x[i] = e1.x;
-					l->e1y[i] = e1.y;
-					l->e1z[i] = e1.z;
-
-					l->id[i] = *ip;
-
-					// Replicate last tri if not 4
-					if (i < cnt - 1)
-						ip++;
-				}
-
-				// Account for leaf data
-				ofs += sizeof(*l);
-
+				ofs += embed_leaf4(ptr, ofs, start, cnt,
+				  imap, tris);
 				// Clear 'borrowed' permutation mask
 				((unsigned int *)&n->perm)[j] = 0;
-
 				continue;
 			}
 
@@ -382,43 +383,10 @@ unsigned int build_bvh8_blas(struct b8node *nodes, struct aabb *aabbs,
 					assert(ofs <= 0x7fffffff);
 					((unsigned int *)&n->children)[j] =
 					  NODE_LEAF | ofs; // Store ofs to leaf
-
-					// Embedd tri data
-					struct leaf4 *l = (struct leaf4 *)
-					  (ptr + ofs);
-					unsigned int *ip = &imap[start];
-					for (unsigned char i = 0; i < 4; i++) {
-						struct rtri *tri = &tris[*ip];
-
-						l->v0x[i] = tri->v0.x;
-						l->v0y[i] = tri->v0.y;
-						l->v0z[i] = tri->v0.z;
-
-						struct vec3 e0 = vec3_sub(
-						  tri->v1, tri->v0);
-						l->e0x[i] = e0.x;
-						l->e0y[i] = e0.y;
-						l->e0z[i] = e0.z;
-
-						struct vec3 e1 = vec3_sub(
-						  tri->v2, tri->v0);
-						l->e1x[i] = e1.x;
-						l->e1y[i] = e1.y;
-						l->e1z[i] = e1.z;
-
-						l->id[i] = *ip;
-
-						// Replicate last tri if not 4
-						if (i < cnt - 1)
-							ip++;
-					}
-
-					// Account for leaf data
-					ofs += sizeof(*l);
-
+					ofs += embed_leaf4(ptr, ofs, start,
+					  cnt, imap, tris);
 					// Clear 'borrowed' permutation mask
 					((unsigned int *)&n->perm)[j] = 0;
-
 					continue;
 				}
 
