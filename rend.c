@@ -1342,11 +1342,13 @@ struct vec3 rand_hemicos(float r0, float r1)
 	return (struct vec3){cosf(phi) * sr1, sinf(phi) * sr1, sqrtf(1 - r1)};
 }
 
-struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd)
+struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd,
+                   unsigned int *rays)
 {
 	struct hit h = {.t = FLT_MAX};
 
 	intersect_tlas(&h, o, d, rd->b8nodes, rd->insts, rd->tlasofs);
+	*rays += 1;
 
 	struct vec3 c = rd->bgcol;
 	if (h.t < FLT_MAX) {
@@ -1373,7 +1375,7 @@ struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd)
 }
 
 struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
-                   unsigned char depth, unsigned int *seed)
+                   unsigned char depth, unsigned int *seed, unsigned int *rays)
 {
 	if (depth >= 2)
 		return rd->bgcol;
@@ -1381,6 +1383,7 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
 	struct hit h = {.t = FLT_MAX};
 
 	intersect_tlas(&h, o, d, rd->b8nodes, rd->insts, rd->tlasofs);
+	*rays += 1;
 
 	if (h.t == FLT_MAX)
 		return rd->bgcol;
@@ -1421,7 +1424,7 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
 	struct vec3 brdf = rd->mtls[mtlid].col;
 
 	struct vec3 irr = trace2(vec3_add(pos, vec3_scale(dir, 0.001)), dir,
-	  rd, depth + 1, seed);
+	  rd, depth + 1, seed, rays);
 
 	//return vec3_scale(vec3_mul(brdf, irr), cos_theta / pdf);
 	//return vec3_mul(brdf, irr);
@@ -1431,10 +1434,11 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
 }
 
 struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
-                   unsigned char depth, unsigned int *seed)
+                   unsigned char depth, unsigned int *seed, unsigned int *rays)
 {
 	struct hit h = {.t = FLT_MAX};
 	intersect_tlas(&h, o, d, rd->b8nodes, rd->insts, rd->tlasofs);
+	*rays += 1;
 
 	if (h.t == FLT_MAX)
 		return rd->bgcol;
@@ -1477,13 +1481,15 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 	float ldist = vec3_len(ldir);
 	ldir = vec3_scale(ldir, 1.0f / ldist);
 	float ndotl = vec3_dot(nrm, ldir);
-	if (ndotl > 0.0f)
+	if (ndotl > 0.0f) {
 		if (!intersect_any_tlas(ldist, vec3_add(pos,
 		  vec3_scale(ldir, EPS2)), ldir, rd->b8nodes, rd->insts,
 		  rd->tlasofs))
 			direct = vec3_scale(vec3_mul(brdf, lcol), INV_PI *
 			  ndotl * vec3_dot(lnrm, vec3_neg(ldir)) * larea *
 			  (1.0f / (ldist * ldist)));
+		*rays += 1;
+	}
 #endif
 
 	// Sample indirect
@@ -1500,7 +1506,7 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 		//float pdf = cos_theta / PI;
 
 		struct vec3 irr = trace3(vec3_add(pos,
-		  vec3_scale(dir, EPS2)), dir, rd, depth + 1, seed);
+		  vec3_scale(dir, EPS2)), dir, rd, depth + 1, seed, rays);
 
 		//colind = vec3_scale(vec3_mul(brdf, irr),
 		//  cos_theta / pdf);
@@ -1529,13 +1535,15 @@ int rend_render(void *d)
 	unsigned int w = rd->view.w;
 	unsigned int bs = rd->blksz;
 
-	float rspp = 1.0f / (1.0f + rd->samplecnt);
+	unsigned int rays = 0;
+
+	float rspp = 1.0f / (1.0f + rd->samples);
 
 	while (true) {
 		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
 		if (blk >= blkcnt)
 			break;
-		unsigned int seed = (blk + 13) * 131317 + rd->samplecnt * 23;
+		unsigned int seed = (blk + 13) * 131317 + rd->samples * 23;
 		unsigned int bx = (blk % blksx) * bs;
 		unsigned int by = (blk / blksx) * bs;
 		for (unsigned int j = 0; j < bs; j++) {
@@ -1551,9 +1559,9 @@ int rend_render(void *d)
 
 				struct vec3 c =
 				  //trace(eye, vec3_unit(vec3_sub(p, eye)),
-				  //rd);
+				  //rd, &rays);
 				  trace3(eye, vec3_unit(vec3_sub(p, eye)), rd,
-				  0, &seed);
+				  0, &seed, &rays);
 
 				acc[yofs + x] = vec3_add(acc[yofs + x], c);
 				c = vec3_scale(acc[yofs + x], rspp);
@@ -1565,6 +1573,8 @@ int rend_render(void *d)
 			}
 		}
 	}
+
+	__atomic_fetch_add(&rd->rays, rays, __ATOMIC_SEQ_CST);
 
 	return 0;
 }

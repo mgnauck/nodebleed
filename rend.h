@@ -125,7 +125,8 @@ struct rdata {
 	struct vec3    *acc; // Accumulator
 	unsigned int   *buf; // Color buffer
 
-	unsigned int   samplecnt;
+	unsigned int   rays;
+	unsigned int   samples;
 };
 
 void  rend_init_compresslut(void);

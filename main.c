@@ -270,7 +270,7 @@ void update(struct rdata *rd, struct scene *s, float time)
 
 	if (!converge || anyflags(s->dirty, TRANSFORM | CAM)) {
 		memset(rd->acc, 0, WIDTH * HEIGHT * sizeof(*rd->acc));
-		rd->samplecnt = 0;
+		rd->samples = 0;
 		clrflags(&s->dirty, TRANSFORM | CAM);
 	}
 }
@@ -400,13 +400,15 @@ int main(void)
 
 #ifndef NDEBUG
 		char title[64];
-		snprintf(title, 64, "%llu ms, %d samples",
-		  SDL_GetTicks64() - last, rd.samplecnt);
+		long long dur = SDL_GetTicks() - last;
+		snprintf(title, 64, "%llu ms, %6.3f Mrays/s, %d samples",
+		  dur, rd.rays / (float)(dur * 1000), rd.samples);
 		SDL_SetWindowTitle(win, title);
 #endif
 
 		rd.blknum = 0;
-		rd.samplecnt++;
+		rd.rays = 0;
+		rd.samples++;
 	}
 
 	free(rd.acc);
