@@ -1558,7 +1558,7 @@ int rend_render(void *d)
 				acc[yofs + x] = vec3_add(acc[yofs + x], c);
 				c = vec3_scale(acc[yofs + x], rspp);
 
-				buf[yofs + x] = 0xff << 24 |
+				buf[yofs + x] = 0xffu << 24 |
 				  ((unsigned int)(255 * c.x) & 0xff) << 16 |
 				  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
 				  ((unsigned int)(255 * c.z) & 0xff);
