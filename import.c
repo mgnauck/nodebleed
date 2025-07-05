@@ -406,7 +406,19 @@ void import_file_gltf(struct scene *s, char *name)
 	munmap(gltf, gltfsz);
 }
 
+void import_bkse(struct scene *s, unsigned char *bkse)
+{
+	// Placeholder, avoid warning
+	bkse = (unsigned char *)s;
+	s = (struct scene *)bkse;
+}
+
 void import_file_bkse(struct scene *s, char *name)
 {
-	// TODO
+	unsigned long long sz;
+	unsigned char *bkse = mmread(name, &sz);
+
+	import_bkse(s, bkse);
+
+	munmap(bkse, sz);
 }
