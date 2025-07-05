@@ -24,6 +24,30 @@
 #define abort(...) exit(1);
 #endif
 
+void *mmread(const char *relpathname, unsigned long long *sz)
+{
+	int fd = open(relpathname, O_RDONLY);
+	if (fd < 0)
+		abort("Failed to open %s\n", relpathname);
+
+	struct stat st = {0};
+	if (fstat(fd, &st) < 0)
+		abort("Failed to retrieve file stat %s\n", relpathname);
+
+	//dprintf("file: %s, sz: %ld\n", relpathname, st.st_size);
+
+	void *buf = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
+	  fd, 0);
+	if ((long long)buf < 0)
+		abort("Failed to map %ld bytes\n", st.st_size);
+
+	if (close(fd) < 0)
+		abort("Close %s failed\n", relpathname);
+
+	*sz = st.st_size;
+	return buf;
+}
+
 unsigned int getmtlflags(struct gltfmtl *gm)
 {
 	unsigned int flags = 0;
@@ -275,8 +299,8 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 	}
 }
 
-void import_data(struct scene *s,
-                const char *gltfbuf, const unsigned char *binbuf)
+void import_gltf(struct scene *s, const char *gltfbuf,
+                 const unsigned char *binbuf)
 {
 	struct gltf g = { 0 };
 	if (gltf_init(&g, gltfbuf) != 0)
@@ -360,40 +384,29 @@ void import_data(struct scene *s,
 	gltf_release(&g);
 }
 
-void *mmread(const char *relpathname, unsigned long long *sz)
-{
-	int fd = open(relpathname, O_RDONLY);
-	if (fd < 0)
-		abort("Failed to open %s\n", relpathname);
-
-	struct stat st = {0};
-	if (fstat(fd, &st) < 0)
-		abort("Failed to retrieve file stat %s\n", relpathname);
-
-	//dprintf("file: %s, sz: %ld\n", relpathname, st.st_size);
-
-	void *buf = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
-	  fd, 0);
-	if ((long long)buf < 0)
-		abort("Failed to map %ld bytes\n", st.st_size);
-
-	if (close(fd) < 0)
-		abort("Close %s failed\n", relpathname);
-
-	*sz = st.st_size;
-	return buf;
-}
-
-void import_gltf(struct scene *s, const char *gltfname, const char *binname)
+void import_file_gltf(struct scene *s, char *name)
 {
 	unsigned long long gltfsz;
-	char *gltf = mmread(gltfname, &gltfsz);
+	char *gltf = mmread(name, &gltfsz);
+
+	// Assuming same name for gltf and bin file, just adjust extension
+	char binname[strlen(name)];
+	memcpy(binname, name, strlen(name) - 4);
+	binname[sizeof(binname) - 4] = 'b';
+	binname[sizeof(binname) - 3] = 'i';
+	binname[sizeof(binname) - 2] = 'n';
+	binname[sizeof(binname) - 1] = '\0';
 
 	unsigned long long binsz;
 	unsigned char *bin = mmread(binname, &binsz);
 
-	import_data(s, gltf, bin);
+	import_gltf(s, gltf, bin);
 
 	munmap(bin, binsz);
 	munmap(gltf, gltfsz);
+}
+
+void import_file_bkse(struct scene *s, char *name)
+{
+	// TODO
 }

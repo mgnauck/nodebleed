@@ -12,8 +12,6 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
-#define arrsz(a) (sizeof(a) / sizeof((a)[0]))
-
 float  randf(unsigned int *seed);
 
 void   setflags(unsigned int *state, unsigned int flags);

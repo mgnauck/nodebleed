@@ -206,11 +206,11 @@ void calc_view(struct rview *v, unsigned int width, unsigned int height,
 
 void init(struct scene *s, struct rdata *rd)
 {
-	//import_gltf(s, "../data/animcube.gltf", "../data/animcube.bin");
-	import_gltf(s, "../data/suzy.gltf", "../data/suzy.bin");
-	//import_gltf(s, "../data/sponza.gltf", "../data/sponza.bin");
-	//import_gltf(s, "../data/toycar.gltf", "../data/toycar.bin");
-	//import_gltf(s, "../raynin/data/good_7.gltf", "../raynin/data/good_7.bin");
+	//import_file_gltf(s, "../data/animcube.gltf");
+	import_file_gltf(s, "../data/suzy.gltf");
+	//import_file_gltf(s, "../data/sponza.gltf");
+	//import_file_gltf(s, "../data/toycar.gltf");
+	//import_file_gltf(s, "../raynin/data/good_7.gltf");
 
 	assert(s);
 
