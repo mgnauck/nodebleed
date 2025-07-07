@@ -23,6 +23,10 @@
 
 #define INTERVAL_CNT  16 // Binning intervals
 
+#define PCKT_W   4
+#define PCKT_H   2
+#define PCKT_SZ  (PCKT_W * PCKT_H)
+
 static __m256i compr_lut[256];
 static __m256i defchildnum8;
 
@@ -1217,12 +1221,35 @@ bool intersect_any_tlas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-//#define PCKT_CODE
-#ifdef PCKT_CODE
-void intersect_pck_tlas_impl(struct hit *h, struct vec3 *ori, struct vec3 *dir,
-                             struct b8node *nodes, struct rinst *insts,
-                             unsigned int tlasofs, unsigned int pckcnt,
-                             bool dx, bool dy, bool dz)
+float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
+                     struct vec3 mi, struct vec3 ma)
+{
+	float tx0 = (mi.x - ori.x) * idir.x;
+	float tx1 = (ma.x - ori.x) * idir.x;
+	float tmin = min(tx0, tx1);
+	float tmax = max(tx0, tx1);
+
+	float ty0 = (mi.y - ori.y) * idir.y;
+	float ty1 = (ma.y - ori.y) * idir.y;
+	tmin = max(tmin, min(ty0, ty1));
+	tmax = min(tmax, max(ty0, ty1));
+
+	float tz0 = (mi.z - ori.z) * idir.z;
+	float tz1 = (ma.z - ori.z) * idir.z;
+	tmin = max(tmin, min(tz0, tz1));
+	tmax = min(tmax, max(tz0, tz1));
+
+	if (tmin <= tmax && tmin < tfar && tmax >= 0.0f)
+		return tmin;
+	else
+		return FLT_MAX;
+}
+
+void intersect_pckt_tlas_impl(struct hit *h, struct vec3 *ori,
+                              struct vec3 *dir,
+                              struct b8node *nodes, struct rinst *insts,
+                              unsigned int tlasofs,
+                              bool dx, bool dy, bool dz)
 {
 	_Alignas(64) unsigned int stack[64];
 	_Alignas(64) unsigned int istack[64]; // Prnt ofs << 3 | child num
@@ -1231,10 +1258,13 @@ void intersect_pck_tlas_impl(struct hit *h, struct vec3 *ori, struct vec3 *dir,
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
+// TODO Have ori, dir and idir already in __m256?
 	// Calc interval ray with min/max ori and inv dir
+	struct vec3 idir[PCKT_SZ];
 	float miidx = 1.0f / dir->x;
 	float miidy = 1.0f / dir->y;
 	float miidz = 1.0f / dir->z;
+	idir[0] = (struct vec3){miidx, miidy, miidz};
 	float maidx = miidx;
 	float maidy = miidy;
 	float maidz = miidz;
@@ -1244,10 +1274,11 @@ void intersect_pck_tlas_impl(struct hit *h, struct vec3 *ori, struct vec3 *dir,
 	float maorx = miorx;
 	float maory = miory;
 	float maorz = miorz;
-	for (unsigned int i = 1; i < 16 * pckcnt; i++) { // 4x4 rays in packet
+	for (unsigned int i = 1; i < PCKT_SZ; i++) {
 		float idx = 1.0f / dir[i].x;
 		float idy = 1.0f / dir[i].y;
 		float idz = 1.0f / dir[i].z;
+		idir[i] = (struct vec3){idx, idy, idz};
 		miidx = min(miidx, idx);
 		miidy = min(miidy, idy);
 		miidz = min(miidz, idz);
@@ -1288,6 +1319,7 @@ void intersect_pck_tlas_impl(struct hit *h, struct vec3 *ori, struct vec3 *dir,
 	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
+restart:
 		if ((ofs & NODE_LEAF) == 0) {
 			struct b8node *n = (struct b8node *)(ptr + ofs);
 
@@ -1381,9 +1413,8 @@ void intersect_pck_tlas_impl(struct hit *h, struct vec3 *ori, struct vec3 *dir,
 			mat4_from3x4(inv, ri->globinv);
 
 		// TODO Do packets for blas intersection as well
-			// Test all rays of all packets
 			struct b8node *blas = &nodes[ri->triofs << 1];
-			for (unsigned int i = 0; i < 16 * pckcnt; i++) {
+			for (unsigned int i = 0; i < PCKT_SZ; i++) {
 				intersect_blas(&h[i], mat4_mulpos(inv, ori[i]),
 				  mat4_muldir(inv, dir[i]), blas, instid);
 			}
@@ -1400,15 +1431,21 @@ void intersect_pck_tlas_impl(struct hit *h, struct vec3 *ori, struct vec3 *dir,
 
 			struct b8node *p = (struct b8node *)(ptr + (pc >> 3));
 
-			// TODO Intersect each packet with aabb
-			// of p->aabb[pc & 3]. Break on hit.
+		// TODO Intersect all rays of given packet with
+		// p->aabb[pc & 3] at once and break on hit
+			unsigned char j = pc & 3;
+			for (unsigned char i = 0; i < PCKT_SZ; i++)
+				if (intersect_aabb(ori[i], idir[i], h[i].t,
+				  (struct vec3){p->minx[j], p->miny[j],
+				  p->minz[j]}, (struct vec3){p->maxx[j],
+				  p->maxy[j], p->maxz[j]}))
+					goto restart;
 
-			// TODO Support more than one packet via fpi and
-			// another loop here.
+		// TODO Support more than one packet via fpi and
+		// another loop here.
 		}
 	}
 }
-#endif
 
 void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
                     struct b8node *nodes, struct rinst *insts,
@@ -1426,17 +1463,15 @@ bool intersect_any_tlas(float tfar, struct vec3 ori, struct vec3 dir,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
-#ifdef PCK_CODE
-void intersect_pck_tlas(struct hit *h, struct vec3 *ori, struct vec3 *dir,
-                        struct b8node *nodes, struct rinst *insts,
-                        unsigned int tlasofs, unsigned int pcnt)
+void intersect_pckt_tlas(struct hit *h, struct vec3 *ori, struct vec3 *dir,
+                         struct b8node *nodes, struct rinst *insts,
+                         unsigned int tlasofs)
 {
 	// TODO Should we calc the interval ray here already?
-	intersect_pck_tlas_impl(h, ori, dir, nodes, insts, tlasofs, pcnt,
+	intersect_pckt_tlas_impl(h, ori, dir, nodes, insts, tlasofs,
 	  // Assume coherent rays in packet with signs aligned
 	  dir->x >= 0.0f, dir->y >= 0.0f, dir->z >= 0.0f);
 }
-#endif
 
 void rend_init(struct rdata *rd, unsigned int maxmtls,
                unsigned int maxtris, unsigned int maxinsts) 
@@ -1589,6 +1624,44 @@ struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return c;
 }
 
+// TODO Make proper, ATM just for testing
+void trace_pckt(struct vec3 *col, struct vec3 *ori, struct vec3 *dir,
+                struct rdata *rd, unsigned int *rays)
+{
+	struct hit hit[PCKT_SZ];
+	for (unsigned int i = 0; i < PCKT_SZ; i++) {
+		hit[i].t = FLT_MAX;
+		col[i] = rd->bgcol;
+	}
+
+	intersect_pckt_tlas(hit, ori, dir, rd->b8nodes, rd->insts,
+	  rd->tlasofs);
+	*rays += PCKT_SZ;
+
+	for (unsigned int k = 0; k < PCKT_SZ; k++) {
+		struct hit *h = &hit[k];
+		if (h->t == FLT_MAX)
+			continue;
+
+		unsigned int instid = h->id & INST_ID_MASK;
+		unsigned int triid = h->id >> INST_ID_BITS;
+		struct rinst *ri = &rd->insts[instid];
+		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+		unsigned int mtlid = rn->mtlid;
+
+		// Inverse transpose, dir mul is 3x4
+		float it[16];
+		float *rt = ri->globinv;
+		for (unsigned int j = 0; j < 4; j++)
+			for (unsigned int i = 0; i < 3; i++)
+				it[4 * j + i] = rt[4 * i + j];
+
+		struct vec3 nrm = calc_nrm(h->u, h->v, rn, it);
+		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
+		col[k] = vec3_mul(nrm, rd->mtls[mtlid].col);
+	}
+}
+
 struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
                    unsigned char depth, unsigned int *seed, unsigned int *rays)
 {
@@ -1732,60 +1805,92 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return vec3_add(direct, indirect);
 }
 
+void make_pckt(struct vec3 *ori, struct vec3 *dir, struct vec3 eye,
+               struct rview *view, unsigned int *seed,
+               unsigned int x, unsigned int y)
+{
+	struct vec3 dx = view->dx;
+	struct vec3 dy = view->dy;
+	struct vec3 tl = view->tl;
+
+	for (unsigned int j = 0; j < PCKT_H; j++) {
+		for (unsigned int i = 0; i < PCKT_W; i++) {
+			struct vec3 p = vec3_add(tl, vec3_add(
+			  vec3_scale(dx, x + i), vec3_scale(dy, y + j)));
+
+			p = vec3_add(p, vec3_add(
+			  vec3_scale(dx, randf(seed) - 0.5f),
+			  vec3_scale(dy, randf(seed) - 0.5f)));
+
+			*ori++ = eye;
+			*dir++ = vec3_unit(vec3_sub(p, eye));
+		}
+	}
+}
+
+void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
+                float invspp, unsigned int x, unsigned int y, unsigned int w)
+{
+	for (unsigned int j = 0; j < PCKT_H; j++) {
+		for (unsigned int i = 0; i < PCKT_W; i++) {
+			unsigned int ofs = w * (y + j) + (x + i);
+			acc[ofs] = vec3_add(acc[ofs], *col++);
+			struct vec3 c = vec3_scale(acc[ofs], invspp);
+			buf[ofs] = 0xffu << 24 |
+			  ((unsigned int)(255 * c.x) & 0xff) << 16 |
+			  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
+			  ((unsigned int)(255 * c.z) & 0xff);
+		}
+	}
+}
+
 int rend_render(void *d)
 {
 	struct rdata *rd = d;
 
+	unsigned int w = rd->view.w;
 	struct vec3 eye = rd->cam.eye;
-	struct vec3 dx = rd->view.dx;
-	struct vec3 dy = rd->view.dy;
-	struct vec3 tl = rd->view.tl;
 
-	unsigned int blksx = rd->view.w / rd->blksz;
+	unsigned int blksx = w / rd->blksz;
 	unsigned int blksy = rd->view.h / rd->blksz;
 	int          blkcnt = blksx * blksy;
-
-	struct vec3 *acc = rd->acc;
-	unsigned int *buf = rd->buf;
-	unsigned int w = rd->view.w;
 	unsigned int bs = rd->blksz;
 
 	unsigned int rays = 0;
 
-	float rspp = 1.0f / (1.0f + rd->samples);
+	float invspp = 1.0f / (1.0f + rd->samples);
+
+	struct vec3 ori[PCKT_SZ];
+	struct vec3 dir[PCKT_SZ];
+	struct vec3 col[PCKT_SZ];
 
 	while (true) {
 		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
 		if (blk >= blkcnt)
 			break;
+
 		unsigned int seed = (blk + 13) * 131317 + rd->samples * 23;
+
 		unsigned int bx = (blk % blksx) * bs;
 		unsigned int by = (blk / blksx) * bs;
-		for (unsigned int j = 0; j < bs; j++) {
+
+		for (unsigned int j = 0; j < bs; j += PCKT_H) {
 			unsigned int y = by + j;
-			unsigned int yofs = w * y;
-			for (unsigned int i = 0; i < bs; i++) {
-		// TODO Create 4x4 ray packets (primary rays only)
+			for (unsigned int i = 0; i < bs; i += PCKT_W) {
 				unsigned int x = bx + i;
-				struct vec3 p = vec3_add(tl, vec3_add(
-				  vec3_scale(dx, x), vec3_scale(dy, y)));
-				p = vec3_add(p, vec3_add(
-				  vec3_scale(dx, randf(&seed) - 0.5f),
-				  vec3_scale(dy, randf(&seed) - 0.5f)));
 
-				struct vec3 c =
-				  //trace(eye, vec3_unit(vec3_sub(p, eye)),
-				  //rd, &rays);
-				  trace3(eye, vec3_unit(vec3_sub(p, eye)), rd,
-				  0, &seed, &rays);
+				make_pckt(ori, dir, eye, &rd->view, &seed,
+				  x, y);
 
-				acc[yofs + x] = vec3_add(acc[yofs + x], c);
-				c = vec3_scale(acc[yofs + x], rspp);
+				for (unsigned char k = 0; k < PCKT_SZ; k++)
+					col[k] = trace1(ori[k], dir[k], rd,
+					  &rays);
+					//col[k] = trace3(ori[k], dir[k], rd,
+					//  0, &seed, &rays);
+					//trace_pckt(col, ori, dir, rd, &rays);
 
-				buf[yofs + x] = 0xffu << 24 |
-				  ((unsigned int)(255 * c.x) & 0xff) << 16 |
-				  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
-				  ((unsigned int)(255 * c.z) & 0xff);
+				accum_pckt(rd->acc, rd->buf, col, invspp,
+				  x, y, w);
 			}
 		}
 	}
