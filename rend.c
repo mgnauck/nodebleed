@@ -30,6 +30,11 @@
 static __m256i compr_lut[256];
 static __m256i defchildnum8;
 
+static __m256 zero8;
+static __m128 zero4;
+static __m128 one4;
+static __m128 fltmax4;
+
 struct split { // Result from SAH binning step
 	float          cost;
 	unsigned char  axis;
@@ -86,6 +91,12 @@ void rend_init_compresslut(void)
 	// Default child nums/lanes (will be ordered, masked and compressed)
 	defchildnum8 =
 	  _mm256_cvtepu8_epi32(_mm_cvtsi64_si128(0x706050403020100));
+
+	// Default values 4 and 8 lanes
+	zero8 = _mm256_setzero_ps();
+	zero4 = _mm_setzero_ps();
+	one4 = _mm_set1_ps(1.0f);
+	fltmax4 = _mm_set1_ps(FLT_MAX);
 }
 
 float calc_area(struct vec3 mi, struct vec3 ma)
@@ -554,7 +565,6 @@ void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	__m256 rz8 = _mm256_set1_ps(ori.z * idz);
 
 	__m256 t8 = _mm256_set1_ps(h->t);
-	__m256 zero8 = _mm256_setzero_ps();
 
 	__m128 dx4 = _mm_set1_ps(dir.x);
 	__m128 dy4 = _mm_set1_ps(dir.y);
@@ -563,10 +573,6 @@ void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	__m128 ox4 = _mm_set1_ps(ori.x);
 	__m128 oy4 = _mm_set1_ps(ori.y);
 	__m128 oz4 = _mm_set1_ps(ori.z);
-
-	__m128 zero4 = _mm_setzero_ps();
-	__m128 one4 = _mm_set1_ps(1.0f);
-	__m128 fltmax4 = _mm_set1_ps(FLT_MAX);
 
 	// Ray dir sign defines how to shift the permutation map
 	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
@@ -808,7 +814,6 @@ bool intersect_any_blas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 	__m256 rz8 = _mm256_set1_ps(ori.z * idz);
 
 	__m256 t8 = _mm256_set1_ps(tfar);
-	__m256 zero8 = _mm256_setzero_ps();
 
 	__m128 dx4 = _mm_set1_ps(dir.x);
 	__m128 dy4 = _mm_set1_ps(dir.y);
@@ -817,9 +822,6 @@ bool intersect_any_blas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 	__m128 ox4 = _mm_set1_ps(ori.x);
 	__m128 oy4 = _mm_set1_ps(ori.y);
 	__m128 oz4 = _mm_set1_ps(ori.z);
-
-	__m128 zero4 = _mm_setzero_ps();
-	__m128 one4 = _mm_set1_ps(1.0f);
 
 	while (true) {
 		while ((ofs & NODE_LEAF) == 0) {
@@ -1004,7 +1006,6 @@ void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	__m256 rz8 = _mm256_set1_ps(ori.z * idz);
 
 	__m256 t8 = _mm256_set1_ps(h->t);
-	__m256 zero8 = _mm256_setzero_ps();
 
 	// Ray dir sign defines how to shift the permutation map
 	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
@@ -1104,6 +1105,9 @@ void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 		  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
 		  &nodes[ri->triofs << 1], instid);
 
+		// There might be a nearer h->t now
+		//t8 = _mm256_set1_ps(h->t);
+
 		// Pop next node from stack if something is left
 		if (spos > 0)
 			ofs = stack[--spos];
@@ -1136,7 +1140,6 @@ bool intersect_any_tlas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 	__m256 rz8 = _mm256_set1_ps(ori.z * idz);
 
 	__m256 t8 = _mm256_set1_ps(tfar);
-	__m256 zero8 = _mm256_setzero_ps();
 
 	while (true) {
 		while ((ofs & NODE_LEAF) == 0) {
@@ -1245,7 +1248,7 @@ float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
 		return FLT_MAX;
 }
 
-void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record
+void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
                          __m256 orix8, __m256 oriy8, __m256 oriz8,
                          __m256 dirx8, __m256 diry8, __m256 dirz8,
                          __m256 idirx8, __m256 idiry8, __m256 idirz8,
@@ -1260,6 +1263,10 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record
 
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
+
+	__m256 rx8 = _mm256_mul_ps(orix8, idirx8);
+	__m256 ry8 = _mm256_mul_ps(oriy8, idiry8);
+	__m256 rz8 = _mm256_mul_ps(oriz8, idirz8);
 
 	__m256 miidx8 = _mm256_set1_ps(minidir.x);
 	__m256 miidy8 = _mm256_set1_ps(minidir.y);
@@ -1278,7 +1285,6 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record
 	__m256 marz8 = _mm256_set1_ps(maxori.z * minidir.z);
 
 	__m256 t8 = _mm256_set1_ps(h->t); // Same for all rays
-	__m256 zero8 = _mm256_setzero_ps();
 
 	// Ray dir sign defines how to shift the permutation map
 	// Assumes (primary) rays of this packet are coherent
@@ -1288,7 +1294,6 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record
 	unsigned char dsign = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
-restart:
 		if ((ofs & NODE_LEAF) == 0) {
 			struct b8node *n = (struct b8node *)(ptr + ofs);
 
@@ -1346,6 +1351,7 @@ restart:
 				  _mm256_movemask_ps(hitmaskord8);
 
 				// Order
+				assert(ofs <= 0x1fffffff);
 				__m256i childrenord8 =
 				  _mm256_permutevar8x32_epi32(n->children,
 				  ord8);
@@ -1392,6 +1398,8 @@ restart:
 				  (struct vec3){dirx8[i], diry8[i], dirz8[i]}),
 				  blas, instid);
 			}
+
+		// TODO Update h->t in t8?
 		}
 
 		// Check actual rays of packets against popped nodes
@@ -1403,19 +1411,50 @@ restart:
 			} else
 				return;
 
+			// Fetch node at ofs
 			struct b8node *p = (struct b8node *)(ptr + (pc >> 3));
 
-		// TODO Intersect all rays of given packet with
-		// p->aabb[pc & 3] at once and break on hit
-			unsigned char j = pc & 3;
-			for (unsigned char i = 0; i < PCKT_SZ; i++)
-				if (intersect_aabb(
-				  (struct vec3){orix8[i], oriy8[i], oriz8[i]},
-				  (struct vec3){idirx8[i], idiry8[i],
-				  idirz8[i]}, h[i].t, (struct vec3){p->minx[j],
-				  p->miny[j], p->minz[j]}, (struct vec3){
-				  p->maxx[j], p->maxy[j], p->maxz[j]}))
-					goto restart;
+			// Intersect all rays of packet with child num aabb
+			__m256i lane = _mm256_set1_epi32(pc & 3);
+			__m256 minx =
+			  _mm256_permutevar8x32_ps(p->minx, lane);
+			__m256 miny =
+			  _mm256_permutevar8x32_ps(p->miny, lane);
+			__m256 minz =
+			  _mm256_permutevar8x32_ps(p->minz, lane);
+			__m256 maxx =
+			  _mm256_permutevar8x32_ps(p->maxx, lane);
+			__m256 maxy =
+			  _mm256_permutevar8x32_ps(p->maxy, lane);
+			__m256 maxz =
+			  _mm256_permutevar8x32_ps(p->maxz, lane);
+
+			__m256 tx0 =
+			  _mm256_fmsub_ps(dx ? minx : maxx, idirx8, rx8);
+			__m256 ty0 =
+			  _mm256_fmsub_ps(dy ? miny : maxy, idiry8, ry8);
+			__m256 tz0 =
+			  _mm256_fmsub_ps(dz ? minz : maxz, idirz8, rz8);
+
+			__m256 tx1 =
+			  _mm256_fmsub_ps(dx ? maxx : minx, idirx8, rx8);
+			__m256 ty1 =
+			  _mm256_fmsub_ps(dy ? maxy : miny, idiry8, ry8);
+			__m256 tz1 =
+			  _mm256_fmsub_ps(dz ? maxz : minz, idirz8, rz8);
+
+			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
+			  _mm256_max_ps(tx0, ty0), tz0), zero8);
+
+			__m256 tmax = _mm256_min_ps(_mm256_min_ps(
+			  _mm256_min_ps(tx1, ty1), tz1), t8);
+
+			// OQ = ordered/not signaling, 0 if any operand is NAN
+			__m256 hitmask8 =
+			  _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
+
+			if (_mm256_movemask_ps(hitmask8) > 0)
+				break;
 
 		// TODO Support more than one packet via fpi and
 		// another loop here.
@@ -1883,9 +1922,9 @@ int rend_render(void *d)
 
 	float invspp = 1.0f / (1.0f + rd->samples);
 
-	struct vec3 ori[PCKT_SZ];
-	struct vec3 dir[PCKT_SZ];
-	/*__m256 orix8, oriy8, oriz8;
+	/*struct vec3 ori[PCKT_SZ];
+	struct vec3 dir[PCKT_SZ];//*/
+	__m256 orix8, oriy8, oriz8;
 	__m256 dirx8, diry8, dirz8;
 	__m256 idirx8, idiry8, idirz8;
 	struct vec3 minori, maxori;
@@ -1907,24 +1946,25 @@ int rend_render(void *d)
 			for (unsigned int i = 0; i < bs; i += PCKT_W) {
 				unsigned int x = bx + i;
 
-				make_pckt(ori, dir, eye, &rd->view, &seed,
+				/*make_pckt(ori, dir, eye, &rd->view, &seed,
 				  x, y);//*/
-				/*make_pckt8(&orix8, &oriy8, &oriz8,
+				make_pckt8(&orix8, &oriy8, &oriz8,
 				  &dirx8, &diry8, &dirz8,
 				  &idirx8, &idiry8, &idirz8,
 				  &minori, &maxori, &minidir, &maxidir,
 				  eye, &rd->view, &seed, x, y);//*/
 
-				for (unsigned char k = 0; k < PCKT_SZ; k++)
-					//col[k] = trace1(ori[k], dir[k], rd,
-					//  &rays);
-					col[k] = trace3(ori[k], dir[k], rd,
-					  0, &seed, &rays);
-					/*trace_pckt(col, orix8, oriy8, oriz8,
-					  dirx8, diry8, dirz8,
-					  idirx8, idiry8, idirz8,
-					  minori, maxori, minidir, maxidir,
-					  rd, &rays);//*/
+				/*for (unsigned char k = 0; k < PCKT_SZ; k++)
+					col[k] = trace1(ori[k], dir[k], rd,
+					  &rays);//*/
+					/*col[k] = trace3(ori[k], dir[k], rd,
+					  0, &seed, &rays);//*/
+
+				trace_pckt(col, orix8, oriy8, oriz8,
+				  dirx8, diry8, dirz8,
+				  idirx8, idiry8, idirz8,
+				  minori, maxori, minidir, maxidir,
+				  rd, &rays);//*/
 
 				accum_pckt(rd->acc, rd->buf, col, invspp,
 				  x, y, w);
