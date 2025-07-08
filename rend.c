@@ -1245,11 +1245,14 @@ float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
 		return FLT_MAX;
 }
 
-void intersect_pckt_tlas_impl(struct hit *h, struct vec3 *ori,
-                              struct vec3 *dir,
-                              struct b8node *nodes, struct rinst *insts,
-                              unsigned int tlasofs,
-                              bool dx, bool dy, bool dz)
+void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record
+                         __m256 orix8, __m256 oriy8, __m256 oriz8,
+                         __m256 dirx8, __m256 diry8, __m256 dirz8,
+                         __m256 idirx8, __m256 idiry8, __m256 idirz8,
+                         struct vec3 minori, struct vec3 maxori,
+                         struct vec3 minidir, struct vec3 maxidir,
+                         struct b8node *nodes, struct rinst *insts,
+                         unsigned int tlasofs)
 {
 	_Alignas(64) unsigned int stack[64];
 	_Alignas(64) unsigned int istack[64]; // Prnt ofs << 3 | child num
@@ -1258,65 +1261,31 @@ void intersect_pckt_tlas_impl(struct hit *h, struct vec3 *ori,
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
-// TODO Have ori, dir and idir already in __m256?
-	// Calc interval ray with min/max ori and inv dir
-	struct vec3 idir[PCKT_SZ];
-	float miidx = 1.0f / dir->x;
-	float miidy = 1.0f / dir->y;
-	float miidz = 1.0f / dir->z;
-	idir[0] = (struct vec3){miidx, miidy, miidz};
-	float maidx = miidx;
-	float maidy = miidy;
-	float maidz = miidz;
-	float miorx = ori->x;
-	float miory = ori->y;
-	float miorz = ori->z;
-	float maorx = miorx;
-	float maory = miory;
-	float maorz = miorz;
-	for (unsigned int i = 1; i < PCKT_SZ; i++) {
-		float idx = 1.0f / dir[i].x;
-		float idy = 1.0f / dir[i].y;
-		float idz = 1.0f / dir[i].z;
-		idir[i] = (struct vec3){idx, idy, idz};
-		miidx = min(miidx, idx);
-		miidy = min(miidy, idy);
-		miidz = min(miidz, idz);
-		maidx = max(maidx, idx);
-		maidy = max(maidy, idy);
-		maidz = max(maidz, idz);
-		float orix = ori[i].x;
-		float oriy = ori[i].y;
-		float oriz = ori[i].z;
-		miorx = min(miorx, orix);
-		miory = min(miory, oriy);
-		miorz = min(miorz, oriz);
-		maorx = max(maorx, orix);
-		maory = max(maory, oriy);
-		maorz = max(maorz, oriz);
-	}
+	__m256 miidx8 = _mm256_set1_ps(minidir.x);
+	__m256 miidy8 = _mm256_set1_ps(minidir.y);
+	__m256 miidz8 = _mm256_set1_ps(minidir.z);
 
-	__m256 miidx8 = _mm256_set1_ps(miidx);
-	__m256 miidy8 = _mm256_set1_ps(miidy);
-	__m256 miidz8 = _mm256_set1_ps(miidz);
+	__m256 maidx8 = _mm256_set1_ps(maxidir.x);
+	__m256 maidy8 = _mm256_set1_ps(maxidir.y);
+	__m256 maidz8 = _mm256_set1_ps(maxidir.z);
 
-	__m256 maidx8 = _mm256_set1_ps(maidx);
-	__m256 maidy8 = _mm256_set1_ps(maidy);
-	__m256 maidz8 = _mm256_set1_ps(maidz);
+	__m256 mirx8 = _mm256_set1_ps(minori.x * maxidir.x);
+	__m256 miry8 = _mm256_set1_ps(minori.y * maxidir.y);
+	__m256 mirz8 = _mm256_set1_ps(minori.z * maxidir.z);
 
-	__m256 mirx8 = _mm256_set1_ps(miorx * maidx);
-	__m256 miry8 = _mm256_set1_ps(miory * maidy);
-	__m256 mirz8 = _mm256_set1_ps(miorz * maidz);
-
-	__m256 marx8 = _mm256_set1_ps(maorx * miidx);
-	__m256 mary8 = _mm256_set1_ps(maory * miidy);
-	__m256 marz8 = _mm256_set1_ps(maorz * miidz);
+	__m256 marx8 = _mm256_set1_ps(maxori.x * minidir.x);
+	__m256 mary8 = _mm256_set1_ps(maxori.y * minidir.y);
+	__m256 marz8 = _mm256_set1_ps(maxori.z * minidir.z);
 
 	__m256 t8 = _mm256_set1_ps(h->t); // Same for all rays
 	__m256 zero8 = _mm256_setzero_ps();
 
 	// Ray dir sign defines how to shift the permutation map
-	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
+	// Assumes (primary) rays of this packet are coherent
+	bool dx = minidir.x >= 0.0f;
+	bool dy = minidir.y >= 0.0f;
+	bool dz = minidir.z >= 0.0f;
+	unsigned char dsign = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
 restart:
@@ -1368,7 +1337,8 @@ restart:
 			} else if (hitcnt > 1) {
 				// Order, compress, push child nodes and
 				// parent ofs + child num
-				__m256i ord8 = _mm256_srli_epi32(n->perm, s);
+				__m256i ord8 =
+				  _mm256_srli_epi32(n->perm, dsign);
 
 				__m256 hitmaskord8 =
 				  _mm256_permutevar8x32_ps(hitmask8, ord8);
@@ -1415,8 +1385,12 @@ restart:
 		// TODO Do packets for blas intersection as well
 			struct b8node *blas = &nodes[ri->triofs << 1];
 			for (unsigned int i = 0; i < PCKT_SZ; i++) {
-				intersect_blas(&h[i], mat4_mulpos(inv, ori[i]),
-				  mat4_muldir(inv, dir[i]), blas, instid);
+				intersect_blas(&h[i],
+				  mat4_mulpos(inv,
+				  (struct vec3){orix8[i], oriy8[i], oriz8[i]}),
+				  mat4_muldir(inv,
+				  (struct vec3){dirx8[i], diry8[i], dirz8[i]}),
+				  blas, instid);
 			}
 		}
 
@@ -1435,10 +1409,12 @@ restart:
 		// p->aabb[pc & 3] at once and break on hit
 			unsigned char j = pc & 3;
 			for (unsigned char i = 0; i < PCKT_SZ; i++)
-				if (intersect_aabb(ori[i], idir[i], h[i].t,
-				  (struct vec3){p->minx[j], p->miny[j],
-				  p->minz[j]}, (struct vec3){p->maxx[j],
-				  p->maxy[j], p->maxz[j]}))
+				if (intersect_aabb(
+				  (struct vec3){orix8[i], oriy8[i], oriz8[i]},
+				  (struct vec3){idirx8[i], idiry8[i],
+				  idirz8[i]}, h[i].t, (struct vec3){p->minx[j],
+				  p->miny[j], p->minz[j]}, (struct vec3){
+				  p->maxx[j], p->maxy[j], p->maxz[j]}))
 					goto restart;
 
 		// TODO Support more than one packet via fpi and
@@ -1461,16 +1437,6 @@ bool intersect_any_tlas(float tfar, struct vec3 ori, struct vec3 dir,
 {
 	return intersect_any_tlas_impl(tfar, ori, dir, nodes, insts, tlasofs,
 	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
-}
-
-void intersect_pckt_tlas(struct hit *h, struct vec3 *ori, struct vec3 *dir,
-                         struct b8node *nodes, struct rinst *insts,
-                         unsigned int tlasofs)
-{
-	// TODO Should we calc the interval ray here already?
-	intersect_pckt_tlas_impl(h, ori, dir, nodes, insts, tlasofs,
-	  // Assume coherent rays in packet with signs aligned
-	  dir->x >= 0.0f, dir->y >= 0.0f, dir->z >= 0.0f);
 }
 
 void rend_init(struct rdata *rd, unsigned int maxmtls,
@@ -1625,7 +1591,12 @@ struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd,
 }
 
 // TODO Make proper, ATM just for testing
-void trace_pckt(struct vec3 *col, struct vec3 *ori, struct vec3 *dir,
+void trace_pckt(struct vec3 *col,
+                __m256 orix, __m256 oriy, __m256 oriz,
+                __m256 dirx, __m256 diry, __m256 dirz,
+                __m256 idirx, __m256 idiry, __m256 idirz,
+                struct vec3 minori, struct vec3 maxori,
+                struct vec3 minidir, struct vec3 maxidir,
                 struct rdata *rd, unsigned int *rays)
 {
 	struct hit hit[PCKT_SZ];
@@ -1634,8 +1605,9 @@ void trace_pckt(struct vec3 *col, struct vec3 *ori, struct vec3 *dir,
 		col[i] = rd->bgcol;
 	}
 
-	intersect_pckt_tlas(hit, ori, dir, rd->b8nodes, rd->insts,
-	  rd->tlasofs);
+	intersect_pckt_tlas(hit, orix, oriy, oriz, dirx, diry, dirz,
+	  idirx, idiry, idirz, minori, maxori, minidir, maxidir,
+	  rd->b8nodes, rd->insts, rd->tlasofs);
 	*rays += PCKT_SZ;
 
 	for (unsigned int k = 0; k < PCKT_SZ; k++) {
@@ -1828,6 +1800,57 @@ void make_pckt(struct vec3 *ori, struct vec3 *dir, struct vec3 eye,
 	}
 }
 
+void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
+                __m256 *dirx8, __m256 *diry8, __m256 *dirz8,
+                __m256 *idirx8, __m256 *idiry8, __m256 *idirz8,
+                struct vec3 *minori, struct vec3 *maxori,
+                struct vec3 *minidir, struct vec3 *maxidir,
+                struct vec3 eye, struct rview *view, unsigned int *seed,
+                unsigned int x, unsigned int y)
+{
+	struct vec3 dx = view->dx;
+	struct vec3 dy = view->dy;
+	struct vec3 tl = view->tl;
+
+	*minori = *minidir = (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX};
+	*maxori = *maxidir = (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
+
+	for (unsigned int j = 0; j < PCKT_H; j++) {
+		for (unsigned int i = 0; i < PCKT_W; i++) {
+			unsigned char k = PCKT_W * j + i;
+
+			// TODO Jitter eye
+			struct vec3 ori = eye;
+
+			struct vec3 p = vec3_add(tl, vec3_add(
+			  vec3_scale(dx, x + i), vec3_scale(dy, y + j)));
+
+			p = vec3_add(p, vec3_add(
+			  vec3_scale(dx, randf(seed) - 0.5f),
+			  vec3_scale(dy, randf(seed) - 0.5f)));
+
+			struct vec3 dir = vec3_unit(vec3_sub(p, ori));
+			struct vec3 idir =
+			  {1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
+
+			(*orix8)[k] = ori.x;
+			(*oriy8)[k] = ori.y;
+			(*oriz8)[k] = ori.z;
+			(*dirx8)[k] = dir.x;
+			(*diry8)[k] = dir.y;
+			(*dirz8)[k] = dir.z;
+			(*idirx8)[k] = idir.x;
+			(*idiry8)[k] = idir.y;
+			(*idirz8)[k] = idir.z;
+
+			*minori = vec3_min(*minori, ori);
+			*maxori = vec3_max(*maxori, ori);
+			*minidir = vec3_min(*minidir, idir);
+			*maxidir = vec3_max(*maxidir, idir);
+		}
+	}
+}
+
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                 float invspp, unsigned int x, unsigned int y, unsigned int w)
 {
@@ -1862,6 +1885,11 @@ int rend_render(void *d)
 
 	struct vec3 ori[PCKT_SZ];
 	struct vec3 dir[PCKT_SZ];
+	/*__m256 orix8, oriy8, oriz8;
+	__m256 dirx8, diry8, dirz8;
+	__m256 idirx8, idiry8, idirz8;
+	struct vec3 minori, maxori;
+	struct vec3 minidir, maxidir;//*/
 	struct vec3 col[PCKT_SZ];
 
 	while (true) {
@@ -1880,14 +1908,23 @@ int rend_render(void *d)
 				unsigned int x = bx + i;
 
 				make_pckt(ori, dir, eye, &rd->view, &seed,
-				  x, y);
+				  x, y);//*/
+				/*make_pckt8(&orix8, &oriy8, &oriz8,
+				  &dirx8, &diry8, &dirz8,
+				  &idirx8, &idiry8, &idirz8,
+				  &minori, &maxori, &minidir, &maxidir,
+				  eye, &rd->view, &seed, x, y);//*/
 
 				for (unsigned char k = 0; k < PCKT_SZ; k++)
-					col[k] = trace1(ori[k], dir[k], rd,
-					  &rays);
-					//col[k] = trace3(ori[k], dir[k], rd,
-					//  0, &seed, &rays);
-					//trace_pckt(col, ori, dir, rd, &rays);
+					//col[k] = trace1(ori[k], dir[k], rd,
+					//  &rays);
+					col[k] = trace3(ori[k], dir[k], rd,
+					  0, &seed, &rays);
+					/*trace_pckt(col, orix8, oriy8, oriz8,
+					  dirx8, diry8, dirz8,
+					  idirx8, idiry8, idirz8,
+					  minori, maxori, minidir, maxidir,
+					  rd, &rays);//*/
 
 				accum_pckt(rd->acc, rd->buf, col, invspp,
 				  x, y, w);
