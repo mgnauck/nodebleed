@@ -98,6 +98,119 @@ void rend_init_compresslut(void)
 	fltmax4 = _mm_set1_ps(FLT_MAX);
 }
 
+void mulpos_m256(__m256 *ox8, __m256 *oy8, __m256 *oz8,
+                 __m256 x8, __m256 y8, __m256 z8, float m[16])
+{
+	__m256 tx8, ty8, tz8, tw8;
+
+	__m256 m0 = _mm256_set1_ps(m[0]);
+	__m256 m1 = _mm256_set1_ps(m[1]);
+	__m256 m2 = _mm256_set1_ps(m[2]);
+	__m256 m3 = _mm256_set1_ps(m[3]);
+
+	tx8 = _mm256_mul_ps(x8, m0);
+	tx8 = _mm256_fmadd_ps(y8, m1, tx8);
+	tx8 = _mm256_fmadd_ps(z8, m2, tx8);
+	tx8 = _mm256_add_ps(m3, tx8);
+
+	__m256 m4 = _mm256_set1_ps(m[4]);
+	__m256 m5 = _mm256_set1_ps(m[5]);
+	__m256 m6 = _mm256_set1_ps(m[6]);
+	__m256 m7 = _mm256_set1_ps(m[7]);
+
+	ty8 = _mm256_mul_ps(x8, m4);
+	ty8 = _mm256_fmadd_ps(y8, m5, ty8);
+	ty8 = _mm256_fmadd_ps(z8, m6, ty8);
+	ty8 = _mm256_add_ps(m7, ty8);
+
+	__m256 m8 = _mm256_set1_ps(m[8]);
+	__m256 m9 = _mm256_set1_ps(m[9]);
+	__m256 m10 = _mm256_set1_ps(m[10]);
+	__m256 m11 = _mm256_set1_ps(m[11]);
+
+	tz8 = _mm256_mul_ps(x8, m8);
+	tz8 = _mm256_fmadd_ps(y8, m9, tz8);
+	tz8 = _mm256_fmadd_ps(z8, m10, tz8);
+	tz8 = _mm256_add_ps(m11, tz8);
+
+	__m256 m12 = _mm256_set1_ps(m[12]);
+	__m256 m13 = _mm256_set1_ps(m[13]);
+	__m256 m14 = _mm256_set1_ps(m[14]);
+	__m256 m15 = _mm256_set1_ps(m[15]);
+
+	tw8 = _mm256_mul_ps(x8, m12);
+	tw8 = _mm256_fmadd_ps(y8, m13, tw8);
+	tw8 = _mm256_fmadd_ps(z8, m14, tw8);
+	tw8 = _mm256_add_ps(m15, tw8);
+
+	*ox8 = _mm256_div_ps(tx8, tw8);
+	*oy8 = _mm256_div_ps(ty8, tw8);
+	*oz8 = _mm256_div_ps(tz8, tw8);
+}
+
+void muldir_m256(__m256 *ox8, __m256 *oy8, __m256 *oz8,
+                 __m256 x8, __m256 y8, __m256 z8, float m[16])
+{
+	__m256 m0 = _mm256_set1_ps(m[0]);
+	__m256 m1 = _mm256_set1_ps(m[1]);
+	__m256 m2 = _mm256_set1_ps(m[2]);
+
+	*ox8 = _mm256_fmadd_ps(z8, m2,
+	  _mm256_fmadd_ps(y8, m1,
+	  _mm256_mul_ps(x8, m0)));
+
+	__m256 m4 = _mm256_set1_ps(m[4]);
+	__m256 m5 = _mm256_set1_ps(m[5]);
+	__m256 m6 = _mm256_set1_ps(m[6]);
+
+	*oy8 = _mm256_fmadd_ps(z8, m6,
+	  _mm256_fmadd_ps(y8, m5,
+	  _mm256_mul_ps(x8, m4)));
+
+	__m256 m8 = _mm256_set1_ps(m[8]);
+	__m256 m9 = _mm256_set1_ps(m[9]);
+	__m256 m10 = _mm256_set1_ps(m[10]);
+
+	*oz8 = _mm256_fmadd_ps(z8, m10,
+	  _mm256_fmadd_ps(y8, m9,
+	  _mm256_mul_ps(x8, m8)));
+}
+
+// TODO Alternative, check godbolt
+void muldir_m256_2(__m256 *ox8, __m256 *oy8, __m256 *oz8,
+                 __m256 x8, __m256 y8, __m256 z8, float m[16])
+{
+	__m256 m0 = _mm256_set1_ps(m[0]);
+	__m256 m1 = _mm256_set1_ps(m[1]);
+	__m256 m2 = _mm256_set1_ps(m[2]);
+
+	__m256 tx8 = _mm256_mul_ps(x8, m0);
+	__m256 ty8 = _mm256_mul_ps(y8, m1);
+	__m256 tz8 = _mm256_mul_ps(z8, m2);
+
+	*ox8 = _mm256_add_ps(_mm256_add_ps(tx8, ty8), tz8);
+
+	__m256 m4 = _mm256_set1_ps(m[4]);
+	__m256 m5 = _mm256_set1_ps(m[5]);
+	__m256 m6 = _mm256_set1_ps(m[6]);
+
+	tx8 = _mm256_mul_ps(x8, m4);
+	ty8 = _mm256_mul_ps(y8, m5);
+	tz8 = _mm256_mul_ps(z8, m6);
+
+	*oy8 = _mm256_add_ps(_mm256_add_ps(tx8, ty8), tz8);
+
+	__m256 m8 = _mm256_set1_ps(m[8]);
+	__m256 m9 = _mm256_set1_ps(m[9]);
+	__m256 m10 = _mm256_set1_ps(m[10]);
+
+	tx8 = _mm256_mul_ps(x8, m8);
+	ty8 = _mm256_mul_ps(y8, m9);
+	tz8 = _mm256_mul_ps(z8, m10);
+
+	*oz8 = _mm256_add_ps(_mm256_add_ps(tx8, ty8), tz8);
+}
+
 float calc_area(struct vec3 mi, struct vec3 ma)
 {
 	struct vec3 d = vec3_sub(ma, mi);
@@ -1400,19 +1513,25 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 			// Leaf, check instance blas
 			unsigned int instid = ofs & ~NODE_LEAF;
 			struct rinst *ri = &insts[instid];
+			struct b8node *blas = &nodes[ri->triofs << 1];
 
 			// Transform ray into object space of instance
 			float inv[16];
 			mat4_from3x4(inv, ri->globinv);
 
+			__m256 tox8, toy8, toz8;
+			mulpos_m256(&tox8, &toy8, &toz8,
+			  orix8, oriy8, oriz8, inv);
+
+			__m256 tdx8, tdy8, tdz8;
+			muldir_m256(&tdx8, &tdy8, &tdz8,
+			  dirx8, diry8, dirz8, inv);
+
 		// TODO Do packets for blas intersection as well
-			struct b8node *blas = &nodes[ri->triofs << 1];
 			for (unsigned int i = 0; i < PCKT_SZ; i++) {
 				intersect_blas(&h[i],
-				  mat4_mulpos(inv,
-				  (struct vec3){orix8[i], oriy8[i], oriz8[i]}),
-				  mat4_muldir(inv,
-				  (struct vec3){dirx8[i], diry8[i], dirz8[i]}),
+				  (struct vec3){tox8[i], toy8[i], toz8[i]},
+				  (struct vec3){tdx8[i], tdy8[i], tdz8[i]},
 				  blas, instid);
 			}
 
