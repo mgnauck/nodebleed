@@ -335,10 +335,10 @@ void mousemove(struct scene *s, int dx, int dy)
 int main(void)
 {
 	// TODO
+	// Use cam vectors directly instead of recalcing them in view
 	// Test bvh refit with b8nodes
 	// NAN handling on AVX2 traversal functions
 	// Think about ray dir sign handling in traversal function
-	// Packet trace primary rays for speed?
 	// Subdiv surfaces
 	// Move code from main into some subsys
 

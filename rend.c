@@ -654,6 +654,7 @@ void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				_mm256_storeu_si256((__m256i *)(stack + spos),
 				  childfin8);
 
+				assert(spos < 64 - hitcnt + 1);
 				spos += hitcnt - 1; // Account for pushed nodes
 				ofs = stack[spos]; // Next node
 			}
@@ -881,6 +882,7 @@ bool intersect_any_blas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 				_mm256_storeu_si256((__m256i *)(stack + spos),
 				  childfin8);
 
+				assert(spos < 64 - hitcnt + 1);
 				spos += hitcnt - 1; // Account for pushed nodes
 				ofs = stack[spos]; // Next node
 			}
@@ -1087,6 +1089,7 @@ void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 				_mm256_storeu_si256((__m256i *)(stack + spos),
 				  childfin8);
 
+				assert(spos < 64 - hitcnt + 1);
 				spos += hitcnt - 1; // Account for pushed nodes
 				ofs = stack[spos]; // Next node
 			}
@@ -1234,6 +1237,7 @@ bool intersect_any_tlas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 				_mm256_storeu_si256((__m256i *)(stack + spos),
 				  childfin8);
 
+				assert(spos < 64 - hitcnt + 1);
 				spos += hitcnt - 1; // Account for pushed nodes
 				ofs = stack[spos]; // Next node
 			}
@@ -1343,12 +1347,13 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 			if (hitcnt == 1) {
 				// Invert count of leading zeros to get lane
 				unsigned int child = 31 - __builtin_clz(hitmask);
+				// Push ofs to child node
+				assert(spos < 64);
+				stack[spos] =
+				  ((unsigned int *)&n->children)[child];
 				// Push prnt ofs and lane/child num
 				assert(ofs <= 0x1fffffff);
-				istack[spos] = ofs << 3 | child;
-				// Push ofs to child node
-				stack[spos++] =
-				  ((unsigned int *)&n->children)[child];
+				istack[spos++] = (ofs << 3) + child;
 			} else if (hitcnt > 1) {
 				// Order, compress, push child node ofs and
 				// parent ofs + child num
@@ -1367,7 +1372,7 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 				  ord8);
 				__m256i pcnumord8 =
 				  _mm256_permutevar8x32_epi32(
-				  // prnt ofs << 3 | child id for all lanes
+				  // prnt ofs << 3 | child num for all lanes
 				  _mm256_add_epi32(_mm256_set1_epi32(ofs << 3),
 				  defchildnum8), ord8);
 
@@ -1387,6 +1392,7 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 				_mm256_storeu_si256((__m256i *)(istack + spos),
 				  pcnumfin8);
 
+				assert(spos < 64 - hitcnt);
 				spos += hitcnt; // Account for pushed nodes
 			}
 		} else {
@@ -1414,7 +1420,6 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 		// TODO Properly update h->t in t8 (h as SIMD)
 			t8 = _mm256_setr_ps(h[0].t, h[1].t, h[2].t, h[3].t,
 			  h[4].t, h[5].t, h[6].t, h[7].t);
-
 		}
 
 		// Check actual rays of packets against popped nodes
@@ -1433,8 +1438,8 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 			struct b8node *p = (struct b8node *)(ptr + (pc >> 3));
 
 			// Intersect packet rays at once with child's aabb
-			assert((pc & 3) <= 7);
-			__m256i child = _mm256_set1_epi32(pc & 3);
+			//assert((pc & 7) <= 7);
+			__m256i child = _mm256_set1_epi32(pc & 7);
 			__m256 minx =
 			  _mm256_permutevar8x32_ps(p->minx, child);
 			__m256 miny =
@@ -1471,7 +1476,6 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 			// OQ = ordered/not signaling, 0 if any operand is NAN
 			__m256 hitmask8 =
 			  _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
-
 			if (_mm256_movemask_ps(hitmask8) > 0)
 				break;
 		}
@@ -1832,29 +1836,6 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return vec3_add(direct, indirect);
 }
 
-void make_pckt(struct vec3 *ori, struct vec3 *dir, struct vec3 eye,
-               struct rview *view, unsigned int *seed,
-               unsigned int x, unsigned int y)
-{
-	struct vec3 dx = view->dx;
-	struct vec3 dy = view->dy;
-	struct vec3 tl = view->tl;
-
-	for (unsigned int j = 0; j < PCKT_H; j++) {
-		for (unsigned int i = 0; i < PCKT_W; i++) {
-			struct vec3 p = vec3_add(tl, vec3_add(
-			  vec3_scale(dx, x + i), vec3_scale(dy, y + j)));
-
-			p = vec3_add(p, vec3_add(
-			  vec3_scale(dx, randf(seed) - 0.5f),
-			  vec3_scale(dy, randf(seed) - 0.5f)));
-
-			*ori++ = eye;
-			*dir++ = vec3_unit(vec3_sub(p, eye));
-		}
-	}
-}
-
 void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
                 __m256 *dirx8, __m256 *diry8, __m256 *dirz8,
                 __m256 *idirx8, __m256 *idiry8, __m256 *idirz8,
@@ -1870,9 +1851,9 @@ void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
 	*minori = *minidir = (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX};
 	*maxori = *maxidir = (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
 
+	unsigned char k = 0;
 	for (unsigned int j = 0; j < PCKT_H; j++) {
 		for (unsigned int i = 0; i < PCKT_W; i++) {
-			unsigned char k = PCKT_W * j + i;
 
 			// TODO Jitter eye
 			struct vec3 ori = eye;
@@ -1902,6 +1883,7 @@ void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
 			*maxori = vec3_max(*maxori, ori);
 			*minidir = vec3_min(*minidir, idir);
 			*maxidir = vec3_max(*maxidir, idir);
+			k++;
 		}
 	}
 }
@@ -1938,13 +1920,11 @@ int rend_render(void *d)
 
 	float invspp = 1.0f / (1.0f + rd->samples);
 
-	/*struct vec3 ori[PCKT_SZ];
-	struct vec3 dir[PCKT_SZ];//*/
 	__m256 orix8, oriy8, oriz8;
 	__m256 dirx8, diry8, dirz8;
 	__m256 idirx8, idiry8, idirz8;
 	struct vec3 minori, maxori;
-	struct vec3 minidir, maxidir;//*/
+	struct vec3 minidir, maxidir;
 	struct vec3 col[PCKT_SZ];
 
 	while (true) {
@@ -1962,8 +1942,6 @@ int rend_render(void *d)
 			for (unsigned int i = 0; i < bs; i += PCKT_W) {
 				unsigned int x = bx + i;
 
-				/*make_pckt(ori, dir, eye, &rd->view, &seed,
-				  x, y);//*/
 				make_pckt8(&orix8, &oriy8, &oriz8,
 				  &dirx8, &diry8, &dirz8,
 				  &idirx8, &idiry8, &idirz8,
@@ -1971,10 +1949,18 @@ int rend_render(void *d)
 				  eye, &rd->view, &seed, x, y);//*/
 
 				/*for (unsigned char k = 0; k < PCKT_SZ; k++)
-					col[k] = trace1(ori[k], dir[k], rd,
-					  &rays);//*/
-					/*col[k] = trace3(ori[k], dir[k], rd,
-					  0, &seed, &rays);//*/
+					col[k] = trace1(
+					  (struct vec3){orix8[k], oriy8[k],
+					  oriz8[k]},
+					  (struct vec3){dirx8[k], diry8[k],
+					  dirz8[k]},
+					  rd, &rays);//*/
+					/*col[k] = trace3(
+					  (struct vec3){orix8[k], oriy8[k],
+					  oriz8[k]},
+					  (struct vec3){dirx8[k], diry8[k],
+					  dirz8[k]},
+					  rd, 0, &seed, &rays);//*/
 
 				trace_pckt(col, orix8, oriy8, oriz8,
 				  dirx8, diry8, dirz8,
