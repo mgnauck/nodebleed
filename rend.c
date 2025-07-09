@@ -89,8 +89,7 @@ void rend_init_compresslut(void)
 	}
 
 	// Default child nums/lanes (will be ordered, masked and compressed)
-	defchildnum8 =
-	  _mm256_cvtepu8_epi32(_mm_cvtsi64_si128(0x706050403020100));
+	defchildnum8 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
 
 	// Default values 4 and 8 lanes
 	zero8 = _mm256_setzero_ps();
@@ -1101,12 +1100,47 @@ void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 		float inv[16];
 		mat4_from3x4(inv, ri->globinv);
 
+		float tt = h->t;
 		intersect_blas(h,
 		  mat4_mulpos(inv, ori), mat4_muldir(inv, dir),
 		  &nodes[ri->triofs << 1], instid);
 
-		// There might be a nearer h->t now
-		//t8 = _mm256_set1_ps(h->t);
+		if (h->t < tt) {
+			// Track closest h->t for future aabb+tri intersections
+			t8 = _mm256_set1_ps(h->t);
+
+			// Compress stack wrt to nearer h->t in batches of 8
+			unsigned int spos2 = 0;
+			for (unsigned int i = 0; i < spos; i += 8) {
+				__m256 dists8 = _mm256_load_ps(dstack + i);
+				__m256i nids8 = _mm256_load_si256(
+				  (__m256i *)(stack + i));
+
+				// Nearer/eq ones are 1
+				unsigned int nearmask = _mm256_movemask_ps(
+				  _mm256_cmp_ps(dists8, t8, _CMP_LE_OQ));
+
+				// Map nearer mask to compressed indices
+				__m256i cid = compr_lut[nearmask];
+
+				// Permute to compress dists and node ids
+				dists8 = _mm256_permutevar8x32_ps(dists8, cid);
+				nids8 =
+				  _mm256_permutevar8x32_epi32(nids8, cid);
+
+				// Store compressed dists and node ids
+				_mm256_storeu_ps(dstack + spos2, dists8);
+				_mm256_storeu_si256((__m256i *)(stack + spos2),
+				  nids8);
+
+				unsigned int cnt = min(spos - i, 8); // Last!
+				unsigned int cntmask = (1 << cnt) - 1;
+				spos2 +=
+				  __builtin_popcount(cntmask & nearmask);
+			}
+
+			spos = spos2; // Stack rewrite done
+		}
 
 		// Pop next node from stack if something is left
 		if (spos > 0)
@@ -1224,30 +1258,6 @@ bool intersect_any_tlas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-float intersect_aabb(struct vec3 ori, struct vec3 idir, float tfar,
-                     struct vec3 mi, struct vec3 ma)
-{
-	float tx0 = (mi.x - ori.x) * idir.x;
-	float tx1 = (ma.x - ori.x) * idir.x;
-	float tmin = min(tx0, tx1);
-	float tmax = max(tx0, tx1);
-
-	float ty0 = (mi.y - ori.y) * idir.y;
-	float ty1 = (ma.y - ori.y) * idir.y;
-	tmin = max(tmin, min(ty0, ty1));
-	tmax = min(tmax, max(ty0, ty1));
-
-	float tz0 = (mi.z - ori.z) * idir.z;
-	float tz1 = (ma.z - ori.z) * idir.z;
-	tmin = max(tmin, min(tz0, tz1));
-	tmax = min(tmax, max(tz0, tz1));
-
-	if (tmin <= tmax && tmin < tfar && tmax >= 0.0f)
-		return tmin;
-	else
-		return FLT_MAX;
-}
-
 void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
                          __m256 orix8, __m256 oriy8, __m256 oriz8,
                          __m256 dirx8, __m256 diry8, __m256 dirz8,
@@ -1340,7 +1350,7 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 				stack[spos++] =
 				  ((unsigned int *)&n->children)[child];
 			} else if (hitcnt > 1) {
-				// Order, compress, push child nodes and
+				// Order, compress, push child node ofs and
 				// parent ofs + child num
 				__m256i ord8 =
 				  _mm256_srli_epi32(n->perm, dsign);
@@ -1377,7 +1387,7 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 				_mm256_storeu_si256((__m256i *)(istack + spos),
 				  pcnumfin8);
 
-				spos += hitcnt - 1; // Account for pushed nodes
+				spos += hitcnt; // Account for pushed nodes
 			}
 		} else {
 			// Leaf, check instance blas
@@ -1399,7 +1409,12 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 				  blas, instid);
 			}
 
-		// TODO Update h->t in t8?
+		// TODO Try perf with distance stack and stack compression
+
+		// TODO Properly update h->t in t8 (h as SIMD)
+			t8 = _mm256_setr_ps(h[0].t, h[1].t, h[2].t, h[3].t,
+			  h[4].t, h[5].t, h[6].t, h[7].t);
+
 		}
 
 		// Check actual rays of packets against popped nodes
@@ -1411,23 +1426,27 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 			} else
 				return;
 
+		// TODO Support more than one packet via fpi and
+		// another loop here.
+
 			// Fetch node at ofs
 			struct b8node *p = (struct b8node *)(ptr + (pc >> 3));
 
-			// Intersect all rays of packet with child num aabb
-			__m256i lane = _mm256_set1_epi32(pc & 3);
+			// Intersect packet rays at once with child's aabb
+			assert((pc & 3) <= 7);
+			__m256i child = _mm256_set1_epi32(pc & 3);
 			__m256 minx =
-			  _mm256_permutevar8x32_ps(p->minx, lane);
+			  _mm256_permutevar8x32_ps(p->minx, child);
 			__m256 miny =
-			  _mm256_permutevar8x32_ps(p->miny, lane);
+			  _mm256_permutevar8x32_ps(p->miny, child);
 			__m256 minz =
-			  _mm256_permutevar8x32_ps(p->minz, lane);
+			  _mm256_permutevar8x32_ps(p->minz, child);
 			__m256 maxx =
-			  _mm256_permutevar8x32_ps(p->maxx, lane);
+			  _mm256_permutevar8x32_ps(p->maxx, child);
 			__m256 maxy =
-			  _mm256_permutevar8x32_ps(p->maxy, lane);
+			  _mm256_permutevar8x32_ps(p->maxy, child);
 			__m256 maxz =
-			  _mm256_permutevar8x32_ps(p->maxz, lane);
+			  _mm256_permutevar8x32_ps(p->maxz, child);
 
 			__m256 tx0 =
 			  _mm256_fmsub_ps(dx ? minx : maxx, idirx8, rx8);
@@ -1455,9 +1474,6 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 
 			if (_mm256_movemask_ps(hitmask8) > 0)
 				break;
-
-		// TODO Support more than one packet via fpi and
-		// another loop here.
 		}
 	}
 }
