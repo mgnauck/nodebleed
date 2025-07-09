@@ -1864,6 +1864,7 @@ void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
 			(*idiry8)[k] = idir.y;
 			(*idirz8)[k] = idir.z;
 
+		// TODO Horiz min/max?
 			*minori = vec3_min(*minori, ori);
 			*maxori = vec3_max(*maxori, ori);
 			*minidir = vec3_min(*minidir, idir);
