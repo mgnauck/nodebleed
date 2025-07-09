@@ -539,9 +539,8 @@ unsigned int build_bvh8(struct b8node *nodes, struct aabb *aabbs,
 
 // Fuetterling, 2017, Accelerated Single Ray Tracing for Wide Vector Units
 // Fuetterling, 2019, Scalable Algorithms for Realistic Real-time Rendering
-void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                         struct b8node *blas, unsigned int instid,
-                         bool dx, bool dy, bool dz)
+void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
+                    struct b8node *blas, unsigned int instid)
 {
 	_Alignas(64) unsigned int stack[64];
 	_Alignas(64) float dstack[64];
@@ -574,7 +573,10 @@ void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	__m128 oz4 = _mm_set1_ps(ori.z);
 
 	// Ray dir sign defines how to shift the permutation map
-	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
+	bool dx = dir.x >= 0.0f;
+	bool dy = dir.y >= 0.0f;
+	bool dz = dir.z >= 0.0f;
+	unsigned char shft = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
 		while ((ofs & NODE_LEAF) == 0) {
@@ -626,7 +628,8 @@ void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 				// More than one hit
 				// Order, compress and push child nodes + dists
-				__m256i ord8 = _mm256_srli_epi32(n->perm, s);
+				__m256i ord8 = _mm256_srli_epi32(n->perm,
+				  shft);
 
 				__m256 hitmaskord8 =
 				  _mm256_permutevar8x32_ps(hitmask8, ord8);
@@ -791,8 +794,8 @@ void intersect_blas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-bool intersect_any_blas_impl(float tfar, struct vec3 ori, struct vec3 dir,
-                             struct b8node *blas, bool dx, bool dy, bool dz)
+bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
+                        struct b8node *blas)
 {
 	_Alignas(64) unsigned int stack[64];
 	unsigned int spos = 0;
@@ -822,6 +825,10 @@ bool intersect_any_blas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 	__m128 ox4 = _mm_set1_ps(ori.x);
 	__m128 oy4 = _mm_set1_ps(ori.y);
 	__m128 oz4 = _mm_set1_ps(ori.z);
+
+	bool dx = dir.x >= 0.0f;
+	bool dy = dir.y >= 0.0f;
+	bool dz = dir.z >= 0.0f;
 
 	while (true) {
 		while ((ofs & NODE_LEAF) == 0) {
@@ -968,23 +975,9 @@ bool intersect_any_blas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    struct b8node *blas, unsigned int instid)
-{
-	intersect_blas_impl(h, ori, dir, blas, instid,
-	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
-}
-
-bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
-                        struct b8node *blas)
-{
-	return intersect_any_blas_impl(tfar, ori, dir, blas,
-	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
-}
-
-void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
-                         struct b8node *nodes, struct rinst *insts,
-                         unsigned int tlasofs, bool dx, bool dy, bool dz)
+void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
+                    struct b8node *nodes, struct rinst *insts,
+                    unsigned int tlasofs)
 {
 	_Alignas(64) unsigned int stack[64];
 	_Alignas(64) float dstack[64];
@@ -1009,7 +1002,10 @@ void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	__m256 t8 = _mm256_set1_ps(h->t);
 
 	// Ray dir sign defines how to shift the permutation map
-	unsigned char s = ((dz << 2) | (dy << 1) | dx) * 3;
+	bool dx = dir.x >= 0.0f;
+	bool dy = dir.y >= 0.0f;
+	bool dz = dir.z >= 0.0f;
+	unsigned char shft = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
 		while ((ofs & NODE_LEAF) == 0) {
@@ -1061,7 +1057,8 @@ void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 
 				// More than one hit
 				// Order, compress and push child nodes + dists
-				__m256i ord8 = _mm256_srli_epi32(n->perm, s);
+				__m256i ord8 = _mm256_srli_epi32(n->perm,
+				  shft);
 
 				__m256 hitmaskord8 =
 				  _mm256_permutevar8x32_ps(hitmask8, ord8);
@@ -1153,9 +1150,9 @@ void intersect_tlas_impl(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-bool intersect_any_tlas_impl(float tfar, struct vec3 ori, struct vec3 dir,
-                             struct b8node *nodes, struct rinst *insts,
-                             unsigned int tlasofs, bool dx, bool dy, bool dz)
+bool intersect_any_tlas(float tfar, struct vec3 ori, struct vec3 dir,
+                        struct b8node *nodes, struct rinst *insts,
+                        unsigned int tlasofs)
 {
 	_Alignas(64) unsigned int stack[64];
 	unsigned int spos = 0;
@@ -1177,6 +1174,10 @@ bool intersect_any_tlas_impl(float tfar, struct vec3 ori, struct vec3 dir,
 	__m256 rz8 = _mm256_set1_ps(ori.z * idz);
 
 	__m256 t8 = _mm256_set1_ps(tfar);
+
+	bool dx = dir.x >= 0.0f;
+	bool dy = dir.y >= 0.0f;
+	bool dz = dir.z >= 0.0f;
 
 	while (true) {
 		while ((ofs & NODE_LEAF) == 0) {
@@ -1305,7 +1306,7 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 	bool dx = minidir.x >= 0.0f;
 	bool dy = minidir.y >= 0.0f;
 	bool dz = minidir.z >= 0.0f;
-	unsigned char dsign = ((dz << 2) | (dy << 1) | dx) * 3;
+	unsigned char shft = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
 		if ((ofs & NODE_LEAF) == 0) {
@@ -1357,8 +1358,8 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 			} else if (hitcnt > 1) {
 				// Order, compress, push child node ofs and
 				// parent ofs + child num
-				__m256i ord8 =
-				  _mm256_srli_epi32(n->perm, dsign);
+				__m256i ord8 = _mm256_srli_epi32(n->perm,
+				  shft);
 
 				__m256 hitmaskord8 =
 				  _mm256_permutevar8x32_ps(hitmask8, ord8);
@@ -1480,22 +1481,6 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 				break;
 		}
 	}
-}
-
-void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
-                    struct b8node *nodes, struct rinst *insts,
-                    unsigned int tlasofs)
-{
-	intersect_tlas_impl(h, ori, dir, nodes, insts, tlasofs,
-	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
-}
-
-bool intersect_any_tlas(float tfar, struct vec3 ori, struct vec3 dir,
-                        struct b8node *nodes, struct rinst *insts,
-                        unsigned int tlasofs)
-{
-	return intersect_any_tlas_impl(tfar, ori, dir, nodes, insts, tlasofs,
-	  dir.x >= 0.0f, dir.y >= 0.0f, dir.z >= 0.0f);
 }
 
 void rend_init(struct rdata *rd, unsigned int maxmtls,
