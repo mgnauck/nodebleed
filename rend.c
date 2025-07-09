@@ -98,7 +98,8 @@ void rend_init_compresslut(void)
 	fltmax4 = _mm_set1_ps(FLT_MAX);
 }
 
-void mulpos_m256(__m256 *ox8, __m256 *oy8, __m256 *oz8,
+void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
+                 __m256 * restrict oz8,
                  __m256 x8, __m256 y8, __m256 z8, float m[16])
 {
 	__m256 tx8, ty8, tz8, tw8;
@@ -148,7 +149,8 @@ void mulpos_m256(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 	*oz8 = _mm256_div_ps(tz8, tw8);
 }
 
-void muldir_m256(__m256 *ox8, __m256 *oy8, __m256 *oz8,
+void muldir_m256(__m256 * restrict ox8, __m256 * restrict oy8,
+                 __m256 * restrict oz8,
                  __m256 x8, __m256 y8, __m256 z8, float m[16])
 {
 	__m256 m0 = _mm256_set1_ps(m[0]);
@@ -177,8 +179,9 @@ void muldir_m256(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 }
 
 // TODO Alternative, check godbolt
-void muldir_m256_2(__m256 *ox8, __m256 *oy8, __m256 *oz8,
-                 __m256 x8, __m256 y8, __m256 z8, float m[16])
+void muldir_m256_2(__m256 * restrict ox8, __m256 * restrict oy8,
+                   __m256 * restrict oz8,
+                   __m256 x8, __m256 y8, __m256 z8, float m[16])
 {
 	__m256 m0 = _mm256_set1_ps(m[0]);
 	__m256 m1 = _mm256_set1_ps(m[1]);
