@@ -104,7 +104,7 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
                  __m256 * restrict oz8,
                  __m256 x8, __m256 y8, __m256 z8, float m[16])
 {
-	__m256 tx8, ty8, tz8, tw8;
+	__m256 tx8, ty8, tz8; //, tw8;
 
 	__m256 m0 = _mm256_set1_ps(m[0]);
 	__m256 m1 = _mm256_set1_ps(m[1]);
@@ -1353,8 +1353,8 @@ bool intersect_any_tlas(float tfar, struct vec3 ori, struct vec3 dir,
 }
 
 void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
-                         __m256 orix8, __m256 oriy8, __m256 oriz8,
-                         __m256 dirx8, __m256 diry8, __m256 dirz8,
+                         __m256 ox8, __m256 oy8, __m256 oz8,
+                         __m256 dx8, __m256 dy8, __m256 dz8,
                          struct b8node *nodes, struct rinst *insts,
                          unsigned int tlasofs)
 {
@@ -1365,53 +1365,54 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
-	__m256 idirx8 = _mm256_div_ps(one8, dirx8);
-	__m256 idiry8 = _mm256_div_ps(one8, diry8);
-	__m256 idirz8 = _mm256_div_ps(one8, dirz8);
+	__m256 idx8 = _mm256_div_ps(one8, dx8);
+	__m256 idy8 = _mm256_div_ps(one8, dy8);
+	__m256 idz8 = _mm256_div_ps(one8, dz8);
 
-	__m256 rx8 = _mm256_mul_ps(orix8, idirx8);
-	__m256 ry8 = _mm256_mul_ps(oriy8, idiry8);
-	__m256 rz8 = _mm256_mul_ps(oriz8, idirz8);
+	__m256 rx8 = _mm256_mul_ps(ox8, idx8);
+	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
+	__m256 rz8 = _mm256_mul_ps(oz8, idz8);
 
-	float minorix = min8(orix8);
-	float minoriy = min8(oriy8);
-	float minoriz = min8(oriz8);
+	// Calc interval ray (min/max ori/idir)
+	float miox = min8(ox8);
+	float mioy = min8(oy8);
+	float mioz = min8(oz8);
 
-	float maxorix = max8(orix8);
-	float maxoriy = max8(oriy8);
-	float maxoriz = max8(oriz8);
+	float maox = max8(ox8);
+	float maoy = max8(oy8);
+	float maoz = max8(oz8);
 
-	float minidirx = min8(idirx8);
-	float minidiry = min8(idiry8);
-	float minidirz = min8(idirz8);
+	float miidx = min8(idx8);
+	float miidy = min8(idy8);
+	float miidz = min8(idz8);
 
-	float maxidirx = max8(idirx8);
-	float maxidiry = max8(idiry8);
-	float maxidirz = max8(idirz8);
+	float maidx = max8(idx8);
+	float maidy = max8(idy8);
+	float maidz = max8(idz8);
 
-	__m256 miidx8 = _mm256_set1_ps(minidirx);
-	__m256 miidy8 = _mm256_set1_ps(minidiry);
-	__m256 miidz8 = _mm256_set1_ps(minidirz);
+	__m256 miidx8 = _mm256_set1_ps(miidx);
+	__m256 miidy8 = _mm256_set1_ps(miidy);
+	__m256 miidz8 = _mm256_set1_ps(miidz);
 
-	__m256 maidx8 = _mm256_set1_ps(maxidirx);
-	__m256 maidy8 = _mm256_set1_ps(maxidiry);
-	__m256 maidz8 = _mm256_set1_ps(maxidirz);
+	__m256 maidx8 = _mm256_set1_ps(maidx);
+	__m256 maidy8 = _mm256_set1_ps(maidy);
+	__m256 maidz8 = _mm256_set1_ps(maidz);
 
-	__m256 mirx8 = _mm256_set1_ps(minorix * maxidirx);
-	__m256 miry8 = _mm256_set1_ps(minoriy * maxidiry);
-	__m256 mirz8 = _mm256_set1_ps(minoriz * maxidirz);
+	__m256 mirx8 = _mm256_set1_ps(miox * maidx);
+	__m256 miry8 = _mm256_set1_ps(mioy * maidy);
+	__m256 mirz8 = _mm256_set1_ps(mioz * maidz);
 
-	__m256 marx8 = _mm256_set1_ps(maxorix * minidirx);
-	__m256 mary8 = _mm256_set1_ps(maxoriy * minidiry);
-	__m256 marz8 = _mm256_set1_ps(maxoriz * minidirz);
+	__m256 marx8 = _mm256_set1_ps(maox * miidx);
+	__m256 mary8 = _mm256_set1_ps(maoy * miidy);
+	__m256 marz8 = _mm256_set1_ps(maoz * miidz);
 
 	__m256 t8 = _mm256_set1_ps(h->t); // Same for all rays
 
 	// Ray dir sign defines how to shift the permutation map
 	// Assumes (primary) rays of this packet are coherent
-	bool dx = minidirx >= 0.0f;
-	bool dy = minidiry >= 0.0f;
-	bool dz = minidirz >= 0.0f;
+	bool dx = miidx >= 0.0f;
+	bool dy = miidy >= 0.0f;
+	bool dz = miidz >= 0.0f;
 	unsigned char shft = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
@@ -1513,12 +1514,10 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 			mat4_from3x4(inv, ri->globinv);
 
 			__m256 tox8, toy8, toz8;
-			mulpos_m256(&tox8, &toy8, &toz8,
-			  orix8, oriy8, oriz8, inv);
+			mulpos_m256(&tox8, &toy8, &toz8, ox8, oy8, oz8, inv);
 
 			__m256 tdx8, tdy8, tdz8;
-			muldir_m256(&tdx8, &tdy8, &tdz8,
-			  dirx8, diry8, dirz8, inv);
+			muldir_m256(&tdx8, &tdy8, &tdz8, dx8, dy8, dz8, inv);
 
 		// TODO Do packets for blas intersection as well
 			for (unsigned int i = 0; i < PCKT_SZ; i++) {
@@ -1567,18 +1566,18 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 			  _mm256_permutevar8x32_ps(p->maxz, child);
 
 			__m256 tx0 =
-			  _mm256_fmsub_ps(dx ? minx : maxx, idirx8, rx8);
+			  _mm256_fmsub_ps(dx ? minx : maxx, idx8, rx8);
 			__m256 ty0 =
-			  _mm256_fmsub_ps(dy ? miny : maxy, idiry8, ry8);
+			  _mm256_fmsub_ps(dy ? miny : maxy, idy8, ry8);
 			__m256 tz0 =
-			  _mm256_fmsub_ps(dz ? minz : maxz, idirz8, rz8);
+			  _mm256_fmsub_ps(dz ? minz : maxz, idz8, rz8);
 
 			__m256 tx1 =
-			  _mm256_fmsub_ps(dx ? maxx : minx, idirx8, rx8);
+			  _mm256_fmsub_ps(dx ? maxx : minx, idx8, rx8);
 			__m256 ty1 =
-			  _mm256_fmsub_ps(dy ? maxy : miny, idiry8, ry8);
+			  _mm256_fmsub_ps(dy ? maxy : miny, idy8, ry8);
 			__m256 tz1 =
-			  _mm256_fmsub_ps(dz ? maxz : minz, idirz8, rz8);
+			  _mm256_fmsub_ps(dz ? maxz : minz, idz8, rz8);
 
 			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
 			  _mm256_max_ps(tx0, ty0), tz0), zero8);
@@ -1930,8 +1929,8 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return vec3_add(direct, indirect);
 }
 
-void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
-                __m256 *dirx8, __m256 *diry8, __m256 *dirz8,
+void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
+                __m256 *dx8, __m256 *dy8, __m256 *dz8,
                 struct vec3 eye, struct rview *view, unsigned int *seed,
                 unsigned int x, unsigned int y)
 {
@@ -1955,12 +1954,12 @@ void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
 
 			struct vec3 dir = vec3_unit(vec3_sub(p, ori));
 
-			(*orix8)[k] = ori.x;
-			(*oriy8)[k] = ori.y;
-			(*oriz8)[k] = ori.z;
-			(*dirx8)[k] = dir.x;
-			(*diry8)[k] = dir.y;
-			(*dirz8)[k] = dir.z;
+			(*ox8)[k] = ori.x;
+			(*oy8)[k] = ori.y;
+			(*oz8)[k] = ori.z;
+			(*dx8)[k] = dir.x;
+			(*dy8)[k] = dir.y;
+			(*dz8)[k] = dir.z;
 
 			k++;
 		}
@@ -1999,8 +1998,8 @@ int rend_render(void *d)
 
 	float invspp = 1.0f / (1.0f + rd->samples);
 
-	__m256 orix8, oriy8, oriz8;
-	__m256 dirx8, diry8, dirz8;
+	__m256 ox8, oy8, oz8;
+	__m256 dx8, dy8, dz8;
 	struct vec3 col[PCKT_SZ];
 
 	while (true) {
@@ -2018,26 +2017,26 @@ int rend_render(void *d)
 			for (unsigned int i = 0; i < bs; i += PCKT_W) {
 				unsigned int x = bx + i;
 
-				make_pckt8(&orix8, &oriy8, &oriz8,
-				  &dirx8, &diry8, &dirz8,
+				make_pckt8(&ox8, &oy8, &oz8,
+				  &dx8, &dy8, &dz8,
 				  eye, &rd->view, &seed, x, y);//*/
 
 				/*for (unsigned char k = 0; k < PCKT_SZ; k++)
 					col[k] = trace1(
-					  (struct vec3){orix8[k], oriy8[k],
-					  oriz8[k]},
-					  (struct vec3){dirx8[k], diry8[k],
-					  dirz8[k]},
+					  (struct vec3){ox8[k], oy8[k],
+					  oz8[k]},
+					  (struct vec3){dx8[k], dy8[k],
+					  dz8[k]},
 					  rd, &rays);//*/
 					/*col[k] = trace3(
-					  (struct vec3){orix8[k], oriy8[k],
-					  oriz8[k]},
-					  (struct vec3){dirx8[k], diry8[k],
-					  dirz8[k]},
+					  (struct vec3){ox8[k], oy8[k],
+					  oz8[k]},
+					  (struct vec3){dx8[k], dy8[k],
+					  dz8[k]},
 					  rd, 0, &seed, &rays);//*/
 
-				trace_pckt(col, orix8, oriy8, oriz8,
-				  dirx8, diry8, dirz8, rd, &rays);//*/
+				trace_pckt(col, ox8, oy8, oz8,
+				  dx8, dy8, dz8, rd, &rays);//*/
 
 				accum_pckt(rd->acc, rd->buf, col, invspp,
 				  x, y, w);
