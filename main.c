@@ -126,19 +126,12 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 
 		// Update instance aabbs by transforming blas root to world
 		float *m = t->glob;
-
-		// TODO Horizontal min
 		struct b8node *n = &rd->b8nodes[ri->triofs << 1];
-		struct vec3 nmi = {FLT_MAX, FLT_MAX, FLT_MAX};
-		struct vec3 nma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
-		for (unsigned char i = 0; i < 8; i++) {
-			nmi.x = min(nmi.x, n->minx[i]);
-			nmi.y = min(nmi.y, n->miny[i]);
-			nmi.z = min(nmi.z, n->minz[i]);
-			nma.x = max(nma.x, n->maxx[i]);
-			nma.y = max(nma.y, n->maxy[i]);
-			nma.z = max(nma.z, n->maxz[i]);
-		}
+
+		struct vec3 nmi =
+		  {min8(n->minx), min8(n->miny), min8(n->minz)};
+		struct vec3 nma =
+		  {max8(n->maxx), max8(n->maxy), max8(n->maxz)};
 
 		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
 		struct vec3 ma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};

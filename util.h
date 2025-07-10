@@ -1,6 +1,7 @@
 #ifndef UTIL_H
 #define UTIL_H
 
+#include <immintrin.h>
 #include <stdbool.h>
 
 #define EPS     1e-5
@@ -18,5 +19,8 @@ void   setflags(unsigned int *state, unsigned int flags);
 void   clrflags(unsigned int *state, unsigned int flags);
 bool   hasflags(unsigned int state, unsigned int flags);
 bool   anyflags(unsigned int state, unsigned int flags);
+
+float  min8(__m256 x8);
+float  max8(__m256 x8);
 
 #endif

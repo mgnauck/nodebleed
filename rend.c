@@ -136,6 +136,8 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	tz8 = _mm256_fmadd_ps(z8, m10, tz8);
 	tz8 = _mm256_add_ps(m11, tz8);
 
+	// No homogeneous/perspective divide
+	/*
 	__m256 m12 = _mm256_set1_ps(m[12]);
 	__m256 m13 = _mm256_set1_ps(m[13]);
 	__m256 m14 = _mm256_set1_ps(m[14]);
@@ -149,6 +151,11 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	*ox8 = _mm256_div_ps(tx8, tw8);
 	*oy8 = _mm256_div_ps(ty8, tw8);
 	*oz8 = _mm256_div_ps(tz8, tw8);
+	*/
+
+	*ox8 = tx8;
+	*oy8 = ty8;
+	*oz8 = tz8;
 }
 
 void muldir_m256(__m256 * restrict ox8, __m256 * restrict oy8,
@@ -178,42 +185,6 @@ void muldir_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	*oz8 = _mm256_fmadd_ps(z8, m10,
 	  _mm256_fmadd_ps(y8, m9,
 	  _mm256_mul_ps(x8, m8)));
-}
-
-// TODO Alternative, check godbolt
-void muldir_m256_2(__m256 * restrict ox8, __m256 * restrict oy8,
-                   __m256 * restrict oz8,
-                   __m256 x8, __m256 y8, __m256 z8, float m[16])
-{
-	__m256 m0 = _mm256_set1_ps(m[0]);
-	__m256 m1 = _mm256_set1_ps(m[1]);
-	__m256 m2 = _mm256_set1_ps(m[2]);
-
-	__m256 tx8 = _mm256_mul_ps(x8, m0);
-	__m256 ty8 = _mm256_mul_ps(y8, m1);
-	__m256 tz8 = _mm256_mul_ps(z8, m2);
-
-	*ox8 = _mm256_add_ps(_mm256_add_ps(tx8, ty8), tz8);
-
-	__m256 m4 = _mm256_set1_ps(m[4]);
-	__m256 m5 = _mm256_set1_ps(m[5]);
-	__m256 m6 = _mm256_set1_ps(m[6]);
-
-	tx8 = _mm256_mul_ps(x8, m4);
-	ty8 = _mm256_mul_ps(y8, m5);
-	tz8 = _mm256_mul_ps(z8, m6);
-
-	*oy8 = _mm256_add_ps(_mm256_add_ps(tx8, ty8), tz8);
-
-	__m256 m8 = _mm256_set1_ps(m[8]);
-	__m256 m9 = _mm256_set1_ps(m[9]);
-	__m256 m10 = _mm256_set1_ps(m[10]);
-
-	tx8 = _mm256_mul_ps(x8, m8);
-	ty8 = _mm256_mul_ps(y8, m9);
-	tz8 = _mm256_mul_ps(z8, m10);
-
-	*oz8 = _mm256_add_ps(_mm256_add_ps(tx8, ty8), tz8);
 }
 
 float calc_area(struct vec3 mi, struct vec3 ma)
@@ -1384,8 +1355,6 @@ bool intersect_any_tlas(float tfar, struct vec3 ori, struct vec3 dir,
 void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
                          __m256 orix8, __m256 oriy8, __m256 oriz8,
                          __m256 dirx8, __m256 diry8, __m256 dirz8,
-                         struct vec3 minori, struct vec3 maxori,
-                         struct vec3 minidir, struct vec3 maxidir,
                          struct b8node *nodes, struct rinst *insts,
                          unsigned int tlasofs)
 {
@@ -1404,29 +1373,45 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 	__m256 ry8 = _mm256_mul_ps(oriy8, idiry8);
 	__m256 rz8 = _mm256_mul_ps(oriz8, idirz8);
 
-	__m256 miidx8 = _mm256_set1_ps(minidir.x);
-	__m256 miidy8 = _mm256_set1_ps(minidir.y);
-	__m256 miidz8 = _mm256_set1_ps(minidir.z);
+	float minorix = min8(orix8);
+	float minoriy = min8(oriy8);
+	float minoriz = min8(oriz8);
 
-	__m256 maidx8 = _mm256_set1_ps(maxidir.x);
-	__m256 maidy8 = _mm256_set1_ps(maxidir.y);
-	__m256 maidz8 = _mm256_set1_ps(maxidir.z);
+	float maxorix = max8(orix8);
+	float maxoriy = max8(oriy8);
+	float maxoriz = max8(oriz8);
 
-	__m256 mirx8 = _mm256_set1_ps(minori.x * maxidir.x);
-	__m256 miry8 = _mm256_set1_ps(minori.y * maxidir.y);
-	__m256 mirz8 = _mm256_set1_ps(minori.z * maxidir.z);
+	float minidirx = min8(idirx8);
+	float minidiry = min8(idiry8);
+	float minidirz = min8(idirz8);
 
-	__m256 marx8 = _mm256_set1_ps(maxori.x * minidir.x);
-	__m256 mary8 = _mm256_set1_ps(maxori.y * minidir.y);
-	__m256 marz8 = _mm256_set1_ps(maxori.z * minidir.z);
+	float maxidirx = max8(idirx8);
+	float maxidiry = max8(idiry8);
+	float maxidirz = max8(idirz8);
+
+	__m256 miidx8 = _mm256_set1_ps(minidirx);
+	__m256 miidy8 = _mm256_set1_ps(minidiry);
+	__m256 miidz8 = _mm256_set1_ps(minidirz);
+
+	__m256 maidx8 = _mm256_set1_ps(maxidirx);
+	__m256 maidy8 = _mm256_set1_ps(maxidiry);
+	__m256 maidz8 = _mm256_set1_ps(maxidirz);
+
+	__m256 mirx8 = _mm256_set1_ps(minorix * maxidirx);
+	__m256 miry8 = _mm256_set1_ps(minoriy * maxidiry);
+	__m256 mirz8 = _mm256_set1_ps(minoriz * maxidirz);
+
+	__m256 marx8 = _mm256_set1_ps(maxorix * minidirx);
+	__m256 mary8 = _mm256_set1_ps(maxoriy * minidiry);
+	__m256 marz8 = _mm256_set1_ps(maxoriz * minidirz);
 
 	__m256 t8 = _mm256_set1_ps(h->t); // Same for all rays
 
 	// Ray dir sign defines how to shift the permutation map
 	// Assumes (primary) rays of this packet are coherent
-	bool dx = minidir.x >= 0.0f;
-	bool dy = minidir.y >= 0.0f;
-	bool dz = minidir.z >= 0.0f;
+	bool dx = minidirx >= 0.0f;
+	bool dy = minidiry >= 0.0f;
+	bool dz = minidirz >= 0.0f;
 	unsigned char shft = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
@@ -1763,10 +1748,8 @@ struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd,
 
 // TODO Make proper, ATM just for testing
 void trace_pckt(struct vec3 *col,
-                __m256 orix, __m256 oriy, __m256 oriz,
-                __m256 dirx, __m256 diry, __m256 dirz,
-                struct vec3 minori, struct vec3 maxori,
-                struct vec3 minidir, struct vec3 maxidir,
+                __m256 ox8, __m256 oy8, __m256 oz8,
+                __m256 dx8, __m256 dy8, __m256 dz8,
                 struct rdata *rd, unsigned int *rays)
 {
 	struct hit hit[PCKT_SZ];
@@ -1775,8 +1758,8 @@ void trace_pckt(struct vec3 *col,
 		col[i] = rd->bgcol;
 	}
 
-	intersect_pckt_tlas(hit, orix, oriy, oriz, dirx, diry, dirz, minori,
-	  maxori, minidir, maxidir, rd->b8nodes, rd->insts, rd->tlasofs);
+	intersect_pckt_tlas(hit, ox8, oy8, oz8, dx8, dy8, dz8,
+	  rd->b8nodes, rd->insts, rd->tlasofs);
 	  
 	*rays += PCKT_SZ;
 
@@ -1949,18 +1932,12 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 
 void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
                 __m256 *dirx8, __m256 *diry8, __m256 *dirz8,
-                struct vec3 *minori, struct vec3 *maxori,
-                struct vec3 *minidir, struct vec3 *maxidir,
                 struct vec3 eye, struct rview *view, unsigned int *seed,
                 unsigned int x, unsigned int y)
 {
 	struct vec3 dx = view->dx;
 	struct vec3 dy = view->dy;
 	struct vec3 tl = view->tl;
-
-	struct vec3 mindir, maxdir;
-	*minori = mindir = (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX};
-	*maxori = maxdir = (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
 
 	unsigned char k = 0;
 	for (unsigned int j = 0; j < PCKT_H; j++) {
@@ -1985,20 +1962,9 @@ void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
 			(*diry8)[k] = dir.y;
 			(*dirz8)[k] = dir.z;
 
-			*minori = vec3_min(*minori, ori);
-			*maxori = vec3_max(*maxori, ori);
-			mindir = vec3_min(mindir, dir);
-			maxdir = vec3_max(maxdir, dir);
-
 			k++;
 		}
 	}
-
-	*minidir = (struct vec3){1.0f / mindir.x, 1.0f / mindir.y,
-	  1.0f / mindir.z};
-	*maxidir = (struct vec3){1.0f / maxdir.x, 1.0f / maxdir.y,
-	  1.0f / maxdir.z};
-
 }
 
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
@@ -2035,8 +2001,6 @@ int rend_render(void *d)
 
 	__m256 orix8, oriy8, oriz8;
 	__m256 dirx8, diry8, dirz8;
-	struct vec3 minori, maxori;
-	struct vec3 minidir, maxidir;
 	struct vec3 col[PCKT_SZ];
 
 	while (true) {
@@ -2056,7 +2020,6 @@ int rend_render(void *d)
 
 				make_pckt8(&orix8, &oriy8, &oriz8,
 				  &dirx8, &diry8, &dirz8,
-				  &minori, &maxori, &minidir, &maxidir,
 				  eye, &rd->view, &seed, x, y);//*/
 
 				/*for (unsigned char k = 0; k < PCKT_SZ; k++)
@@ -2074,9 +2037,7 @@ int rend_render(void *d)
 					  rd, 0, &seed, &rays);//*/
 
 				trace_pckt(col, orix8, oriy8, oriz8,
-				  dirx8, diry8, dirz8,
-				  minori, maxori, minidir, maxidir,
-				  rd, &rays);//*/
+				  dirx8, diry8, dirz8, rd, &rays);//*/
 
 				accum_pckt(rd->acc, rd->buf, col, invspp,
 				  x, y, w);
