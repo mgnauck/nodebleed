@@ -31,6 +31,7 @@ static __m256i compr_lut[256];
 static __m256i defchildnum8;
 
 static __m256 zero8;
+static __m256 one8;
 static __m128 zero4;
 static __m128 one4;
 static __m128 fltmax4;
@@ -93,6 +94,7 @@ void rend_init_compresslut(void)
 
 	// Default values 4 and 8 lanes
 	zero8 = _mm256_setzero_ps();
+	one8 = _mm256_set1_ps(1.0f);
 	zero4 = _mm_setzero_ps();
 	one4 = _mm_set1_ps(1.0f);
 	fltmax4 = _mm_set1_ps(FLT_MAX);
@@ -1382,7 +1384,6 @@ bool intersect_any_tlas(float tfar, struct vec3 ori, struct vec3 dir,
 void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
                          __m256 orix8, __m256 oriy8, __m256 oriz8,
                          __m256 dirx8, __m256 diry8, __m256 dirz8,
-                         __m256 idirx8, __m256 idiry8, __m256 idirz8,
                          struct vec3 minori, struct vec3 maxori,
                          struct vec3 minidir, struct vec3 maxidir,
                          struct b8node *nodes, struct rinst *insts,
@@ -1394,6 +1395,10 @@ void intersect_pckt_tlas(struct hit *h, // TODO SIMD hit record?
 
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
+
+	__m256 idirx8 = _mm256_div_ps(one8, dirx8);
+	__m256 idiry8 = _mm256_div_ps(one8, diry8);
+	__m256 idirz8 = _mm256_div_ps(one8, dirz8);
 
 	__m256 rx8 = _mm256_mul_ps(orix8, idirx8);
 	__m256 ry8 = _mm256_mul_ps(oriy8, idiry8);
@@ -1760,7 +1765,6 @@ struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd,
 void trace_pckt(struct vec3 *col,
                 __m256 orix, __m256 oriy, __m256 oriz,
                 __m256 dirx, __m256 diry, __m256 dirz,
-                __m256 idirx, __m256 idiry, __m256 idirz,
                 struct vec3 minori, struct vec3 maxori,
                 struct vec3 minidir, struct vec3 maxidir,
                 struct rdata *rd, unsigned int *rays)
@@ -1771,9 +1775,9 @@ void trace_pckt(struct vec3 *col,
 		col[i] = rd->bgcol;
 	}
 
-	intersect_pckt_tlas(hit, orix, oriy, oriz, dirx, diry, dirz,
-	  idirx, idiry, idirz, minori, maxori, minidir, maxidir,
-	  rd->b8nodes, rd->insts, rd->tlasofs);
+	intersect_pckt_tlas(hit, orix, oriy, oriz, dirx, diry, dirz, minori,
+	  maxori, minidir, maxidir, rd->b8nodes, rd->insts, rd->tlasofs);
+	  
 	*rays += PCKT_SZ;
 
 	for (unsigned int k = 0; k < PCKT_SZ; k++) {
@@ -1945,7 +1949,6 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 
 void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
                 __m256 *dirx8, __m256 *diry8, __m256 *dirz8,
-                __m256 *idirx8, __m256 *idiry8, __m256 *idirz8,
                 struct vec3 *minori, struct vec3 *maxori,
                 struct vec3 *minidir, struct vec3 *maxidir,
                 struct vec3 eye, struct rview *view, unsigned int *seed,
@@ -1955,8 +1958,9 @@ void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
 	struct vec3 dy = view->dy;
 	struct vec3 tl = view->tl;
 
-	*minori = *minidir = (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX};
-	*maxori = *maxidir = (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
+	struct vec3 mindir, maxdir;
+	*minori = mindir = (struct vec3){FLT_MAX, FLT_MAX, FLT_MAX};
+	*maxori = maxdir = (struct vec3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
 
 	unsigned char k = 0;
 	for (unsigned int j = 0; j < PCKT_H; j++) {
@@ -1973,8 +1977,6 @@ void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
 			  vec3_scale(dy, randf(seed) - 0.5f)));
 
 			struct vec3 dir = vec3_unit(vec3_sub(p, ori));
-			struct vec3 idir =
-			  {1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z};
 
 			(*orix8)[k] = ori.x;
 			(*oriy8)[k] = ori.y;
@@ -1982,18 +1984,21 @@ void make_pckt8(__m256 *orix8, __m256 *oriy8, __m256 *oriz8,
 			(*dirx8)[k] = dir.x;
 			(*diry8)[k] = dir.y;
 			(*dirz8)[k] = dir.z;
-			(*idirx8)[k] = idir.x;
-			(*idiry8)[k] = idir.y;
-			(*idirz8)[k] = idir.z;
 
-		// TODO Horiz min/max?
 			*minori = vec3_min(*minori, ori);
 			*maxori = vec3_max(*maxori, ori);
-			*minidir = vec3_min(*minidir, idir);
-			*maxidir = vec3_max(*maxidir, idir);
+			mindir = vec3_min(mindir, dir);
+			maxdir = vec3_max(maxdir, dir);
+
 			k++;
 		}
 	}
+
+	*minidir = (struct vec3){1.0f / mindir.x, 1.0f / mindir.y,
+	  1.0f / mindir.z};
+	*maxidir = (struct vec3){1.0f / maxdir.x, 1.0f / maxdir.y,
+	  1.0f / maxdir.z};
+
 }
 
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
@@ -2030,7 +2035,6 @@ int rend_render(void *d)
 
 	__m256 orix8, oriy8, oriz8;
 	__m256 dirx8, diry8, dirz8;
-	__m256 idirx8, idiry8, idirz8;
 	struct vec3 minori, maxori;
 	struct vec3 minidir, maxidir;
 	struct vec3 col[PCKT_SZ];
@@ -2052,7 +2056,6 @@ int rend_render(void *d)
 
 				make_pckt8(&orix8, &oriy8, &oriz8,
 				  &dirx8, &diry8, &dirz8,
-				  &idirx8, &idiry8, &idirz8,
 				  &minori, &maxori, &minidir, &maxidir,
 				  eye, &rd->view, &seed, x, y);//*/
 
@@ -2072,7 +2075,6 @@ int rend_render(void *d)
 
 				trace_pckt(col, orix8, oriy8, oriz8,
 				  dirx8, diry8, dirz8,
-				  idirx8, idiry8, idirz8,
 				  minori, maxori, minidir, maxidir,
 				  rd, &rays);//*/
 
