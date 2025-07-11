@@ -1090,11 +1090,14 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 				// idet = 1 / det
 				// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
+				/*
 				__m256 r8 = _mm256_rcp_ps(det8);
 				__m256 m8 = _mm256_mul_ps(det8,
 				  _mm256_mul_ps(r8, r8));
 				__m256 idet8 = _mm256_sub_ps(
 				  _mm256_add_ps(r8, r8), m8);
+				*/
+				__m256 idet8 = _mm256_div_ps(one8, det8);
 
 				// u = idet * dot(tv, pv)
 				__m256 unew8 = _mm256_mul_ps(idet8,
@@ -1213,9 +1216,8 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			  _mm256_min_ps(tx1, ty1), tz1), *t8);
 
 			// OQ = ordered/not signaling, 0 if any operand is NAN
-			__m256 hitmask8 =
-			  _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
-			if (_mm256_movemask_ps(hitmask8) > 0)
+			__m256 hit8 = _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
+			if (_mm256_movemask_ps(hit8) > 0)
 				break;
 		}
 	}
@@ -1356,9 +1358,12 @@ bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
 	// TODO Check if we can get away with less precision
 		// idet = 1 / det
 		// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
+		/*
 		__m128 r4 = _mm_rcp_ps(det4);
 		__m128 m4 = _mm_mul_ps(det4, _mm_mul_ps(r4, r4));
 		__m128 idet4 = _mm_sub_ps(_mm_add_ps(r4, r4), m4);
+		*/
+		__m128 idet4 = _mm_div_ps(one4, det4);
 
 		// u = idet * dot(tv, pv)
 		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
@@ -1600,7 +1605,7 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
 	__m256 rz8 = _mm256_mul_ps(oz8, idz8);
 
-	// Calc interval ray (min/max ori/idir)
+	// Calc interval ray (min/max for ori/idir)
 	float miox = min8(ox8);
 	float mioy = min8(oy8);
 	float mioz = min8(oz8);
