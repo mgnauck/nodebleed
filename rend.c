@@ -104,7 +104,8 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
                  __m256 * restrict oz8,
                  __m256 x8, __m256 y8, __m256 z8, float m[16])
 {
-	__m256 tx8, ty8, tz8; //, tw8;
+	//__m256 tx8, ty8, tz8, tw8;
+	__m256 tx8, ty8, tz8;
 
 	__m256 m0 = _mm256_set1_ps(m[0]);
 	__m256 m1 = _mm256_set1_ps(m[1]);
@@ -136,8 +137,8 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	tz8 = _mm256_fmadd_ps(z8, m10, tz8);
 	tz8 = _mm256_add_ps(m11, tz8);
 
-	// No homogeneous/perspective divide
 	/*
+	// No homogeneous/perspective divide
 	__m256 m12 = _mm256_set1_ps(m[12]);
 	__m256 m13 = _mm256_set1_ps(m[13]);
 	__m256 m14 = _mm256_set1_ps(m[14]);
@@ -151,11 +152,12 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	*ox8 = _mm256_div_ps(tx8, tw8);
 	*oy8 = _mm256_div_ps(ty8, tw8);
 	*oz8 = _mm256_div_ps(tz8, tw8);
-	*/
+	//*/
 
 	*ox8 = tx8;
 	*oy8 = ty8;
 	*oz8 = tz8;
+	//*/
 }
 
 void muldir_m256(__m256 * restrict ox8, __m256 * restrict oy8,
@@ -367,6 +369,9 @@ unsigned int embed_leaf4(unsigned char *ptr, unsigned int ofs,
 		if (i < cnt - 1)
 			ip++;
 	}
+
+	// Store tri cnt for pckt traversal or non-SIMD variants
+	l->pad[0] = cnt;
 
 	return sizeof(*l);
 }
@@ -790,7 +795,7 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 		__m128 m4 = _mm_mul_ps(det4, _mm_mul_ps(r4, r4));
 		__m128 idet4 = _mm_sub_ps(_mm_add_ps(r4, r4), m4);
 
-		// u = idet4 * dot(tv, pv)
+		// u = idet * dot(tv, pv)
 		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
 		  _mm_fmadd_ps(tvy4, pvy4, _mm_mul_ps(tvz4, pvz4))));
 
@@ -815,10 +820,10 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 		__m128 tzero4 = _mm_cmpgt_ps(t4, zero4);
 
 		// t < h->t
-		__m128 tcurr4 = _mm_cmplt_ps(t4, _mm256_extractf128_ps(t8, 0));
+		__m128 tnear4 = _mm_cmplt_ps(t4, _mm256_extractf128_ps(t8, 0));
 
 		// Merge all comparison results into one final mask
-		__m128 mask4 = _mm_and_ps(tcurr4, _mm_and_ps(
+		__m128 mask4 = _mm_and_ps(tnear4, _mm_and_ps(
 		  _mm_and_ps(uzero4, vzero4), _mm_and_ps(uvone4, tzero4)));
 
 		if (_mm_movemask_ps(mask4)) { // Any hit? (lowest 4 bits)
@@ -896,6 +901,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	unsigned char *ptr = (unsigned char *)blas;
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
+// TODO Use rcp?
 	__m256 idx8 = _mm256_div_ps(one8, dx8);
 	__m256 idy8 = _mm256_div_ps(one8, dy8);
 	__m256 idz8 = _mm256_div_ps(one8, dz8);
@@ -983,7 +989,8 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 			if (hitcnt == 1) {
 				// Invert count of leading zeros to get lane
-				unsigned int child = 31 - __builtin_clz(hitmask);
+				unsigned int child =
+				  31 - __builtin_clz(hitmask);
 				// Push ofs to child node
 				assert(spos < 64);
 				stack[spos] =
@@ -1038,10 +1045,8 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			struct leaf4 *l = (struct leaf4 *)(ptr
 			  + (ofs & ~NODE_LEAF));
 
-		// TODO Proper tri cnt, encode in pad bytes of leaf?
-			for (unsigned int i = 0; i < 4; i++) {
-
-			// TODO Optimize setup
+			for (unsigned int i = 0; i < l->pad[0]; i++) {
+			// TODO Optimize setup?
 				__m256 v0x8 = _mm256_set1_ps(l->v0x[i]);
 				__m256 v0y8 = _mm256_set1_ps(l->v0y[i]);
 				__m256 v0z8 = _mm256_set1_ps(l->v0z[i]);
@@ -1083,7 +1088,6 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				__m256 qvz8 = _mm256_fmsub_ps(tvx8, e0y8,
 				  _mm256_mul_ps(tvy8, e0x8));
 
-			// TODO Check if we can get away with less precision
 				// idet = 1 / det
 				// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
 				__m256 r8 = _mm256_rcp_ps(det8);
@@ -1092,7 +1096,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				__m256 idet8 = _mm256_sub_ps(
 				  _mm256_add_ps(r8, r8), m8);
 
-				// u = idet4 * dot(tv, pv)
+				// u = idet * dot(tv, pv)
 				__m256 unew8 = _mm256_mul_ps(idet8,
 				  _mm256_fmadd_ps(tvx8, pvx8,
 				  _mm256_fmadd_ps(tvy8, pvy8,
@@ -1131,7 +1135,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				__m256 tnear8 = _mm256_cmp_ps(tnew8, *t8,
 				_CMP_LT_OQ);
 
-				// Merge all comparison results into one final mask
+				// Merge comparison results into one final mask
 				__m256 mask8 = _mm256_and_ps(tnear8,
 				  _mm256_and_ps(_mm256_and_ps(uzero8, vzero8),
 				  _mm256_and_ps(uvone8, tzero8)));
@@ -1149,7 +1153,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 					*v8 = _mm256_blendv_ps(*v8, vnew8,
 					  mask8);
 					*id8 = _mm256_blendv_epi8(*id8, idnew8,
-					  mask8); // Potential bug!
+					  mask8);
 				}
 			}
 		}
@@ -1356,7 +1360,7 @@ bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
 		__m128 m4 = _mm_mul_ps(det4, _mm_mul_ps(r4, r4));
 		__m128 idet4 = _mm_sub_ps(_mm_add_ps(r4, r4), m4);
 
-		// u = idet4 * dot(tv, pv)
+		// u = idet * dot(tv, pv)
 		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
 		  _mm_fmadd_ps(tvy4, pvy4, _mm_mul_ps(tvz4, pvz4))));
 
@@ -1381,10 +1385,10 @@ bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
 		__m128 tzero4 = _mm_cmpgt_ps(t4, zero4);
 
 		// t < h->t
-		__m128 tcurr4 = _mm_cmplt_ps(t4, _mm256_extractf128_ps(t8, 0));
+		__m128 tnear4 = _mm_cmplt_ps(t4, _mm256_extractf128_ps(t8, 0));
 
 		// Merge all comparison results into one final mask
-		__m128 mask4 = _mm_and_ps(tcurr4, _mm_and_ps(
+		__m128 mask4 = _mm_and_ps(tnear4, _mm_and_ps(
 		  _mm_and_ps(uzero4, vzero4), _mm_and_ps(uvone4, tzero4)));
 
 		// Any hit? (lowest 4 bits)
@@ -1587,6 +1591,7 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
+// TODO Use rcp?
 	__m256 idx8 = _mm256_div_ps(one8, dx8);
 	__m256 idy8 = _mm256_div_ps(one8, dy8);
 	__m256 idz8 = _mm256_div_ps(one8, dz8);
@@ -1739,22 +1744,8 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 tdx8, tdy8, tdz8;
 			muldir_m256(&tdx8, &tdy8, &tdz8, dx8, dy8, dz8, inv);
 
-		// TODO Do packets for blas intersection as well
-			for (unsigned int i = 0; i < PCKT_SZ; i++) {
-				struct hit h = {(*t8)[i], (*u8)[i], (*v8)[i],
-				  ((unsigned int *)&(*id8))[i]};
-				intersect_blas(&h,
-				  (struct vec3){tox8[i], toy8[i], toz8[i]},
-				  (struct vec3){tdx8[i], tdy8[i], tdz8[i]},
-				  blas, instid);
-				(*t8)[i] = h.t;
-				(*u8)[i] = h.u;
-				(*v8)[i] = h.v;
-				((unsigned int *)id8)[i] = h.id;
-			}//*/
-
-			/*intersect_pckt_blas(t8, u8, v8, id8, tox8, toy8, toz8,
-			  tdx8, tdy8, tdz8, blas, instid);//*/
+			intersect_pckt_blas(t8, u8, v8, id8, tox8, toy8, toz8,
+			  tdx8, tdy8, tdz8, blas, instid);
 
 		// TODO Try perf with distance stack and stack compression
 		}
@@ -1811,9 +1802,8 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			  _mm256_min_ps(tx1, ty1), tz1), *t8);
 
 			// OQ = ordered/not signaling, 0 if any operand is NAN
-			__m256 hitmask8 =
-			  _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
-			if (_mm256_movemask_ps(hitmask8) > 0)
+			__m256 hit8 = _mm256_cmp_ps(tmin, tmax, _CMP_LE_OQ);
+			if (_mm256_movemask_ps(hit8) > 0)
 				break;
 		}
 	}
@@ -2100,7 +2090,7 @@ void trace_pckt(struct vec3 *col,
 	  
 	*rays += PCKT_SZ;
 
-// TODO Think about evaluation/shade calc for full package?
+// TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
 	for (unsigned int k = 0; k < PCKT_SZ; k++) {
 		float t = t8[k];
 		float u = u8[k];

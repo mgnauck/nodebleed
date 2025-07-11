@@ -39,7 +39,7 @@ struct leaf4 { // Leaf data of 4 tris, 192 bytes
 	__m128        e1y;
 	__m128        e1z;
 	unsigned int  id[4]; // 4x tri id
-	unsigned int  pad[8];
+	unsigned int  pad[8]; // pad[0] will store tri cnt for pckt traversal
 };
 
 struct aabb { // 32 bytes
