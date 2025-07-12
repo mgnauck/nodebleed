@@ -152,11 +152,13 @@ void upd_rcam(struct rcam *rc, struct cam *c)
 {
 	*rc = (struct rcam){
 	  .eye = c->eye,
-	  .vfov = c->vfov * PI / 180.0f,
+	  .tanfov = tanf(0.5f * c->vfov * PI / 180.0f),
 	  .ri = c->ri,
-	  .focangle = c->focangle * PI / 180.0f,
+	  .focdist = c->focdist,
 	  .up = c->up,
-	  .focdist = c->focdist};
+	  .focangle = c->focangle * PI / 180.0f,
+	  .fwd = c->fwd,
+	  .aspect = WIDTH / (float)HEIGHT};
 }
 
 void cam_calcbase(struct cam *c)
@@ -169,32 +171,6 @@ void cam_setdir(struct cam *c, struct vec3 dir)
 {
 	c->fwd = vec3_unit(dir);
 	cam_calcbase(c);
-}
-
-void calc_view(struct rview *v, unsigned int width, unsigned int height,
-               struct cam *c)
-{
-	float v_height = 2.0f * tanf(0.5f * c->vfov * PI / 180.0f) * c->focdist;
-	float v_width = v_height * (float)width / (float)height;
-
-	struct vec3 v_right = vec3_scale(c->ri, v_width);
-	struct vec3 v_down = vec3_scale(c->up, -v_height);
-
-	// Pixel delta x/y
-	v->dx = vec3_scale(v_right, 1.0f / width);
-	v->dy = vec3_scale(v_down, 1.0f / height);
-
-	// view_topleft = eye - focdist * fwd - 0.5 * (view_right + view_down)
-	struct vec3 v_topleft = vec3_add(c->eye, vec3_add(
-	  vec3_scale(c->fwd, -c->focdist),
-	  vec3_scale(vec3_add(v_right, v_down), -0.5f)));
-
-	// pix_topleft = view_topleft + 0.5 * (pix_dx + pix_dy)
-	v->tl = vec3_add(v_topleft,
-	  vec3_scale(vec3_add(v->dx, v->dy), 0.5f));
-
-	v->w = width;
-	v->h = height;
 }
 
 void init(struct scene *s, struct rdata *rd)
@@ -218,6 +194,8 @@ void init(struct scene *s, struct rdata *rd)
 
 	rend_init_compresslut();
 	rend_init(rd, s->mtlmax, trimax, instmax);
+	rend_resaccum(rd, WIDTH, HEIGHT);
+
 	cpy_rdata(rd, s);
 
 	dprintf("Created render data with %d mtls, %d tris, %d insts\n",
@@ -227,11 +205,6 @@ void init(struct scene *s, struct rdata *rd)
 	rend_prepstatic(rd);
 	dprintf("Created all blas in %llu ms\n", SDL_GetTicks64() - last);
 
-	rd->acc = aligned_alloc(64, WIDTH * HEIGHT * sizeof(*rd->acc));
-	for (unsigned int i = 0; i < WIDTH * HEIGHT; i++)
-		rd->acc[i] = (struct vec3){0.0f, 0.0f, 0.0f};
-
-	// In case we do not call update, initialize at least once here
 	scene_updanims(s, 0.0f);
 	scene_updtransforms(s);
 	scene_updcams(s);
@@ -254,16 +227,11 @@ void update(struct rdata *rd, struct scene *s, float time)
 	if (hasflags(s->dirty, CAM)) {
 		if (!cntrlcam)
 			scene_updcams(s);
-
-		struct cam *c = &s->cams[s->currcam];
-		upd_rcam(&rd->cam, c);
-
-		calc_view(&rd->view, WIDTH, HEIGHT, c);
+		upd_rcam(&rd->cam, &s->cams[s->currcam]);
 	}
 
 	if (!converge || anyflags(s->dirty, TRANSFORM | CAM)) {
-		memset(rd->acc, 0, WIDTH * HEIGHT * sizeof(*rd->acc));
-		rd->samples = 0;
+		rend_clraccum(rd);
 		clrflags(&s->dirty, TRANSFORM | CAM);
 	}
 }
@@ -328,7 +296,6 @@ void mousemove(struct scene *s, int dx, int dy)
 int main(void)
 {
 	// TODO
-	// Use cam vectors directly instead of recalcing them in view
 	// Test bvh refit with b8nodes
 	// NAN handling on AVX2 traversal functions
 	// Think about ray dir sign handling in traversal function
@@ -403,8 +370,6 @@ int main(void)
 		rd.rays = 0;
 		rd.samples++;
 	}
-
-	free(rd.acc);
 
 	rend_release(&rd);
 	scene_release(&s);

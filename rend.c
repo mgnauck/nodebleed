@@ -1954,6 +1954,7 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 
 void rend_release(struct rdata *rd)
 {
+	free(rd->acc);
 	free(rd->b8nodes);
 	free(rd->aabbs);
 	free(rd->insts);
@@ -2019,6 +2020,23 @@ void rend_prepdynamic(struct rdata *rd)
 	unsigned int ncnt = build_bvh8(&rd->b8nodes[rd->tlasofs],
 	  rd->aabbs, imap, NULL /* no tris */, rd->instcnt, rmin, rmax);
 	dprintf("Node cnt: %d\n", ncnt);
+}
+
+void rend_resaccum(struct rdata *rd, unsigned int w, unsigned int h)
+{
+	free(rd->acc);
+
+	rd->acc = aligned_alloc(64, w * h * sizeof(*rd->acc));
+	rd->width = w;
+	rd->height = h;
+
+	rend_clraccum(rd);
+}
+
+void rend_clraccum(struct rdata *rd)
+{
+	memset(rd->acc, 0, rd->width * rd->height * sizeof(*rd->acc));
+	rd->samples = 0;
 }
 
 struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
@@ -2273,45 +2291,49 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return vec3_add(direct, indirect);
 }
 
+void make_camray(struct vec3 *ori, struct vec3 *dir,
+                 unsigned int x, unsigned int y,
+                 unsigned int w, unsigned int h,
+                 struct rcam *c, unsigned int *seed)
+{
+	*ori = c->eye; // TODO foc angle
+
+	float djx = randf(seed) - 0.5f;
+	float djy = randf(seed) - 0.5f;
+
+	struct vec3 d = vec3_add(vec3_sub(vec3_scale(c->ri,
+	  (2.0f * ((float)x + djx) / (float)w - 1.0f) * c->aspect * c->tanfov),
+	  vec3_scale(c->up, (2.0f * ((float)y + djy) / (float)h - 1.0f) *
+	  c->tanfov)), vec3_neg(c->fwd));
+
+	*dir = vec3_unit(d);
+}
+
 void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
                 __m256 *dx8, __m256 *dy8, __m256 *dz8,
-                struct vec3 eye, struct rview *view, unsigned int *seed,
-                unsigned int x, unsigned int y)
+                unsigned int x, unsigned int y,
+                unsigned int w, unsigned int h,
+                struct rcam *cam, unsigned int *seed)
 {
-	struct vec3 dx = view->dx;
-	struct vec3 dy = view->dy;
-	struct vec3 tl = view->tl;
-
+	// TODO Carefully select pixels so that packets do not cross 0
 	unsigned char k = 0;
 	for (unsigned int j = 0; j < PCKT_H; j++) {
 		for (unsigned int i = 0; i < PCKT_W; i++) {
-
-			// TODO Jitter eye
-			struct vec3 ori = eye;
-
-			struct vec3 p = vec3_add(tl, vec3_add(
-			  vec3_scale(dx, x + i), vec3_scale(dy, y + j)));
-
-			p = vec3_add(p, vec3_add(
-			  vec3_scale(dx, randf(seed) - 0.5f),
-			  vec3_scale(dy, randf(seed) - 0.5f)));
-
-			struct vec3 dir = vec3_unit(vec3_sub(p, ori));
-
+			struct vec3 ori, dir;
+			make_camray(&ori, &dir, x + i, y + j, w, h, cam, seed);
 			(*ox8)[k] = ori.x;
 			(*oy8)[k] = ori.y;
 			(*oz8)[k] = ori.z;
 			(*dx8)[k] = dir.x;
 			(*dy8)[k] = dir.y;
 			(*dz8)[k] = dir.z;
-
 			k++;
 		}
 	}
 }
 
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
-                float invspp, unsigned int x, unsigned int y, unsigned int w)
+                unsigned int x, unsigned int y, unsigned int w, float invspp)
 {
 	for (unsigned int j = 0; j < PCKT_H; j++) {
 		for (unsigned int i = 0; i < PCKT_W; i++) {
@@ -2330,13 +2352,11 @@ int rend_render(void *d)
 {
 	struct rdata *rd = d;
 
-	unsigned int w = rd->view.w;
-	struct vec3 eye = rd->cam.eye;
-
-	unsigned int blksx = w / rd->blksz;
-	unsigned int blksy = rd->view.h / rd->blksz;
+	unsigned int w = rd->width;
+	unsigned int bsz = rd->blksz;
+	unsigned int blksx = w / bsz;
+	unsigned int blksy = rd->height / bsz;
 	int          blkcnt = blksx * blksy;
-	unsigned int bs = rd->blksz;
 
 	unsigned int rays = 0;
 
@@ -2353,18 +2373,16 @@ int rend_render(void *d)
 
 		unsigned int seed = (blk + 13) * 131317 + rd->samples * 23;
 
-		unsigned int bx = (blk % blksx) * bs;
-		unsigned int by = (blk / blksx) * bs;
+		unsigned int bx = (blk % blksx) * bsz;
+		unsigned int by = (blk / blksx) * bsz;
 
-		for (unsigned int j = 0; j < bs; j += PCKT_H) {
+		for (unsigned int j = 0; j < bsz; j += PCKT_H) {
 			unsigned int y = by + j;
-			for (unsigned int i = 0; i < bs; i += PCKT_W) {
+			for (unsigned int i = 0; i < bsz; i += PCKT_W) {
 				unsigned int x = bx + i;
-
-				make_pckt8(&ox8, &oy8, &oz8,
-				  &dx8, &dy8, &dz8,
-				  eye, &rd->view, &seed, x, y);//*/
-
+				make_pckt8(&ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
+				  x, y, rd->width, rd->height,
+				  &rd->cam, &seed);
 				/*for (unsigned char k = 0; k < PCKT_SZ; k++)
 					col[k] = trace1(
 					  (struct vec3){ox8[k], oy8[k],
@@ -2378,12 +2396,10 @@ int rend_render(void *d)
 					  (struct vec3){dx8[k], dy8[k],
 					  dz8[k]},
 					  rd, 0, &seed, &rays);//*/
-
 				trace_pckt(col, ox8, oy8, oz8,
 				  dx8, dy8, dz8, rd, &rays);//*/
-
-				accum_pckt(rd->acc, rd->buf, col, invspp,
-				  x, y, w);
+				accum_pckt(rd->acc, rd->buf, col, x, y, w,
+				  invspp);
 			}
 		}
 	}

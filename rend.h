@@ -85,22 +85,24 @@ struct rinst { // 64 bytes
 	unsigned int  pad0;
 };
 
-struct rcam {
+struct rcam { // 64 bytes
 	struct vec3  eye;
-	float        vfov;
+	float        tanfov; // Half tan fov in rad
 	struct vec3  ri;
-	float        focdist;
+	float        focdist; // In rad
 	struct vec3  up;
 	float        focangle;
+	struct vec3  fwd;
+	float        aspect;
 };
 
-struct rview {
+/*struct rview {
 	struct vec3   dx; // Pixel delta x
 	unsigned int  w;
 	struct vec3   dy; // Pixel delta y
 	unsigned int  h;
 	struct vec3   tl; // Pixel top left
-};
+};*/
 
 struct rdata {
 	struct rmtl    *mtls;
@@ -112,19 +114,21 @@ struct rdata {
 	struct rinst   *insts;
 	struct aabb    *aabbs; // World space instance aabbs
 
-	unsigned int   tlasofs;
 	struct b8node  *b8nodes; // All blas + tlas
+	unsigned int   tlasofs;
 
 	struct rcam    cam;
-	struct rview   view;
-
-	unsigned int   blksz; // Size of a block being rendered
-	int            blknum; // Block number, accessed atomically
+	//struct rview   view;
 
 	struct vec3    bgcol;
 
-	struct vec3    *acc; // Accumulator
-	unsigned int   *buf; // Color buffer
+	unsigned int   width;
+	unsigned int   height;
+	struct vec3    *acc; // Accumulator (managed by renderer)
+	unsigned int   *buf; // Color buffer (managed by application)
+
+	unsigned int   blksz; // Size of a block being rendered
+	int            blknum; // Block number, accessed atomically
 
 	unsigned int   rays;
 	unsigned int   samples;
@@ -138,6 +142,10 @@ void  rend_release(struct rdata *rd);
 
 void  rend_prepstatic(struct rdata *rd);
 void  rend_prepdynamic(struct rdata *rd);
+
+void  rend_resaccum(struct rdata *rd, unsigned int w, unsigned int h);
+void  rend_clraccum(struct rdata *rd);
+
 int   rend_render(void *rd); // Expected argument is struct rdata *
 
 #endif
