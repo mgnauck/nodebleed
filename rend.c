@@ -17,6 +17,8 @@
 #define dprintf(...) {}
 #endif
 
+//#define NORCP
+
 // Max 4096 instances
 #define INST_ID_BITS  12
 #define INST_ID_MASK  0xfff
@@ -371,7 +373,7 @@ unsigned int embed_leaf4(unsigned char *ptr, unsigned int ofs,
 	}
 
 	// Store tri cnt for pckt traversal or non-SIMD variants
-	l->pad[0] = cnt;
+	l->tricnt = cnt;
 
 	return sizeof(*l);
 }
@@ -788,12 +790,15 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 		__m128 qvz4 = _mm_fmsub_ps(tvx4, l->e0y,
 		  _mm_mul_ps(tvy4, l->e0x));
 
-	// TODO Check if we can get away with less precision
 		// idet = 1 / det
 		// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
+	#ifndef NORCP
 		__m128 r4 = _mm_rcp_ps(det4);
 		__m128 m4 = _mm_mul_ps(det4, _mm_mul_ps(r4, r4));
 		__m128 idet4 = _mm_sub_ps(_mm_add_ps(r4, r4), m4);
+	#else
+		__m128 idet4 = _mm_div_ps(one4, det4);
+	#endif
 
 		// u = idet * dot(tv, pv)
 		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
@@ -1045,7 +1050,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			struct leaf4 *l = (struct leaf4 *)(ptr
 			  + (ofs & ~NODE_LEAF));
 
-			for (unsigned int i = 0; i < l->pad[0]; i++) {
+			for (unsigned char i = 0; i < l->tricnt; i++) {
 			// TODO Optimize setup?
 				__m256 v0x8 = _mm256_set1_ps(l->v0x[i]);
 				__m256 v0y8 = _mm256_set1_ps(l->v0y[i]);
@@ -1090,14 +1095,15 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 				// idet = 1 / det
 				// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
-				/*
+			#ifndef NORCP
 				__m256 r8 = _mm256_rcp_ps(det8);
 				__m256 m8 = _mm256_mul_ps(det8,
 				  _mm256_mul_ps(r8, r8));
 				__m256 idet8 = _mm256_sub_ps(
 				  _mm256_add_ps(r8, r8), m8);
-				*/
+			#else
 				__m256 idet8 = _mm256_div_ps(one8, det8);
+			#endif
 
 				// u = idet * dot(tv, pv)
 				__m256 unew8 = _mm256_mul_ps(idet8,
@@ -1355,15 +1361,15 @@ bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
 		__m128 qvz4 = _mm_fmsub_ps(tvx4, l->e0y,
 		  _mm_mul_ps(tvy4, l->e0x));
 
-	// TODO Check if we can get away with less precision
 		// idet = 1 / det
 		// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
-		/*
+	#ifndef NORCP
 		__m128 r4 = _mm_rcp_ps(det4);
 		__m128 m4 = _mm_mul_ps(det4, _mm_mul_ps(r4, r4));
 		__m128 idet4 = _mm_sub_ps(_mm_add_ps(r4, r4), m4);
-		*/
+	#else
 		__m128 idet4 = _mm_div_ps(one4, det4);
+	#endif
 
 		// u = idet * dot(tv, pv)
 		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
@@ -2098,11 +2104,12 @@ void trace_pckt(struct vec3 *col,
 // TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
 	for (unsigned int k = 0; k < PCKT_SZ; k++) {
 		float t = t8[k];
+		if (t == FLT_MAX)
+			continue;
+
 		float u = u8[k];
 		float v = v8[k];
 		unsigned int id = ((unsigned int *)&id8)[k];
-		if (t == FLT_MAX)
-			continue;
 
 		unsigned int instid = id & INST_ID_MASK;
 		unsigned int triid = id >> INST_ID_BITS;
