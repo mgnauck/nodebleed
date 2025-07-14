@@ -2348,7 +2348,35 @@ void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 	}
 }
 
-int rend_render(void *d)
+void rend_render(struct rdata *rd)
+{
+	unsigned int rays = 0;
+
+	unsigned int w = rd->width;
+	unsigned int h = rd->height;
+
+	unsigned int seed = rd->samples * 23170513;
+
+	float invspp = 1.0f / (1.0f + rd->samples);
+
+	__m256 ox8, oy8, oz8;
+	__m256 dx8, dy8, dz8;
+	struct vec3 col[PCKT_SZ];
+
+	for (unsigned int j = 0; j < h; j += PCKT_H) {
+		for (unsigned int i = 0; i < w; i += PCKT_W) {
+			make_pckt8(&ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
+			  i, j, w, h, &rd->cam, &seed);
+			trace_pckt(col, ox8, oy8, oz8,
+			  dx8, dy8, dz8, rd, &rays);
+			accum_pckt(rd->acc, rd->buf, col, i, j, w, invspp);
+		}
+	}
+
+	rd->rays += rays;
+}
+
+int rend_rendertiled(void *d)
 {
 	struct rdata *rd = d;
 
