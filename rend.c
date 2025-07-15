@@ -200,6 +200,7 @@ float calc_area(struct vec3 mi, struct vec3 ma)
 	return d.x * d.y + d.y * d.z + d.z * d.x;
 }
 
+// Wald, 2007, On fast Construction of SAH-based Bounding Volume Hierarchies
 // Wald et al, 2007, Ray Tracing Deformable Scenes Using Dynamic BVH
 void find_best_split(struct split *best, unsigned int start, unsigned int cnt,
                      struct vec3 nmin, struct vec3 nmax, struct vec3 minext,
@@ -2350,6 +2351,14 @@ void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 			k++;
 		}
 	}
+
+	/*for (unsigned int j = 1; j < PCKT_SZ; j++) {
+		if (sgn((*dx8)[j - 1]) != sgn((*dx8)[j]) ||
+		  sgn((*dy8)[j - 1]) != sgn((*dy8)[j]) ||
+		  sgn((*dz8)[j - 1]) != sgn((*dz8)[j])) {
+			printf("incoherent ray at x: %d, y: %d\n", x, y);
+		}
+	}//*/
 }
 
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
