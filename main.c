@@ -165,8 +165,8 @@ void upd_rcam(struct rcam *rc, struct cam *c)
 
 void cam_calcbase(struct cam *c)
 {
-	c->ri = vec3_unit(vec3_cross((struct vec3){0.0f, 1.0f, 0.0f}, c->fwd));
-	c->up = vec3_unit(vec3_cross(c->fwd, c->ri));
+	c->ri = vec3_unit(vec3_cross(c->fwd, (struct vec3){0.0f, 1.0f, 0.0f}));
+	c->up = vec3_unit(vec3_cross(c->ri, c->fwd));
 }
 
 void cam_setdir(struct cam *c, struct vec3 dir)
@@ -253,11 +253,11 @@ void keydown(struct scene *s, int key)
 			setflags(&s->dirty, CAM);
 			break;
 		case 'w':
-			c->eye = vec3_add(c->eye, vec3_scale(c->fwd, -CAMMOV));
+			c->eye = vec3_add(c->eye, vec3_scale(c->fwd, CAMMOV));
 			setflags(&s->dirty, CAM);
 			break;
 		case 's':
-			c->eye = vec3_add(c->eye, vec3_scale(c->fwd, CAMMOV));
+			c->eye = vec3_add(c->eye, vec3_scale(c->fwd, -CAMMOV));
 			setflags(&s->dirty, CAM);
 			break;
 		}
@@ -285,9 +285,9 @@ void mousemove(struct scene *s, int dx, int dy)
 
 	struct cam *c = &s->cams[s->currcam];
 
-	float theta = min(max(acosf(-c->fwd.y) + CAMLOOK * (float)dy,
+	float theta = min(max(acosf(c->fwd.y) + CAMLOOK * (float)dy,
 	  0.05f), 0.95f * PI);
-	float phi = fmodf(atan2f(-c->fwd.z, c->fwd.x) + PI - CAMLOOK *
+	float phi = fmodf(atan2f(c->fwd.z, c->fwd.x) + CAMLOOK *
 	  (float)dx, TWO_PI);
 
 	cam_setdir(c, vec3_spherical(theta, phi));

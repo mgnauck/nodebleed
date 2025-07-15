@@ -2296,17 +2296,18 @@ void make_camray(struct vec3 *ori, struct vec3 *dir,
                  unsigned int w, unsigned int h,
                  struct rcam *c, unsigned int *seed)
 {
-	*ori = c->eye; // TODO foc angle
+	// TODO Foc angle/dist
 
-	float djx = randf(seed) - 0.5f;
-	float djy = randf(seed) - 0.5f;
+	float px = x + randf(seed) - 0.5f;
+	float py = y + randf(seed) - 0.5f;
 
-	struct vec3 d = vec3_add(vec3_sub(vec3_scale(c->ri,
-	  (2.0f * ((float)x + djx) / (float)w - 1.0f) * c->aspect * c->tanfov),
-	  vec3_scale(c->up, (2.0f * ((float)y + djy) / (float)h - 1.0f) *
-	  c->tanfov)), vec3_neg(c->fwd));
+	float sx = (2.0f * px / w - 1.0f) * c->aspect * c->tanfov;
+	float sy = (2.0f * py / h - 1.0f) * c->tanfov;
 
-	*dir = vec3_unit(d);
+	*ori = c->eye;
+
+	*dir = vec3_unit(vec3_add(vec3_sub(vec3_scale(c->ri, sx),
+	  vec3_scale(c->up, sy)), c->fwd));
 }
 
 void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,

@@ -401,9 +401,11 @@ void scene_updtransforms(struct scene *s)
 void calc_cam(struct cam *c, float trans[16])
 {
 	c->eye = mat4_gettrans(trans);
-	c->fwd = vec3_unit(mat4_muldir(trans, (struct vec3){0.0f, 0.0f, 1.0f}));
-	c->ri = vec3_unit(vec3_cross((struct vec3){0.0f, 1.0f, 0.0f}, c->fwd));
-	c->up = vec3_unit(vec3_cross(c->fwd, c->ri));
+	c->fwd = vec3_unit(mat4_muldir(trans,
+	  (struct vec3){0.0f, 0.0f, -1.0f}));
+	c->ri = vec3_unit(vec3_cross(c->fwd,
+	  (struct vec3){0.0f, 1.0f, 0.0f}));
+	c->up = vec3_unit(vec3_cross(c->ri, c->fwd));
 }
 
 void scene_updcams(struct scene *s)

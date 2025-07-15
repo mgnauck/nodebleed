@@ -93,7 +93,5 @@ struct vec3 vec3_abs(struct vec3 v)
 struct vec3 vec3_spherical(float theta, float phi)
 {
 	return (struct vec3){
-	  -cosf(phi) * sinf(theta),
-	  -cosf(theta),
-	  sinf(phi) * sinf(theta)};
+	  sinf(theta) * cosf(phi), cosf(theta), sinf(theta) * sinf(phi)};
 }
