@@ -17,7 +17,9 @@
 #define dprintf(...) {}
 #endif
 
+//#define PERSP_DIV
 //#define NORCP
+#define SHOW_INCOHERENT_RAYS
 
 // Max 4096 instances
 #define INST_ID_BITS  12
@@ -106,8 +108,11 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
                  __m256 * restrict oz8,
                  __m256 x8, __m256 y8, __m256 z8, float m[16])
 {
-	//__m256 tx8, ty8, tz8, tw8;
+#ifdef PERSP_DIV
+	__m256 tx8, ty8, tz8, tw8;
+#else
 	__m256 tx8, ty8, tz8;
+#endif
 
 	__m256 m0 = _mm256_set1_ps(m[0]);
 	__m256 m1 = _mm256_set1_ps(m[1]);
@@ -139,8 +144,7 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	tz8 = _mm256_fmadd_ps(z8, m10, tz8);
 	tz8 = _mm256_add_ps(m11, tz8);
 
-	/*
-	// No homogeneous/perspective divide
+#ifdef PERSP_DIV
 	__m256 m12 = _mm256_set1_ps(m[12]);
 	__m256 m13 = _mm256_set1_ps(m[13]);
 	__m256 m14 = _mm256_set1_ps(m[14]);
@@ -154,12 +158,11 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	*ox8 = _mm256_div_ps(tx8, tw8);
 	*oy8 = _mm256_div_ps(ty8, tw8);
 	*oz8 = _mm256_div_ps(tz8, tw8);
-	//*/
-
+#else
 	*ox8 = tx8;
 	*oy8 = ty8;
 	*oz8 = tz8;
-	//*/
+#endif
 }
 
 void muldir_m256(__m256 * restrict ox8, __m256 * restrict oy8,
@@ -2102,52 +2105,6 @@ struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return c;
 }
 
-// TODO Make proper, ATM just for testing
-void trace_pckt(struct vec3 *col,
-                __m256 ox8, __m256 oy8, __m256 oz8,
-                __m256 dx8, __m256 dy8, __m256 dz8,
-                struct rdata *rd, unsigned int *rays)
-{
-	for (unsigned int i = 0; i < PCKT_SZ; i++)
-		col[i] = rd->bgcol;
-
-	__m256 t8, u8, v8;
-	__m256i id8;
-	t8 = _mm256_set1_ps(FLT_MAX);
-	intersect_pckt_tlas(&t8, &u8, &v8, &id8, ox8, oy8, oz8, dx8, dy8, dz8,
-	  rd->b8nodes, rd->insts, rd->tlasofs);
-	  
-	*rays += PCKT_SZ;
-
-// TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
-	for (unsigned int k = 0; k < PCKT_SZ; k++) {
-		float t = t8[k];
-		if (t == FLT_MAX)
-			continue;
-
-		float u = u8[k];
-		float v = v8[k];
-		unsigned int id = ((unsigned int *)&id8)[k];
-
-		unsigned int instid = id & INST_ID_MASK;
-		unsigned int triid = id >> INST_ID_BITS;
-		struct rinst *ri = &rd->insts[instid];
-		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
-		unsigned int mtlid = rn->mtlid;
-
-		// Inverse transpose, dir mul is 3x4
-		float it[16];
-		float *rt = ri->globinv;
-		for (unsigned int j = 0; j < 4; j++)
-			for (unsigned int i = 0; i < 3; i++)
-				it[4 * j + i] = rt[4 * i + j];
-
-		struct vec3 nrm = calc_nrm(u, v, rn, it);
-		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
-		col[k] = vec3_mul(nrm, rd->mtls[mtlid].col);
-	}
-}
-
 struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
                    unsigned char depth, unsigned int *seed, unsigned int *rays)
 {
@@ -2291,6 +2248,69 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return vec3_add(direct, indirect);
 }
 
+int sgn(float v)
+{
+	return v < 0 ? -1 : (v > 0 ? 1 : 0);
+}
+
+// TODO Make proper, ATM just for testing
+void trace_pckt(struct vec3 *col,
+                __m256 ox8, __m256 oy8, __m256 oz8,
+                __m256 dx8, __m256 dy8, __m256 dz8,
+                struct rdata *rd, unsigned int *rays)
+{
+	for (unsigned int i = 0; i < PCKT_SZ; i++)
+		col[i] = rd->bgcol;
+
+#ifdef SHOW_INCOHERENT_RAYS
+	for (unsigned int j = 1; j < PCKT_SZ; j++) {
+		if (sgn(dx8[j - 1]) != sgn(dx8[j]) ||
+		  sgn(dy8[j - 1]) != sgn(dy8[j]) ||
+		  sgn(dz8[j - 1]) != sgn(dz8[j])) {
+			for (unsigned int i = 0; i < PCKT_SZ; i++)
+				col[i] = (struct vec3){1.0f, 0.0f, 0.0f};
+			return;
+		}
+	}
+#endif
+
+	__m256 t8, u8, v8;
+	__m256i id8;
+	t8 = _mm256_set1_ps(FLT_MAX);
+	intersect_pckt_tlas(&t8, &u8, &v8, &id8, ox8, oy8, oz8, dx8, dy8, dz8,
+	  rd->b8nodes, rd->insts, rd->tlasofs);
+
+	*rays += PCKT_SZ;
+
+// TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
+	for (unsigned int k = 0; k < PCKT_SZ; k++) {
+		float t = t8[k];
+		if (t == FLT_MAX)
+			continue;
+
+		float u = u8[k];
+		float v = v8[k];
+		unsigned int id = ((unsigned int *)&id8)[k];
+
+		unsigned int instid = id & INST_ID_MASK;
+		unsigned int triid = id >> INST_ID_BITS;
+		struct rinst *ri = &rd->insts[instid];
+		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+		unsigned int mtlid = rn->mtlid;
+
+		// Inverse transpose, dir mul is 3x4
+		float it[16];
+		float *rt = ri->globinv;
+		for (unsigned int j = 0; j < 4; j++)
+			for (unsigned int i = 0; i < 3; i++)
+				it[4 * j + i] = rt[4 * i + j];
+
+		struct vec3 nrm = calc_nrm(u, v, rn, it);
+		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
+		col[k] = vec3_mul(nrm, rd->mtls[mtlid].col);
+	}
+}
+
 void make_camray(struct vec3 *ori, struct vec3 *dir,
                  unsigned int x, unsigned int y,
                  unsigned int w, unsigned int h,
@@ -2316,7 +2336,6 @@ void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
                 unsigned int w, unsigned int h,
                 struct rcam *cam, unsigned int *seed)
 {
-	// TODO Carefully select pixels so that packets do not cross 0
 	unsigned char k = 0;
 	for (unsigned int j = 0; j < PCKT_H; j++) {
 		for (unsigned int i = 0; i < PCKT_W; i++) {
