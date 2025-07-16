@@ -400,6 +400,7 @@ void scene_updtransforms(struct scene *s)
 
 void calc_cam(struct cam *c, float trans[16])
 {
+	// TODO Extract from transformation directly
 	c->eye = mat4_gettrans(trans);
 	c->fwd = vec3_unit(mat4_muldir(trans,
 	  (struct vec3){0.0f, 0.0f, -1.0f}));

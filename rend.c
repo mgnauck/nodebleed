@@ -2240,7 +2240,7 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 		struct vec3 irr = trace3(vec3_add(pos,
 		  vec3_scale(dir, EPS2)), dir, rd, depth + 1, seed, rays);
 
-		//colind = vec3_scale(vec3_mul(brdf, irr),
+		//indirect = vec3_scale(vec3_mul(brdf, irr),
 		//  cos_theta / pdf);
 		indirect = vec3_mul(brdf, irr);
 	}
@@ -2351,14 +2351,6 @@ void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 			k++;
 		}
 	}
-
-	/*for (unsigned int j = 1; j < PCKT_SZ; j++) {
-		if (sgn((*dx8)[j - 1]) != sgn((*dx8)[j]) ||
-		  sgn((*dy8)[j - 1]) != sgn((*dy8)[j]) ||
-		  sgn((*dz8)[j - 1]) != sgn((*dz8)[j])) {
-			printf("incoherent ray at x: %d, y: %d\n", x, y);
-		}
-	}//*/
 }
 
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,

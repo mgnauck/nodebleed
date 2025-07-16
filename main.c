@@ -16,7 +16,7 @@
 #include "scene.h"
 #include "util.h"
 
-//#define RENDER_TILED
+#define RENDER_TILED
 
 #define WIDTH    1920
 #define HEIGHT   1080
