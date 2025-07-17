@@ -1035,6 +1035,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				__m256i pcnumord8 =
 				  _mm256_permutevar8x32_epi32(
 				  // prnt ofs << 3 | child num for all lanes
+				  // ofs never points to leaf, so can shift it
 				  _mm256_add_epi32(_mm256_set1_epi32(ofs << 3),
 				  defchildnum8), ord8);
 
@@ -1058,7 +1059,6 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				spos += hitcnt; // Account for pushed nodes
 			}
 		} else {
-
 			// Intersect all rays of pckt w/ each embedded tri
 			struct leaf4 *l = (struct leaf4 *)(ptr
 			  + (ofs & ~NODE_LEAF));
@@ -1198,7 +1198,6 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			struct b8node *p = (struct b8node *)(ptr + (pc >> 3));
 
 			// Intersect packet rays at once with child's aabb
-			//assert((pc & 7) <= 7);
 			__m256i child = _mm256_set1_epi32(pc & 7);
 
 			__m256 minx =
@@ -1730,6 +1729,7 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				__m256i pcnumord8 =
 				  _mm256_permutevar8x32_epi32(
 				  // prnt ofs << 3 | child num for all lanes
+				  // ofs never points to leaf, so can shift it
 				  _mm256_add_epi32(_mm256_set1_epi32(ofs << 3),
 				  defchildnum8), ord8);
 
@@ -1770,6 +1770,7 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 		// TODO Temporarily separate between coherent and incoh. pckts
 			if (is_coherent(tdx8, tdy8, tdz8)) {
+			//if (0) {
 				intersect_pckt_blas(t8, u8, v8, id8,
 				  tox8, toy8, toz8, tdx8, tdy8, tdz8, blas,
 				  instid);
@@ -1808,7 +1809,6 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			struct b8node *p = (struct b8node *)(ptr + (pc >> 3));
 
 			// Intersect packet rays at once with child's aabb
-			//assert((pc & 7) <= 7);
 			__m256i child = _mm256_set1_epi32(pc & 7);
 			__m256 minx =
 			  _mm256_permutevar8x32_ps(p->minx, child);
