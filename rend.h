@@ -146,7 +146,6 @@ void  rend_prepdynamic(struct rdata *rd);
 void  rend_resaccum(struct rdata *rd, unsigned int w, unsigned int h);
 void  rend_clraccum(struct rdata *rd);
 
-void  rend_render(struct rdata *rd);
-int   rend_rendertiled(void *rd); // Expected argument is struct rdata *
+int   rend_render(void *rd); // Expected argument is struct rdata *
 
 #endif

@@ -19,7 +19,6 @@
 
 //#define PERSP_DIV
 //#define NORCP
-#define SHOW_INCOHERENT_RAYS
 
 // Max 4096 instances
 #define INST_ID_BITS  12
@@ -192,6 +191,16 @@ void muldir_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	*oz8 = _mm256_fmadd_ps(z8, m10,
 	  _mm256_fmadd_ps(y8, m9,
 	  _mm256_mul_ps(x8, m8)));
+}
+
+bool is_coherent(__m256 x8, __m256 y8, __m256 z8)
+{
+	// TODO Optimize
+	unsigned char xcoh = _mm256_movemask_ps(x8);
+	unsigned char ycoh = _mm256_movemask_ps(y8);
+	unsigned char zcoh = _mm256_movemask_ps(z8);
+	return (xcoh == 0 || xcoh == 0xff) && (ycoh == 0 || ycoh == 0xff) &&
+	  (zcoh == 0 || zcoh == 0xff);
 }
 
 float calc_area(struct vec3 mi, struct vec3 ma)
@@ -1759,8 +1768,26 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 tdx8, tdy8, tdz8;
 			muldir_m256(&tdx8, &tdy8, &tdz8, dx8, dy8, dz8, inv);
 
-			intersect_pckt_blas(t8, u8, v8, id8, tox8, toy8, toz8,
-			  tdx8, tdy8, tdz8, blas, instid);
+		// TODO Temporarily separate between coherent and incoh. pckts
+			if (is_coherent(tdx8, tdy8, tdz8)) {
+				intersect_pckt_blas(t8, u8, v8, id8,
+				  tox8, toy8, toz8, tdx8, tdy8, tdz8, blas,
+				  instid);
+			} else {
+				for (unsigned char i = 0; i < PCKT_SZ; i++) {
+					struct hit h = {(*t8)[i], (*u8)[i],
+					  (*v8)[i], ((unsigned int *)id8)[i]};
+					intersect_blas(&h,
+					  (struct vec3){tox8[i], toy8[i],
+					  toz8[i]},
+					  (struct vec3){tdx8[i], tdy8[i],
+					  tdz8[i]}, blas, instid);
+					(*t8)[i] = h.t;
+					(*u8)[i] = h.u;
+					(*v8)[i] = h.v;
+					((unsigned int *)id8)[i] = h.id;
+				}
+			}
 
 		// TODO Try perf with distance stack and stack compression
 		}
@@ -2249,11 +2276,6 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return vec3_add(direct, indirect);
 }
 
-int sgn(float v)
-{
-	return v < 0 ? -1 : (v > 0 ? 1 : 0);
-}
-
 // TODO Make proper, ATM just for testing
 void trace_pckt(struct vec3 *col,
                 __m256 ox8, __m256 oy8, __m256 oz8,
@@ -2262,18 +2284,6 @@ void trace_pckt(struct vec3 *col,
 {
 	for (unsigned int i = 0; i < PCKT_SZ; i++)
 		col[i] = rd->bgcol;
-
-#ifdef SHOW_INCOHERENT_RAYS
-	for (unsigned int j = 1; j < PCKT_SZ; j++) {
-		if (sgn(dx8[j - 1]) != sgn(dx8[j]) ||
-		  sgn(dy8[j - 1]) != sgn(dy8[j]) ||
-		  sgn(dz8[j - 1]) != sgn(dz8[j])) {
-			for (unsigned int i = 0; i < PCKT_SZ; i++)
-				col[i] = (struct vec3){1.0f, 0.0f, 0.0f};
-			return;
-		}
-	}
-#endif
 
 	__m256 t8, u8, v8;
 	__m256i id8;
@@ -2337,18 +2347,18 @@ void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
                 unsigned int w, unsigned int h,
                 struct rcam *cam, unsigned int *seed)
 {
+	struct vec3 ori, dir;
 	unsigned char k = 0;
-	for (unsigned int j = 0; j < PCKT_H; j++) {
-		for (unsigned int i = 0; i < PCKT_W; i++) {
-			struct vec3 ori, dir;
-			make_camray(&ori, &dir, x + i, y + j, w, h, cam, seed);
+	for (unsigned char j = 0; j < PCKT_H; j++) {
+		for (unsigned char i = 0; i < PCKT_W; i++) {
+			make_camray(&ori, &dir, x + i, y + j,
+			  w, h, cam, seed);
 			(*ox8)[k] = ori.x;
 			(*oy8)[k] = ori.y;
 			(*oz8)[k] = ori.z;
 			(*dx8)[k] = dir.x;
 			(*dy8)[k] = dir.y;
-			(*dz8)[k] = dir.z;
-			k++;
+			(*dz8)[k++] = dir.z;
 		}
 	}
 }
@@ -2369,35 +2379,7 @@ void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 	}
 }
 
-void rend_render(struct rdata *rd)
-{
-	unsigned int rays = 0;
-
-	unsigned int w = rd->width;
-	unsigned int h = rd->height;
-
-	unsigned int seed = rd->samples * 23170513;
-
-	float invspp = 1.0f / (1.0f + rd->samples);
-
-	__m256 ox8, oy8, oz8;
-	__m256 dx8, dy8, dz8;
-	struct vec3 col[PCKT_SZ];
-
-	for (unsigned int j = 0; j < h; j += PCKT_H) {
-		for (unsigned int i = 0; i < w; i += PCKT_W) {
-			make_pckt8(&ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
-			  i, j, w, h, &rd->cam, &seed);
-			trace_pckt(col, ox8, oy8, oz8,
-			  dx8, dy8, dz8, rd, &rays);
-			accum_pckt(rd->acc, rd->buf, col, i, j, w, invspp);
-		}
-	}
-
-	rd->rays += rays;
-}
-
-int rend_rendertiled(void *d)
+int rend_render(void *d)
 {
 	struct rdata *rd = d;
 
@@ -2429,24 +2411,32 @@ int rend_rendertiled(void *d)
 			unsigned int y = by + j;
 			for (unsigned int i = 0; i < bsz; i += PCKT_W) {
 				unsigned int x = bx + i;
-				make_pckt8(&ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
-				  x, y, rd->width, rd->height,
-				  &rd->cam, &seed);
-				/*for (unsigned char k = 0; k < PCKT_SZ; k++)
-					col[k] = trace1(
-					  (struct vec3){ox8[k], oy8[k],
-					  oz8[k]},
-					  (struct vec3){dx8[k], dy8[k],
-					  dz8[k]},
-					  rd, &rays);//*/
-					/*col[k] = trace3(
-					  (struct vec3){ox8[k], oy8[k],
-					  oz8[k]},
-					  (struct vec3){dx8[k], dy8[k],
-					  dz8[k]},
-					  rd, 0, &seed, &rays);//*/
-				trace_pckt(col, ox8, oy8, oz8,
-				  dx8, dy8, dz8, rd, &rays);//*/
+
+				make_pckt8(&ox8, &oy8, &oz8,
+				  &dx8, &dy8, &dz8, x, y, rd->width,
+				  rd->height, &rd->cam, &seed);
+
+				if (is_coherent(dx8, dy8, dz8)) {
+				//if (0) {
+					trace_pckt(col, ox8, oy8, oz8,
+					  dx8, dy8, dz8, rd, &rays);
+				} else {
+					for (unsigned char k = 0; k < PCKT_SZ;
+					  k++)
+						col[k] = trace1(
+						  (struct vec3){ox8[k], oy8[k],
+						  oz8[k]},
+						  (struct vec3){dx8[k], dy8[k],
+						  dz8[k]},
+						  rd, &rays);//*/
+						/*col[k] = trace3(
+						  (struct vec3){ox8[k], oy8[k],
+						  oz8[k]},
+						  (struct vec3){dx8[k], dy8[k],
+						  dz8[k]},
+						  rd, 0, &seed, &rays);//*/
+				}
+
 				accum_pckt(rd->acc, rd->buf, col, x, y, w,
 				  invspp);
 			}

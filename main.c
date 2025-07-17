@@ -16,8 +16,6 @@
 #include "scene.h"
 #include "util.h"
 
-#define RENDER_TILED
-
 #define WIDTH    1920
 #define HEIGHT   1080
 
@@ -328,13 +326,10 @@ int main(void)
 	init(&s, &rd);
 
 	rd.buf = scr->pixels;
-
-#ifdef RENDER_TILED
 	rd.blksz = 20;
 
 	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	thrd_t thrds[thrdcnt];
-#endif
 
 	bool quit = false;
 	start = SDL_GetTicks64();
@@ -356,14 +351,10 @@ int main(void)
 		long long last = SDL_GetTicks64();
 		update(&rd, &s, (last - start) / 1000.0f);
 
-#ifdef RENDER_TILED
 		for (unsigned int i = 0; i < thrdcnt; i++)
-			thrd_create(&thrds[i], rend_rendertiled, &rd);
+			thrd_create(&thrds[i], rend_render, &rd);
 		for (unsigned int i = 0; i < thrdcnt; i++)
 			thrd_join(thrds[i], NULL);
-#else
-		rend_render(&rd);
-#endif
 
 		SDL_UpdateWindowSurface(win);
 
