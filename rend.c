@@ -1054,11 +1054,12 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
 			  _mm256_max_ps(tx0, ty0), tz0), zero8);
 
-			// FIXME Issues if we cull by dist t8 (which we should)
-			//__m256 tmax = _mm256_min_ps(_mm256_min_ps(
-			//  _mm256_min_ps(tx1, ty1), tz1), *t8);
-			__m256 tmax = _mm256_min_ps(
-			  _mm256_min_ps(tx1, ty1), tz1);
+			// Only use maximum t of the packet for the
+			// conservative interval test
+			__m256 tmax = _mm256_min_ps(_mm256_min_ps(
+			  _mm256_min_ps(tx1, ty1), tz1),
+			  _mm256_set1_ps(max8(*t8)));
+			  //_mm256_min_ps(tx1, ty1), tz1), *t8);
 
 			// OQ = ordered/not signaling, 0 if any operand is NAN
 			__m256 hitmask8 =
@@ -1773,8 +1774,11 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
 			  _mm256_max_ps(tx0, ty0), tz0), zero8);
 
+			// Only use maximum t of the packet for the
+			// conservative interval test
 			__m256 tmax = _mm256_min_ps(_mm256_min_ps(
-			  _mm256_min_ps(tx1, ty1), tz1), *t8);
+			  _mm256_min_ps(tx1, ty1), tz1),
+			  _mm256_set1_ps(max8(*t8)));
 
 			// OQ = ordered/not signaling, 0 if any operand is NAN
 			__m256 hitmask8 =
