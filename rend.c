@@ -18,7 +18,6 @@
 #endif
 
 //#define PERSP_DIV
-//#define NORCP
 
 // Max 4096 instances
 #define INST_ID_BITS  12
@@ -191,29 +190,6 @@ void muldir_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	*oz8 = _mm256_fmadd_ps(z8, m10,
 	  _mm256_fmadd_ps(y8, m9,
 	  _mm256_mul_ps(x8, m8)));
-}
-
-// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
-__m128 rcp_m128(__m128 a4)
-{
-#ifndef NORCP
-	__m128 r4 = _mm_rcp_ps(a4);
-	__m128 m4 = _mm_mul_ps(a4, _mm_mul_ps(r4, r4));
-	return _mm_sub_ps(_mm_add_ps(r4, r4), m4);
-#else
-	return _mm_div_ps(one4, a4);
-#endif
-}
-
-__m256 rcp_m256(__m256 a8)
-{
-#ifndef NORCP
-	__m256 r8 = _mm256_rcp_ps(a8);
-	__m256 m8 = _mm256_mul_ps(a8, _mm256_mul_ps(r8, r8));
-	return _mm256_sub_ps(_mm256_add_ps(r8, r8), m8);
-#else
-	return _mm256_div_ps(one8, a8);
-#endif
 }
 
 bool is_coherent(__m256 x8, __m256 y8, __m256 z8)
@@ -827,7 +803,7 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 		  _mm_mul_ps(tvy4, l->e0x));
 
 		// idet = 1 / det
-		__m128 idet4 = rcp_m128(det4);
+		__m128 idet4 = rcp4(det4);
 
 		// u = idet * dot(tv, pv)
 		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
@@ -939,9 +915,12 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	unsigned char *ptr = (unsigned char *)blas;
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
-	__m256 idx8 = rcp_m256(dx8);
-	__m256 idy8 = rcp_m256(dy8);
-	__m256 idz8 = rcp_m256(dz8);
+	// Curr max dist of the ray packets to cull the interval ray
+	__m256 maxt8 = bcmax8(*t8);
+
+	__m256 idx8 = rcp8(dx8);
+	__m256 idy8 = rcp8(dy8);
+	__m256 idz8 = rcp8(dz8);
 
 	__m256 rx8 = _mm256_mul_ps(ox8, idx8);
 	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
@@ -1054,12 +1033,10 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
 			  _mm256_max_ps(tx0, ty0), tz0), zero8);
 
-			// Only use maximum t of the packet for the
+			// Only use the maximum t of the ray packet for the
 			// conservative interval test
 			__m256 tmax = _mm256_min_ps(_mm256_min_ps(
-			  _mm256_min_ps(tx1, ty1), tz1),
-			  _mm256_set1_ps(max8(*t8)));
-			  //_mm256_min_ps(tx1, ty1), tz1), *t8);
+			  _mm256_min_ps(tx1, ty1), tz1), maxt8);
 
 			// OQ = ordered/not signaling, 0 if any operand is NAN
 			__m256 hitmask8 =
@@ -1169,7 +1146,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				  _mm256_mul_ps(tvy8, e0x8));
 
 				// idet = 1 / det
-				__m256 idet8 = rcp_m256(det8);
+				__m256 idet8 = rcp8(det8);
 
 				// u = idet * dot(tv, pv)
 				__m256 unew8 = _mm256_mul_ps(idet8,
@@ -1229,6 +1206,9 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 					  mask8);
 					*id8 = _mm256_blendv_epi8(*id8, idnew8,
 					  mask8);
+
+					// Upd hor max of t8 for interval ray
+					maxt8 = bcmax8(*t8);
 				}
 			}
 		}
@@ -1427,7 +1407,7 @@ bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
 		  _mm_mul_ps(tvy4, l->e0x));
 
 		// idet = 1 / det
-		__m128 idet4 = rcp_m128(det4);
+		__m128 idet4 = rcp4(det4);
 
 		// u = idet * dot(tv, pv)
 		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
@@ -1660,9 +1640,11 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
-	__m256 idx8 = rcp_m256(dx8);
-	__m256 idy8 = rcp_m256(dy8);
-	__m256 idz8 = rcp_m256(dz8);
+	__m256 maxt8 = bcmax8(*t8);
+
+	__m256 idx8 = rcp8(dx8);
+	__m256 idy8 = rcp8(dy8);
+	__m256 idz8 = rcp8(dz8);
 
 	__m256 rx8 = _mm256_mul_ps(ox8, idx8);
 	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
@@ -1774,11 +1756,10 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
 			  _mm256_max_ps(tx0, ty0), tz0), zero8);
 
-			// Only use maximum t of the packet for the
+			// Only use the maximum t of the ray packet for the
 			// conservative interval test
 			__m256 tmax = _mm256_min_ps(_mm256_min_ps(
-			  _mm256_min_ps(tx1, ty1), tz1),
-			  _mm256_set1_ps(max8(*t8)));
+			  _mm256_min_ps(tx1, ty1), tz1), maxt8);
 
 			// OQ = ordered/not signaling, 0 if any operand is NAN
 			__m256 hitmask8 =
@@ -1876,6 +1857,10 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 					((unsigned int *)id8)[i] = h.id;
 				}
 			}//*/
+
+			// t8 dists could be new, so update our max dist
+			// to get proper interval ray culling
+			maxt8 = bcmax8(*t8);
 
 		// TODO Try perf with distance stack and stack compression
 		}

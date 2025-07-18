@@ -88,3 +88,45 @@ float max8(__m256 x8)
 
 	return _mm_cvtss_f32(ma);
 }
+
+__m256 bcmax8(__m256 x8)
+{
+	// Reduce 4 floats in each lane to a single max val per lane
+	// Shuffle to swap elements: h2, h3, h0, h1, l2, l3, l0, l1
+	__m256 s1 = _mm256_shuffle_ps(x8, x8, _MM_SHUFFLE(2, 3, 0, 1));
+	// 1st max: max(h3, h2), max(h3, h2), max(h1, h0), max(h1, h0), ..
+	__m256 m1 = _mm256_max_ps(x8, s1);
+	// Shuffle to swap: max(h1, h0), max(h1, h0), max(h3, h2), max(h3, h2)
+	__m256 s2 = _mm256_shuffle_ps(x8, x8, _MM_SHUFFLE(0, 1, 2, 3));
+	// 2nd max:  4x max high lane, 4x max low lane
+	__m256 m2 = _mm256_max_ps(m1, s2);
+
+	// Cross lane reduction to single max and broadcast
+	// 4x max low lane, 4x max high lane
+	__m256 swp = _mm256_permute2f128_ps(m2, m2, 1);
+	// Final max: max(max high, max low), max(max high, max low), ..
+	return _mm256_max_ps(m2, swp);
+}
+
+// https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
+__m128 rcp4(__m128 a4)
+{
+#ifndef NORCP
+	__m128 r4 = _mm_rcp_ps(a4);
+	__m128 m4 = _mm_mul_ps(a4, _mm_mul_ps(r4, r4));
+	return _mm_sub_ps(_mm_add_ps(r4, r4), m4);
+#else
+	return _mm_div_ps(one4, a4);
+#endif
+}
+
+__m256 rcp8(__m256 a8)
+{
+#ifndef NORCP
+	__m256 r8 = _mm256_rcp_ps(a8);
+	__m256 m8 = _mm256_mul_ps(a8, _mm256_mul_ps(r8, r8));
+	return _mm256_sub_ps(_mm256_add_ps(r8, r8), m8);
+#else
+	return _mm256_div_ps(one8, a8);
+#endif
+}
