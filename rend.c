@@ -1781,7 +1781,8 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 			if (hitcnt == 1) {
 				// Invert count of leading zeros to get lane
-				unsigned int child = 31 - __builtin_clz(hitmask);
+				unsigned int child =
+				  31 - __builtin_clz(hitmask);
 				// Push ofs to child node
 				assert(spos < 64);
 				stack[spos] =
