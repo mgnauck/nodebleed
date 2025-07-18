@@ -1054,8 +1054,11 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 tmin = _mm256_max_ps(_mm256_max_ps(
 			  _mm256_max_ps(tx0, ty0), tz0), zero8);
 
-			__m256 tmax = _mm256_min_ps(_mm256_min_ps(
-			  _mm256_min_ps(tx1, ty1), tz1), *t8);
+			// FIXME Issues if we cull by dist t8 (which we should)
+			//__m256 tmax = _mm256_min_ps(_mm256_min_ps(
+			//  _mm256_min_ps(tx1, ty1), tz1), *t8);
+			__m256 tmax = _mm256_min_ps(
+			  _mm256_min_ps(tx1, ty1), tz1);
 
 			// OQ = ordered/not signaling, 0 if any operand is NAN
 			__m256 hitmask8 =
@@ -2496,11 +2499,11 @@ int rend_render(void *d)
 				  &dx8, &dy8, &dz8, x, y, rd->width,
 				  rd->height, &rd->cam, &seed);
 
-				if (is_coherent(dx8, dy8, dz8)) {
+				//if (is_coherent(dx8, dy8, dz8)) {
 				//if (0) {
 					trace_pckt(col, ox8, oy8, oz8,
 					  dx8, dy8, dz8, rd, &rays);
-				} else {
+				/*} else {
 					for (unsigned char k = 0; k < PCKT_SZ;
 					  k++)
 						col[k] = trace1(
@@ -2515,7 +2518,7 @@ int rend_render(void *d)
 						  (struct vec3){dx8[k], dy8[k],
 						  dz8[k]},
 						  rd, 0, &seed, &rays);//*/
-				}
+				//}
 
 				accum_pckt(rd->acc, rd->buf, col, x, y, w,
 				  invspp);
