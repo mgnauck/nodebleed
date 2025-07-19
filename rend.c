@@ -763,25 +763,25 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 				  _mm256_movemask_ps(hitmaskord8);
 
 				// Ordered min distances and child node ids
-				tmin = _mm256_permutevar8x32_ps(tmin, ord8);
 				__m256i childrenord8 =
 				  _mm256_permutevar8x32_epi32(n->children,
 				  ord8);
+				tmin = _mm256_permutevar8x32_ps(tmin, ord8);
 
 				// Map ordered hit mask to compressed indices
 				__m256 cid = compr_lut[hitmaskord];
 
 				// Permute to compress dists and child node ids
-				__m256 distsfin8 = _mm256_permutevar8x32_ps(
-				  tmin, cid);
 				__m256i childfin8 =
 				  _mm256_permutevar8x32_epi32(childrenord8,
 				  cid);
+				__m256 distsfin8 = _mm256_permutevar8x32_ps(
+				  tmin, cid);
 
 				// Unaligned store dists and children on stacks
-				_mm256_storeu_ps(dstack + spos, distsfin8);
 				_mm256_storeu_si256((__m256i *)(stack + spos),
 				  childfin8);
+				_mm256_storeu_ps(dstack + spos, distsfin8);
 
 				assert(spos < 64 - hitcnt + 1);
 				spos += hitcnt - 1; // Account for pushed nodes
@@ -879,9 +879,9 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 			// Compress stack wrt to nearer h->t in batches of 8
 			unsigned int spos2 = 0;
 			for (i = 0; i < spos; i += 8) {
-				__m256 dists8 = _mm256_load_ps(dstack + i);
 				__m256i nids8 = _mm256_load_si256(
 				  (__m256i *)(stack + i));
+				__m256 dists8 = _mm256_load_ps(dstack + i);
 
 				// Nearer/eq ones are 1
 				unsigned int nearmask = _mm256_movemask_ps(
@@ -891,14 +891,14 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 				__m256i cid = compr_lut[nearmask];
 
 				// Permute to compress dists and node ids
-				dists8 = _mm256_permutevar8x32_ps(dists8, cid);
 				nids8 =
 				  _mm256_permutevar8x32_epi32(nids8, cid);
+				dists8 = _mm256_permutevar8x32_ps(dists8, cid);
 
 				// Store compressed dists and node ids
-				_mm256_storeu_ps(dstack + spos2, dists8);
 				_mm256_storeu_si256((__m256i *)(stack + spos2),
 				  nids8);
+				_mm256_storeu_ps(dstack + spos2, dists8);
 
 				unsigned int cnt = min(spos - i, 8); // Last!
 				unsigned int cntmask = (1 << cnt) - 1;
@@ -1231,8 +1231,6 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			}
 		}
 
-		// TODO Try perf with distance stack and stack compression
-
 		// Check actual rays of packets against popped nodes
 		while (true) {
 			unsigned int pc; // Parent ofs and child num
@@ -1241,9 +1239,6 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				ofs = stack[spos];
 			} else
 				return;
-
-		// TODO Support more than one packet via fpi and
-		// another loop here.
 
 			// Fetch node at ofs
 			struct b8node *p = (struct b8node *)(ptr + (pc >> 3));
@@ -1561,25 +1556,25 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 				  _mm256_movemask_ps(hitmaskord8);
 
 				// Ordered min distances and child node ids
-				tmin = _mm256_permutevar8x32_ps(tmin, ord8);
 				__m256i childrenord8 =
 				  _mm256_permutevar8x32_epi32(n->children,
 				  ord8);
+				tmin = _mm256_permutevar8x32_ps(tmin, ord8);
 
 				// Map ordered hit mask to compressed indices
 				__m256 cid = compr_lut[hitmaskord];
 
 				// Permute to compress dists and child node ids
-				__m256 distsfin8 = _mm256_permutevar8x32_ps(
-				  tmin, cid);
 				__m256i childfin8 =
 				  _mm256_permutevar8x32_epi32(childrenord8,
 				  cid);
+				__m256 distsfin8 = _mm256_permutevar8x32_ps(
+				  tmin, cid);
 
 				// Unaligned store dists and children on stacks
-				_mm256_storeu_ps(dstack + spos, distsfin8);
 				_mm256_storeu_si256((__m256i *)(stack + spos),
 				  childfin8);
+				_mm256_storeu_ps(dstack + spos, distsfin8);
 
 				assert(spos < 64 - hitcnt + 1);
 				spos += hitcnt - 1; // Account for pushed nodes
@@ -1607,9 +1602,9 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 			// Compress stack wrt to nearer h->t in batches of 8
 			unsigned int spos2 = 0;
 			for (unsigned int i = 0; i < spos; i += 8) {
-				__m256 dists8 = _mm256_load_ps(dstack + i);
 				__m256i nids8 = _mm256_load_si256(
 				  (__m256i *)(stack + i));
+				__m256 dists8 = _mm256_load_ps(dstack + i);
 
 				// Nearer/eq ones are 1
 				unsigned int nearmask = _mm256_movemask_ps(
@@ -1619,14 +1614,14 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 				__m256i cid = compr_lut[nearmask];
 
 				// Permute to compress dists and node ids
-				dists8 = _mm256_permutevar8x32_ps(dists8, cid);
 				nids8 =
 				  _mm256_permutevar8x32_epi32(nids8, cid);
+				dists8 = _mm256_permutevar8x32_ps(dists8, cid);
 
 				// Store compressed dists and node ids
-				_mm256_storeu_ps(dstack + spos2, dists8);
 				_mm256_storeu_si256((__m256i *)(stack + spos2),
 				  nids8);
+				_mm256_storeu_ps(dstack + spos2, dists8);
 
 				unsigned int cnt = min(spos - i, 8); // Last!
 				unsigned int cntmask = (1 << cnt) - 1;
@@ -1879,8 +1874,6 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			// t8 dists could be new, so update our max dist
 			// to get proper interval ray culling
 			maxt8 = bcmax8(*t8);
-
-		// TODO Try perf with distance stack and stack compression
 		}
 
 		// Check actual rays of packets against popped nodes
@@ -1891,9 +1884,6 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				ofs = stack[spos];
 			} else
 				return;
-
-		// TODO Support more than one packet via fpi and
-		// another loop here.
 
 			// Fetch node at ofs
 			struct b8node *p = (struct b8node *)(ptr + (pc >> 3));
@@ -2510,7 +2500,7 @@ int rend_render(void *d)
 				  &dx8, &dy8, &dz8, x, y, rd->width,
 				  rd->height, &rd->cam, &seed);
 
-				/// TEMP TEMP
+				// TODO Support tracing multiple pckts at once
 				/*
 				unsigned char cmask;
 				if (iscohval3(&cmask, dx8, dy8, dz8) &&
