@@ -12,33 +12,32 @@
 
 // Fuetterling et al., Accelerated Single Ray Tracing for Wide Vector Units
 // 8 children, max 4 tris per leaf
-// Converted from bmnode bvh
-struct b8node { // Bvh node, 8-wide, 256 bytes
-	__m256   minx; // Aabbs of 8 child nodes
-	__m256   maxx;
-	__m256   miny;
-	__m256   maxy;
-	__m256   minz;
-	__m256   maxz;
+struct bnode8 { // Bvh node, 8-wide, 256 bytes
+	__m256   minx8; // Aabbs of 8 child nodes
+	__m256   maxx8;
+	__m256   miny8;
+	__m256   maxy8;
+	__m256   minz8;
+	__m256   maxz8;
 	// Leaf node flag << 31 | offset to child node in bytes or leaf data
 	// Leaf data: ofs to embedded leaf4 in bytes (blas) or inst id (tlas)
-	__m256i  children;
+	__m256i  children8;
 	// Ordered traversal permutation
 	// 8 children * 8 quadrants * 3 bit
-	__m256i  perm;
+	__m256i  perm8;
 };
 
 struct leaf4 { // Leaf data of 4 tris, 192 bytes
-	__m128        v0x; // 4x vertex 0
-	__m128        v0y;
-	__m128        v0z;
-	__m128        e0x; // 4x edge v1 - v0
-	__m128        e0y;
-	__m128        e0z;
-	__m128        e1x; // 4x edge v2 - v0
-	__m128        e1y;
-	__m128        e1z;
-	unsigned int  id[4]; // 4x tri id
+	__m128        v0x4; // 4x vertex 0
+	__m128        v0y4;
+	__m128        v0z4;
+	__m128        e0x4; // 4x edge v1 - v0
+	__m128        e0y4;
+	__m128        e0z4;
+	__m128        e1x4; // 4x edge v2 - v0
+	__m128        e1y4;
+	__m128        e1z4;
+	__m128i       id4; // 4x tri id
 	unsigned int  tricnt; // For packet traversal
 	unsigned int  pad[7];
 };
@@ -114,7 +113,7 @@ struct rdata {
 	struct rinst   *insts;
 	struct aabb    *aabbs; // World space instance aabbs
 
-	struct b8node  *b8nodes; // All blas + tlas
+	struct bnode8  *bnodes; // All blas + tlas
 	unsigned int   tlasofs;
 
 	struct rcam    cam;

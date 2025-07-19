@@ -130,3 +130,15 @@ __m256 rcp8(__m256 a8)
 	return _mm256_div_ps(one8, a8);
 #endif
 }
+
+__m256 bcl4to8(__m128 a4, unsigned char lane)
+{
+	__m256 r8 = _mm256_zextps128_ps256(a4);
+	return _mm256_permutevar8x32_ps(r8, _mm256_set1_epi32(lane));
+}
+
+__m256i bcl4ito8i(__m128i a4, unsigned char lane)
+{
+	__m256i r8 = _mm256_zextsi128_si256(a4);
+	return _mm256_permutevar8x32_epi32(r8, _mm256_set1_epi32(lane));
+}
