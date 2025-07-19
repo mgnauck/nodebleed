@@ -90,7 +90,7 @@ struct gltfanim {
 };
 
 struct gltfaccessor {
-	int                bufview; // TODO: When undefined, data is 0
+	int                bufview; // When undefined, data is 0 (no support)
 	unsigned int       cnt;
 	unsigned int       byteofs;
 	unsigned int       comptype;
