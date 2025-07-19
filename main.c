@@ -299,6 +299,7 @@ int main(void)
 	// TODO Import from blender custom bin export
 	// TODO Subdiv surfaces
 	// TODO Move code from main into some subsys
+	// TODO Build step that outputs compressed version
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		exit(1);
