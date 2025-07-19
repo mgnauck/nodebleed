@@ -366,6 +366,17 @@ struct vec3 mat4_gettrans(const float m[16])
 	return (struct vec3){m[3], m[7], m[11]};
 }
 
+struct vec3 mat4_getcol(const float m[16], unsigned char col)
+{
+	return (struct vec3){m[col], m[col + 4], m[col + 8]};
+}
+
+struct vec3 mat4_getrow(const float m[16], unsigned char row)
+{
+	unsigned char r = row << 2;
+	return (struct vec3){m[r], m[r + 1], m[r + 2]};
+}
+
 void mat4_fromquat(float dst[16], float x, float y, float z, float w)
 {
 	float xx = x * x;

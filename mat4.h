@@ -34,6 +34,8 @@ struct vec3  mat4_mulpos(const float m[16], const struct vec3 v);
 struct vec3  mat4_muldir(const float m[16], const struct vec3 v);
 
 struct vec3  mat4_gettrans(const float m[16]);
+struct vec3  mat4_getcol(const float m[16], unsigned char col);
+struct vec3  mat4_getrow(const float m[16], unsigned char row);
 
 void         mat4_fromquat(float dst[16], float x, float y, float z, float w);
 void         mat4_from3x4(float dst[16], const float src[12]);
