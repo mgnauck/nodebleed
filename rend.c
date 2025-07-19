@@ -192,14 +192,32 @@ void muldir_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	  _mm256_mul_ps(x8, m8)));
 }
 
-bool is_coherent(__m256 x8, __m256 y8, __m256 z8)
+bool iscoh(__m256 v8)
 {
-	// TODO Optimize
-	unsigned char xcoh = _mm256_movemask_ps(x8);
-	unsigned char ycoh = _mm256_movemask_ps(y8);
-	unsigned char zcoh = _mm256_movemask_ps(z8);
-	return (xcoh == 0 || xcoh == 0xff) && (ycoh == 0 || ycoh == 0xff) &&
-	  (zcoh == 0 || zcoh == 0xff);
+	unsigned char mask = _mm256_movemask_ps(v8);
+	//assert((mask == 0 || mask == 0xff) ==
+	//  (abs((~mask & 0xff) - mask) == 0xff));
+	return abs((~mask & 0xff) - mask) == 0xff;
+}
+
+bool iscoh3(__m256 x8, __m256 y8, __m256 z8)
+{
+	return iscoh(x8) && iscoh(y8) && iscoh(z8);
+}
+
+bool iscohval(unsigned char *bmask, __m256 v8, unsigned char shift)
+{
+	// bmask is irrelevant if v8 is not coherent
+	unsigned char mask = _mm256_movemask_ps(v8);
+	*bmask = (mask & 1) << shift;
+	return abs((~mask & 0xff) - mask) == 0xff;
+}
+
+bool iscohval3(unsigned char *bmask, __m256 x8, __m256 y8, __m256 z8)
+{
+	bool res = iscohval(bmask, x8, 0);
+	res &= iscohval(bmask, y8, 1);
+	return res & iscohval(bmask, z8, 2);
 }
 
 float calc_area(struct vec3 mi, struct vec3 ma)
@@ -1837,7 +1855,7 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			muldir_m256(&tdx8, &tdy8, &tdz8, dx8, dy8, dz8, inv);
 
 		// TODO Temporarily separate between coherent and incoh. pckts
-			//if (is_coherent(tdx8, tdy8, tdz8)) {
+			//if (iscoh3(tdx8, tdy8, tdz8)) {
 			//if (0) {
 				intersect_pckt_blas(t8, u8, v8, id8,
 				  tox8, toy8, toz8, tdx8, tdy8, tdz8, blas,
@@ -2469,6 +2487,10 @@ int rend_render(void *d)
 	__m256 dx8, dy8, dz8;
 	struct vec3 col[PCKT_SZ];
 
+	// Previous coherence mask and coherent packet cnt
+	//unsigned char pcmask = 0xff; // Start with impossible value
+	//unsigned int ccnt = 0;
+
 	while (true) {
 		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
 		if (blk >= blkcnt)
@@ -2488,11 +2510,25 @@ int rend_render(void *d)
 				  &dx8, &dy8, &dz8, x, y, rd->width,
 				  rd->height, &rd->cam, &seed);
 
-				//if (is_coherent(dx8, dy8, dz8)) {
+				/// TEMP TEMP
+				/*
+				unsigned char cmask;
+				if (iscohval3(&cmask, dx8, dy8, dz8) &&
+				  cmask == pcmask) {
+					ccnt++;
+				} else {
+					printf("Found %d successive coherent packets\n",
+					  ccnt);
+					ccnt = 0;
+				}
+				pcmask = cmask;
+				//*/
+
+				if (iscoh3(dx8, dy8, dz8)) {
 				//if (0) {
 					trace_pckt(col, ox8, oy8, oz8,
 					  dx8, dy8, dz8, rd, &rays);
-				/*} else {
+				} else {
 					for (unsigned char k = 0; k < PCKT_SZ;
 					  k++)
 						col[k] = trace1(
@@ -2507,7 +2543,7 @@ int rend_render(void *d)
 						  (struct vec3){dx8[k], dy8[k],
 						  dz8[k]},
 						  rd, 0, &seed, &rays);//*/
-				//}
+				}
 
 				accum_pckt(rd->acc, rd->buf, col, x, y, w,
 				  invspp);
