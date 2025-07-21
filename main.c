@@ -152,11 +152,11 @@ void upd_rcam(struct rcam *rc, struct cam *c)
 {
 	*rc = (struct rcam){
 	  .eye = c->eye,
-	  .tanfov = tanf(0.5f * c->vfov * PI / 180.0f),
+	  .tanvfov = tanf(0.5f * c->vfov * PI / 180.0f),
 	  .ri = c->ri,
 	  .focdist = c->focdist,
 	  .up = c->up,
-	  .focangle = c->focangle * PI / 180.0f,
+	  .tanfangle = tanf(0.5f * c->focangle * PI / 180.0f),
 	  .fwd = c->fwd,
 	  .aspect = WIDTH / (float)HEIGHT};
 }
@@ -258,6 +258,22 @@ void keydown(struct scene *s, int key)
 			c->eye = vec3_add(c->eye, vec3_scale(c->fwd, -CAMMOV));
 			setflags(&s->dirty, CAM);
 			break;
+		case 'i':
+			c->focdist += 0.1f;
+			setflags(&s->dirty, CAM);
+		break;
+		case 'k':
+			c->focdist = max(c->focdist - 0.1f, 0.1f);
+			setflags(&s->dirty, CAM);
+		break;
+		case 'j':
+			c->focangle = max(c->focangle - 0.1f, 0.1f);
+			setflags(&s->dirty, CAM);
+		break;
+		case 'l':
+			c->focangle += 0.1f;
+			setflags(&s->dirty, CAM);
+		break;
 		}
 	}
 

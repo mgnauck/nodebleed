@@ -2186,11 +2186,11 @@ void create_onb(struct vec3 *b1, struct vec3 *b2, struct vec3 n)
 	*b2 = (struct vec3){b, sgn + n.y * n.y * a, -n.y};
 }
 
-struct vec3 rand_hemicos(float r0, float r1)
+struct vec3 rand_hemicos(float u0, float u1)
 {
-	float phi = TWO_PI * r0;
-	float sr1 = sqrtf(r1);
-	return (struct vec3){cosf(phi) * sr1, sinf(phi) * sr1, sqrtf(1 - r1)};
+	float phi = TWO_PI * u0;
+	float su1 = sqrtf(u1);
+	return (struct vec3){cosf(phi) * su1, sinf(phi) * su1, sqrtf(1 - u1)};
 }
 
 struct vec3 trace1(struct vec3 o, struct vec3 d, struct rdata *rd,
@@ -2418,34 +2418,59 @@ void trace_pckt(struct vec3 *col,
 void make_camray(struct vec3 *ori, struct vec3 *dir,
                  unsigned int x, unsigned int y,
                  unsigned int w, unsigned int h,
-                 struct rcam *c, unsigned int *seed)
+                 struct rcam *c, float u0, float u1, float u2, float u3)
 {
-	// TODO Foc angle/dist
+	// TODO Make simd
+	float px = x + u0 - 0.5f;
+	float py = y + u1 - 0.5f;
 
-	float px = x + randf(seed) - 0.5f;
-	float py = y + randf(seed) - 0.5f;
+	float sx = (2.0f * px / w - 1.0f) * c->aspect * c->tanvfov * c->focdist;
+	float sy = (2.0f * py / h - 1.0f) * c->tanvfov * c->focdist;
 
-	float sx = (2.0f * px / w - 1.0f) * c->aspect * c->tanfov;
-	float sy = (2.0f * py / h - 1.0f) * c->tanfov;
+	if (c->tanfangle > 0.0f)
+	{
+		// Jitter eye pos for DOF
+		float fr = c->focdist * c->tanfangle; // Focus radius
+		float r = sqrt(u2);
+		float t = TWO_PI * u3;
+		float rx = cosf(t) * r;
+		float ry = sinf(t) * r;
 
-	*ori = c->eye;
+		*ori = vec3_add(c->eye, vec3_scale(vec3_add(
+		  vec3_scale(c->ri, rx), vec3_scale(c->up, ry)), fr));
 
-	*dir = vec3_unit(vec3_add(vec3_sub(vec3_scale(c->ri, sx),
-	  vec3_scale(c->up, sy)), c->fwd));
+		*dir = vec3_unit(vec3_sub(
+		  vec3_add(vec3_add(c->eye, vec3_scale(c->fwd, c->focdist)),
+		  vec3_sub(vec3_scale(c->ri, sx), vec3_scale(c->up, sy))),
+		  *ori));
+	} else {
+		*ori = c->eye;
+
+		*dir = vec3_unit(
+		  vec3_add(vec3_scale(c->fwd, c->focdist),
+		  vec3_sub(vec3_scale(c->ri, sx), vec3_scale(c->up, sy))));
+	}
 }
 
 void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
                 __m256 *dx8, __m256 *dy8, __m256 *dz8,
                 unsigned int x, unsigned int y,
                 unsigned int w, unsigned int h,
-                struct rcam *cam, unsigned int *seed)
+                struct rcam *cam, struct rngstate8 *rngstate)
 {
+	__m256 u0, u1, u2, u3;
+	u0 = randf8(rngstate);
+	u1 = randf8(rngstate);
+	u2 = randf8(rngstate);
+	u3 = randf8(rngstate);
+
+	// TODO Make simd
 	struct vec3 ori, dir;
 	unsigned char k = 0;
 	for (unsigned char j = 0; j < PCKT_H; j++) {
 		for (unsigned char i = 0; i < PCKT_W; i++) {
 			make_camray(&ori, &dir, x + i, y + j,
-			  w, h, cam, seed);
+			  w, h, cam, u0[k], u1[k], u2[k], u3[k]);
 			(*ox8)[k] = ori.x;
 			(*oy8)[k] = ori.y;
 			(*oz8)[k] = ori.z;
@@ -2490,6 +2515,8 @@ int rend_render(void *d)
 	__m256 dx8, dy8, dz8;
 	struct vec3 col[PCKT_SZ];
 
+	struct rngstate8 rngstate;
+
 	// Previous coherence mask and coherent packet cnt
 	//unsigned char pcmask = 0xff; // Start with impossible value
 	//unsigned int ccnt = 0;
@@ -2499,7 +2526,7 @@ int rend_render(void *d)
 		if (blk >= blkcnt)
 			break;
 
-		unsigned int seed = (blk + 13) * 131317 + rd->samples * 23;
+		rand8_init(&rngstate, (blk + 13) * 1571, rd->samples * 23);
 
 		unsigned int bx = (blk % blksx) * bsz;
 		unsigned int by = (blk / blksx) * bsz;
@@ -2511,7 +2538,7 @@ int rend_render(void *d)
 
 				make_pckt8(&ox8, &oy8, &oz8,
 				  &dx8, &dy8, &dz8, x, y, rd->width,
-				  rd->height, &rd->cam, &seed);
+				  rd->height, &rd->cam, &rngstate);
 
 				// TODO Support tracing multiple pckts at once
 				/*
@@ -2545,7 +2572,7 @@ int rend_render(void *d)
 						  oz8[k]},
 						  (struct vec3){dx8[k], dy8[k],
 						  dz8[k]},
-						  rd, 0, &seed, &rays);//*/
+						  rd, 0, &rngstate, &rays);//*/
 				}
 
 				accum_pckt(rd->acc, rd->buf, col, x, y, w,

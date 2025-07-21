@@ -86,11 +86,11 @@ struct rinst { // 64 bytes
 
 struct rcam { // 64 bytes
 	struct vec3  eye;
-	float        tanfov; // Half tan vfov in rad
+	float        tanvfov; // Half tan vfov in rad
 	struct vec3  ri;
 	float        focdist; // In rad
 	struct vec3  up;
-	float        focangle;
+	float        tanfangle; // Halt tan foc angle in rad
 	struct vec3  fwd;
 	float        aspect;
 };
