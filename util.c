@@ -225,6 +225,24 @@ __m256 rcp8(__m256 a8)
 #endif
 }
 
+__m256 rsqrt8(__m256 a8)
+{
+	__m256 three8 = _mm256_set1_ps(3.0f);
+	__m256 half8 = _mm256_set1_ps(0.5f);
+	__m256 r8 = _mm256_rsqrt_ps(a8);
+	__m256 m8 = _mm256_mul_ps(_mm256_mul_ps(a8, r8), r8);
+	return _mm256_mul_ps(_mm256_mul_ps(half8, r8),
+	  _mm256_sub_ps(three8, m8));
+}
+
+__m256 rsqrt8_(__m256 a8, __m256 three8, __m256 half8)
+{
+	__m256 r8 = _mm256_rsqrt_ps(a8);
+	__m256 m8 = _mm256_mul_ps(_mm256_mul_ps(a8, r8), r8);
+	return _mm256_mul_ps(_mm256_mul_ps(half8, r8),
+	  _mm256_sub_ps(three8, m8));
+}
+
 __m256 bcl4to8(__m128 a4, unsigned char lane)
 {
 	__m256 r8 = _mm256_zextps128_ps256(a4);

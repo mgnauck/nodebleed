@@ -32,8 +32,13 @@
 static __m256i compr_lut[256];
 static __m256i defchildnum8;
 
+static __m256 pcktxofs8;
+static __m256 pcktyofs8;
+
 static __m256 zero8;
+static __m256 half8;
 static __m256 one8;
+static __m256 three8;
 static __m128 zero4;
 static __m128 one4;
 static __m128 fltmax4;
@@ -94,9 +99,15 @@ void rend_init_compresslut(void)
 	// Default child nums/lanes (will be ordered, masked and compressed)
 	defchildnum8 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
 
+	// Packet position ofs (assuming 4x2)
+	pcktxofs8 = _mm256_set_ps(3, 2, 1, 0, 3, 2, 1, 0);
+	pcktyofs8 = _mm256_set_ps(1, 1, 1, 1, 0, 0, 0, 0);
+
 	// Default values 4 and 8 lanes
 	zero8 = _mm256_setzero_ps();
+	half8 = _mm256_set1_ps(0.5f);
 	one8 = _mm256_set1_ps(1.0f);
+	three8 = _mm256_set1_ps(3.0f);
 	zero4 = _mm_setzero_ps();
 	one4 = _mm_set1_ps(1.0f);
 	fltmax4 = _mm_set1_ps(FLT_MAX);
@@ -2415,12 +2426,66 @@ void trace_pckt(struct vec3 *col,
 	}
 }
 
+void make_camray8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
+                  __m256 *dx8, __m256 *dy8, __m256 *dz8,
+                  unsigned int x, unsigned int y,
+                  struct rcam *c, struct rngstate8 *rngstate)
+{
+	// Create random offset for pixel sample
+	__m256 u0 = randf8(rngstate);
+	__m256 u1 = randf8(rngstate);
+
+	// Init pixel position in packet (assumes 4x2)
+	__m256 sx8 = _mm256_add_ps(_mm256_set1_ps((float)x), pcktxofs8);
+	__m256 sy8 = _mm256_add_ps(_mm256_set1_ps((float)y), pcktyofs8);
+
+	// Jitter the pixel position, i.e. px = x + u0 - 0.5
+	sx8 = _mm256_add_ps(sx8, _mm256_sub_ps(u0, half8));
+	sy8 = _mm256_add_ps(sy8, _mm256_sub_ps(u1, half8));
+
+	// 2 * (px / w - 0.5) * c->tanvfov * c->focdist * c->aspect
+	// 2 * (py / h - 0.5) * c->tanvfov * c->focdist
+	// (2 is contained in fovfdist product)
+	sx8 = _mm256_fmsub_ps(sx8, c->rw8, half8);
+	sy8 = _mm256_fmsub_ps(sy8, c->rh8, half8);
+	sx8 = _mm256_mul_ps(sx8, c->fovfdist8);
+	sy8 = _mm256_mul_ps(sy8, c->fovfdist8);
+	sx8 = _mm256_mul_ps(sx8, c->aspect8);
+
+// TODO Origin jitter / foc angle support if fangle > 0
+	*ox8 = c->eyex8;
+	*oy8 = c->eyey8;
+	*oz8 = c->eyez8;
+
+	// upsy = up * sy
+	__m256 upxsy8 = _mm256_mul_ps(c->upx8, sy8);
+	__m256 upysy8 = _mm256_mul_ps(c->upy8, sy8);
+	__m256 upzsy8 = _mm256_mul_ps(c->upz8, sy8);
+
+	// riup = ri * sx - upsy
+	__m256 riupx8 = _mm256_fmsub_ps(c->rix8, sx8, upxsy8);
+	__m256 riupy8 = _mm256_fmsub_ps(c->riy8, sx8, upysy8);
+	__m256 riupz8 = _mm256_fmsub_ps(c->riz8, sx8, upzsy8);
+
+	// td = fwd * focdist + riup
+	__m256 tdx8 = _mm256_fmadd_ps(c->fwdx8, c->fdist8, riupx8);
+	__m256 tdy8 = _mm256_fmadd_ps(c->fwdy8, c->fdist8, riupy8);
+	__m256 tdz8 = _mm256_fmadd_ps(c->fwdz8, c->fdist8, riupz8);
+
+	// dir = normalize(td)
+	__m256 rlen8 = _mm256_fmadd_ps(tdx8, tdx8, _mm256_fmadd_ps(
+	  tdy8, tdy8, _mm256_mul_ps(tdz8, tdz8)));
+	rlen8 = rsqrt8_(rlen8, three8, half8);
+	*dx8 = _mm256_mul_ps(tdx8, rlen8);
+	*dy8 = _mm256_mul_ps(tdy8, rlen8);
+	*dz8 = _mm256_mul_ps(tdz8, rlen8);
+}
+
 void make_camray(struct vec3 *ori, struct vec3 *dir,
                  unsigned int x, unsigned int y,
                  unsigned int w, unsigned int h,
                  struct rcam *c, float u0, float u1, float u2, float u3)
 {
-	// TODO Make simd
 	float px = x + u0 - 0.5f;
 	float py = y + u1 - 0.5f;
 
@@ -2464,7 +2529,6 @@ void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 	u2 = randf8(rngstate);
 	u3 = randf8(rngstate);
 
-	// TODO Make simd
 	struct vec3 ori, dir;
 	unsigned char k = 0;
 	for (unsigned char j = 0; j < PCKT_H; j++) {
@@ -2484,6 +2548,7 @@ void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                 unsigned int x, unsigned int y, unsigned int w, float invspp)
 {
+	// TODO Make SIMD?
 	for (unsigned int j = 0; j < PCKT_H; j++) {
 		for (unsigned int i = 0; i < PCKT_W; i++) {
 			unsigned int ofs = w * (y + j) + (x + i);
@@ -2536,9 +2601,13 @@ int rend_render(void *d)
 			for (unsigned int i = 0; i < bsz; i += PCKT_W) {
 				unsigned int x = bx + i;
 
+				/*
 				make_pckt8(&ox8, &oy8, &oz8,
 				  &dx8, &dy8, &dz8, x, y, rd->width,
 				  rd->height, &rd->cam, &rngstate);
+				//*/
+				make_camray8(&ox8, &oy8, &oz8,
+				  &dx8, &dy8, &dz8, x, y, &rd->cam, &rngstate);
 
 				// TODO Support tracing multiple pckts at once
 				/*

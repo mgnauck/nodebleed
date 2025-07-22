@@ -148,17 +148,42 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 	}
 }
 
-void upd_rcam(struct rcam *rc, struct cam *c)
+void upd_rcam(struct rcam *rc, struct cam *c, float w, float h)
 {
+	float aspect = w / h;
+	float tanvfov = tanf(0.5f * c->vfov * PI / 180.0f);
+	float tanfangle = tanf(0.5f * c->focangle * PI / 180.0f);
+
 	*rc = (struct rcam){
 	  .eye = c->eye,
-	  .tanvfov = tanf(0.5f * c->vfov * PI / 180.0f),
+	  .tanvfov =  tanvfov,
 	  .ri = c->ri,
 	  .focdist = c->focdist,
 	  .up = c->up,
-	  .tanfangle = tanf(0.5f * c->focangle * PI / 180.0f),
+	  .tanfangle = tanfangle,
 	  .fwd = c->fwd,
-	  .aspect = WIDTH / (float)HEIGHT};
+	  .aspect = aspect,
+	  // SIMD precalc
+	  .eyex8 = _mm256_set1_ps(c->eye.x),
+	  .eyey8 = _mm256_set1_ps(c->eye.y),
+	  .eyez8 = _mm256_set1_ps(c->eye.z),
+	  .rix8 = _mm256_set1_ps(c->ri.x),
+	  .riy8 = _mm256_set1_ps(c->ri.y),
+	  .riz8 = _mm256_set1_ps(c->ri.z),
+	  .upx8 = _mm256_set1_ps(c->up.x),
+	  .upy8 = _mm256_set1_ps(c->up.y),
+	  .upz8 = _mm256_set1_ps(c->up.z),
+	  .fwdx8 = _mm256_set1_ps(c->fwd.x),
+	  .fwdy8 = _mm256_set1_ps(c->fwd.y),
+	  .fwdz8 = _mm256_set1_ps(c->fwd.z),
+	  .rw8 = _mm256_set1_ps(1.0f / w),
+	  .rh8 = _mm256_set1_ps(1.0f / h),
+	  .aspect8 = _mm256_set1_ps(aspect),
+	  .fdist8 = _mm256_set1_ps(c->focdist),
+	  .fovfdist8 = _mm256_set1_ps(2.0f * tanvfov * c->focdist),
+	  .focangle8 = _mm256_set1_ps(tanfangle),
+	  .focrad8 = _mm256_set1_ps(tanfangle * c->focdist),
+	};
 }
 
 void cam_calcbase(struct cam *c)
@@ -227,7 +252,8 @@ void update(struct rdata *rd, struct scene *s, float time)
 	if (hasflags(s->dirty, CAM)) {
 		if (!cntrlcam)
 			scene_updcams(s);
-		upd_rcam(&rd->cam, &s->cams[s->currcam]);
+		upd_rcam(&rd->cam, &s->cams[s->currcam],
+		  rd->width, rd->height);
 	}
 
 	if (!converge || anyflags(s->dirty, TRANSFORM | CAM)) {

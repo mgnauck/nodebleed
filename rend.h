@@ -84,7 +84,7 @@ struct rinst { // 64 bytes
 	unsigned int  pad0;
 };
 
-struct rcam { // 64 bytes
+struct rcam {
 	struct vec3  eye;
 	float        tanvfov; // Half tan vfov in rad
 	struct vec3  ri;
@@ -93,15 +93,26 @@ struct rcam { // 64 bytes
 	float        tanfangle; // Halt tan foc angle in rad
 	struct vec3  fwd;
 	float        aspect;
+	__m256       eyex8;
+	__m256       eyey8;
+	__m256       eyez8;
+	__m256       rix8;
+	__m256       riy8;
+	__m256       riz8;
+	__m256       upx8;
+	__m256       upy8;
+	__m256       upz8;
+	__m256       fwdx8;
+	__m256       fwdy8;
+	__m256       fwdz8;
+	__m256       rw8; // 1 / width
+	__m256       rh8; // 1 / height
+	__m256       aspect8;
+	__m256       fdist8; // Focus distance
+	__m256       fovfdist8; // 2 * tan(0.5 * vfov * PI / 180) * focdist
+	__m256       focangle8; // tan(0.5 * focangle * PI / 180)
+	__m256       focrad8; // tan(0.5 * focangle * PI / 180) * focdist
 };
-
-/*struct rview {
-	struct vec3   dx; // Pixel delta x
-	unsigned int  w;
-	struct vec3   dy; // Pixel delta y
-	unsigned int  h;
-	struct vec3   tl; // Pixel top left
-};*/
 
 struct rdata {
 	struct rmtl    *mtls;

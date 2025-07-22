@@ -42,6 +42,9 @@ __m256              bcmax8(__m256 x8);
 __m128              rcp4(__m128 a4);
 __m256              rcp8(__m256 a8);
 
+__m256              rsqrt8(__m256 a8);
+__m256              rsqrt8_(__m256 a8, __m256 three8, __m256 half8);
+
 // Broadcast m128 lane to m256
 __m256              bcl4to8(__m128 a4, unsigned char lane);
 __m256i             bcl4ito8i(__m128i a4, unsigned char lane);
