@@ -38,6 +38,7 @@ static __m256 pcktyofs8;
 static __m256 zero8;
 static __m256 half8;
 static __m256 one8;
+static __m256 twopi8;
 static __m256 three8;
 static __m128 zero4;
 static __m128 one4;
@@ -107,6 +108,7 @@ void rend_init_compresslut(void)
 	zero8 = _mm256_setzero_ps();
 	half8 = _mm256_set1_ps(0.5f);
 	one8 = _mm256_set1_ps(1.0f);
+	twopi8 = _mm256_set1_ps(TWO_PI);
 	three8 = _mm256_set1_ps(3.0f);
 	zero4 = _mm_setzero_ps();
 	one4 = _mm_set1_ps(1.0f);
@@ -2426,6 +2428,13 @@ void trace_pckt(struct vec3 *col,
 	}
 }
 
+// No SVML functions available on clang/gcc
+// https://stackoverflow.com/questions/40475140/mathematical-functions-for-simd-registers
+__m256 _ZGVdN8v_sinf(__m256 x); // _mm256_sin_ps
+__m256 _ZGVdN8v_cosf(__m256 x); // _mm256_cos_ps
+//void   _ZGVdN8vvv_sincosf(__m256 x, __m256i ptrs_lo, __m256i ptrs_hi,
+//                                    __m256i ptrc_lo, __m256i ptrc_hi);
+
 void make_camray8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
                   __m256 *dx8, __m256 *dy8, __m256 *dz8,
                   unsigned int x, unsigned int y,
@@ -2452,33 +2461,89 @@ void make_camray8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 	sy8 = _mm256_mul_ps(sy8, c->fovfdist8);
 	sx8 = _mm256_mul_ps(sx8, c->aspect8);
 
-// TODO Origin jitter / foc angle support if fangle > 0
-	*ox8 = c->eyex8;
-	*oy8 = c->eyey8;
-	*oz8 = c->eyez8;
+	if (c->tanfangle > 0.0f) {
+		// Create random offsets
+		__m256 u2 = randf8(rngstate);
+		__m256 u3 = randf8(rngstate);
 
-	// upsy = up * sy
-	__m256 upxsy8 = _mm256_mul_ps(c->upx8, sy8);
-	__m256 upysy8 = _mm256_mul_ps(c->upy8, sy8);
-	__m256 upzsy8 = _mm256_mul_ps(c->upz8, sy8);
+		// Sample disk for jitter offsets
+		__m256 rad8 = _mm256_sqrt_ps(u2);
+		__m256 theta8 = _mm256_mul_ps(twopi8, u3);
+		// TODO sincos?
+		__m256 rx8 = _mm256_mul_ps(_ZGVdN8v_cosf(theta8), rad8);
+		__m256 ry8 = _mm256_mul_ps(_ZGVdN8v_sinf(theta8), rad8);
 
-	// riup = ri * sx - upsy
-	__m256 riupx8 = _mm256_fmsub_ps(c->rix8, sx8, upxsy8);
-	__m256 riupy8 = _mm256_fmsub_ps(c->riy8, sx8, upysy8);
-	__m256 riupz8 = _mm256_fmsub_ps(c->riz8, sx8, upzsy8);
+		// ori = eye + (ri * rx + up * ry) * focrad
+		*ox8 = _mm256_fmadd_ps(_mm256_fmadd_ps(c->rix8, rx8,
+		  _mm256_mul_ps(c->upx8, ry8)), c->focrad8, c->eyex8);
+		*oy8 = _mm256_fmadd_ps(_mm256_fmadd_ps(c->riy8, rx8,
+		  _mm256_mul_ps(c->upy8, ry8)), c->focrad8, c->eyey8);
+		*oz8 = _mm256_fmadd_ps(_mm256_fmadd_ps(c->riz8, rx8,
+		  _mm256_mul_ps(c->upz8, ry8)), c->focrad8, c->eyez8);
 
-	// td = fwd * focdist + riup
-	__m256 tdx8 = _mm256_fmadd_ps(c->fwdx8, c->fdist8, riupx8);
-	__m256 tdy8 = _mm256_fmadd_ps(c->fwdy8, c->fdist8, riupy8);
-	__m256 tdz8 = _mm256_fmadd_ps(c->fwdz8, c->fdist8, riupz8);
+		// upsy = up * sy
+		__m256 upxsy8 = _mm256_mul_ps(c->upx8, sy8);
+		__m256 upysy8 = _mm256_mul_ps(c->upy8, sy8);
+		__m256 upzsy8 = _mm256_mul_ps(c->upz8, sy8);
 
-	// dir = normalize(td)
-	__m256 rlen8 = _mm256_fmadd_ps(tdx8, tdx8, _mm256_fmadd_ps(
-	  tdy8, tdy8, _mm256_mul_ps(tdz8, tdz8)));
-	rlen8 = rsqrt8_(rlen8, three8, half8);
-	*dx8 = _mm256_mul_ps(tdx8, rlen8);
-	*dy8 = _mm256_mul_ps(tdy8, rlen8);
-	*dz8 = _mm256_mul_ps(tdz8, rlen8);
+		// riup = ri * sx - upsy
+		__m256 riupx8 = _mm256_fmsub_ps(c->rix8, sx8, upxsy8);
+		__m256 riupy8 = _mm256_fmsub_ps(c->riy8, sx8, upysy8);
+		__m256 riupz8 = _mm256_fmsub_ps(c->riz8, sx8, upzsy8);
+
+		// fwdeye = fwd * focdist + eye
+		__m256 fwdeyex8 = _mm256_fmadd_ps(c->fwdx8, c->fdist8,
+		  c->eyex8);
+		__m256 fwdeyey8 = _mm256_fmadd_ps(c->fwdy8, c->fdist8,
+		  c->eyey8);
+		__m256 fwdeyez8 = _mm256_fmadd_ps(c->fwdz8, c->fdist8,
+		  c->eyez8);
+
+		// td = fwdeye + riup
+		__m256 tdx8 = _mm256_add_ps(fwdeyex8, riupx8);
+		__m256 tdy8 = _mm256_add_ps(fwdeyey8, riupy8);
+		__m256 tdz8 = _mm256_add_ps(fwdeyez8, riupz8);
+
+		// td = td - ori
+		tdx8 = _mm256_sub_ps(tdx8, *ox8);
+		tdy8 = _mm256_sub_ps(tdy8, *oy8);
+		tdz8 = _mm256_sub_ps(tdz8, *oz8);
+
+		// dir = normalize(td)
+		__m256 rlen8 = _mm256_fmadd_ps(tdx8, tdx8, _mm256_fmadd_ps(
+		  tdy8, tdy8, _mm256_mul_ps(tdz8, tdz8)));
+		rlen8 = rsqrt8_(rlen8, three8, half8);
+		*dx8 = _mm256_mul_ps(tdx8, rlen8);
+		*dy8 = _mm256_mul_ps(tdy8, rlen8);
+		*dz8 = _mm256_mul_ps(tdz8, rlen8);
+	} else {
+		*ox8 = c->eyex8;
+		*oy8 = c->eyey8;
+		*oz8 = c->eyez8;
+
+		// upsy = up * sy
+		__m256 upxsy8 = _mm256_mul_ps(c->upx8, sy8);
+		__m256 upysy8 = _mm256_mul_ps(c->upy8, sy8);
+		__m256 upzsy8 = _mm256_mul_ps(c->upz8, sy8);
+
+		// riup = ri * sx - upsy
+		__m256 riupx8 = _mm256_fmsub_ps(c->rix8, sx8, upxsy8);
+		__m256 riupy8 = _mm256_fmsub_ps(c->riy8, sx8, upysy8);
+		__m256 riupz8 = _mm256_fmsub_ps(c->riz8, sx8, upzsy8);
+
+		// td = fwd * focdist + riup
+		__m256 tdx8 = _mm256_fmadd_ps(c->fwdx8, c->fdist8, riupx8);
+		__m256 tdy8 = _mm256_fmadd_ps(c->fwdy8, c->fdist8, riupy8);
+		__m256 tdz8 = _mm256_fmadd_ps(c->fwdz8, c->fdist8, riupz8);
+
+		// dir = normalize(td)
+		__m256 rlen8 = _mm256_fmadd_ps(tdx8, tdx8, _mm256_fmadd_ps(
+		  tdy8, tdy8, _mm256_mul_ps(tdz8, tdz8)));
+		rlen8 = rsqrt8_(rlen8, three8, half8);
+		*dx8 = _mm256_mul_ps(tdx8, rlen8);
+		*dy8 = _mm256_mul_ps(tdy8, rlen8);
+		*dz8 = _mm256_mul_ps(tdz8, rlen8);
+	}
 }
 
 void make_camray(struct vec3 *ori, struct vec3 *dir,
@@ -2498,8 +2563,10 @@ void make_camray(struct vec3 *ori, struct vec3 *dir,
 		float fr = c->focdist * c->tanfangle; // Focus radius
 		float r = sqrt(u2);
 		float t = TWO_PI * u3;
-		float rx = cosf(t) * r;
-		float ry = sinf(t) * r;
+		float ts, tc;
+		sincosf(t, &ts, &tc);
+		float rx = tc * r;
+		float ry = ts * r;
 
 		*ori = vec3_add(c->eye, vec3_scale(vec3_add(
 		  vec3_scale(c->ri, rx), vec3_scale(c->up, ry)), fr));
