@@ -24,12 +24,15 @@ LDFLAGS += -fuse-ld=lld
 LDFLAGS += -s
 #strip -R .comment a.out
 
-all: $(OUT)
+all: $(OUT).sh
+
+$(OUT).sh: $(OUT)
+	lzmadrop.sh $(OUT) $@
 
 $(OUT): $(OBJ)
 	$(CC) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 clean:
-	rm -rf $(OUT) $(OBJ)
+	rm -rf $(OUT) $(OUT).sh $(OBJ)
 
 .PHONY: clean
