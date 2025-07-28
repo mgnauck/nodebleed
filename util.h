@@ -28,6 +28,15 @@ void                randuv8(struct rngstate8 *s, unsigned int v[8]);
 __m256              randf8(struct rngstate8 *s);
 void                randfv8(struct rngstate8 *s, float v[8]);
 
+// No SVML functions available on clang/gcc
+// https://stackoverflow.com/questions/40475140/mathematical-functions-for-simd-registers
+__m256              _ZGVdN8v_sinf(__m256 x);
+__m256              _ZGVdN8v_cosf(__m256 x);
+
+unsigned int        mortenc(unsigned int x, unsigned int y);
+unsigned int        mortdecx(unsigned int v);
+unsigned int        mortdecy(unsigned int v);
+
 void                setflags(unsigned int *state, unsigned int flags);
 void                clrflags(unsigned int *state, unsigned int flags);
 bool                hasflags(unsigned int state, unsigned int flags);

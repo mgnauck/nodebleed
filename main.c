@@ -17,7 +17,7 @@
 #include "util.h"
 
 #define WIDTH    1920
-#define HEIGHT   1080
+#define HEIGHT   960
 
 #define CAMMOV   0.800
 #define CAMLOOK  0.025
@@ -367,7 +367,8 @@ int main(void)
 	init(&s, &rd);
 
 	rd.buf = scr->pixels;
-	rd.blksz = 20;
+	rd.blkszx = 64;
+	rd.blkszy = 32;
 
 	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	thrd_t thrds[thrdcnt];

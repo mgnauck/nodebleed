@@ -25,9 +25,10 @@
 
 #define INTERVAL_CNT  16 // Binning intervals
 
-#define PCKT_W   4
-#define PCKT_H   2
-#define PCKT_SZ  (PCKT_W * PCKT_H)
+#define PCKT_W     4
+#define PCKT_H     2
+#define PCKT_SZ    (PCKT_W * PCKT_H)
+#define MAX_PCKTS  16
 
 static __m256i compr_lut[256];
 static __m256i defchildnum8;
@@ -939,49 +940,65 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 // Wald et al, 2006, Geometric and Arithmetic Culling Methods for Entire
 // Ray Packets
 void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
-                         __m256 ox8, __m256 oy8, __m256 oz8,
-                         __m256 dx8, __m256 dy8, __m256 dz8,
+                         __m256 *ox8, __m256 *oy8, __m256 *oz8,
+                         __m256 *dx8, __m256 *dy8, __m256 *dz8,
+                         unsigned char pcnt, // Packet count
                          struct bnode8 *blas, unsigned int instid)
 {
 	_Alignas(64) unsigned int stack[64];
-	_Alignas(64) unsigned int istack[64]; // Prnt ofs << 3 | child num
+	_Alignas(64) unsigned int istack[64];
 	unsigned int spos = 0;
 
 	unsigned char *ptr = (unsigned char *)blas;
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
+	unsigned char fpi = 0; // First packet index
+
 	__m256i instid8 = _mm256_set1_epi32(instid);
 
-	// Curr max dist of the ray packets to cull the interval ray
-	__m256 maxt8 = bcmax8(*t8);
+	__m256 idx8[pcnt], idy8[pcnt], idz8[pcnt];
+	__m256 rx8[pcnt], ry8[pcnt], rz8[pcnt];
+	float miox, mioy, mioz;
+	miox = mioy = mioz = FLT_MAX;
+	float maox, maoy, maoz;
+	maox = maoy = maoz = -FLT_MAX;
+	float miidx, miidy, miidz;
+	miidx = miidy = miidz = -FLT_MAX;
+	float maidx, maidy, maidz;
+	maidx = maidy = maidz = FLT_MAX;
+	float maxt = -FLT_MAX;
+	for (unsigned int i = 0; i < pcnt; i++) {
+		idx8[i] = rcp8(dx8[i]);
+		idy8[i] = rcp8(dy8[i]);
+		idz8[i] = rcp8(dz8[i]);
 
-	__m256 idx8 = rcp8(dx8);
-	__m256 idy8 = rcp8(dy8);
-	__m256 idz8 = rcp8(dz8);
+		rx8[i] = _mm256_mul_ps(ox8[i], idx8[i]);
+		ry8[i] = _mm256_mul_ps(oy8[i], idy8[i]);
+		rz8[i] = _mm256_mul_ps(oz8[i], idz8[i]);
 
-	__m256 rx8 = _mm256_mul_ps(ox8, idx8);
-	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
-	__m256 rz8 = _mm256_mul_ps(oz8, idz8);
+		// Calc interval ray bounds min/max ori/idir
+		miox = min(miox, min8(ox8[i]));
+		maox = max(maox, max8(ox8[i]));
+		mioy = min(mioy, min8(oy8[i]));
+		maoy = max(maoy, max8(oy8[i]));
+		mioz = min(mioz, min8(oz8[i]));
+		maoz = max(maoz, max8(oz8[i]));
 
-	// Calc interval ray (min/max ori/idir)
-	float miox = min8(ox8);
-	float mioy = min8(oy8);
-	float mioz = min8(oz8);
+		// Use interval arithmetic to precalc values for aabb intersect
+		// a = [ mina, maxa ]
+		// 1 / a = [ 1 / maxa, 1 / mina ] (assumes a does not incl 0!)
+		miidx = max(miidx, max8(idx8[i]));
+		maidx = min(maidx, min8(idx8[i]));
+		miidy = max(miidy, max8(idy8[i]));
+		maidy = min(maidy, min8(idy8[i]));
+		miidz = max(miidz, max8(idz8[i]));
+		maidz = min(maidz, min8(idz8[i]));
 
-	float maox = max8(ox8);
-	float maoy = max8(oy8);
-	float maoz = max8(oz8);
+		// Curr max dist of the ray packets to cull the interval ray
+		maxt = max(maxt, max8(t8[i]));
+	}
 
-	// Use interval arithmetic to precalc values for aabb intersection
-	// a = [ mina, maxa ]
-	// 1 / a = [ 1 / maxa, 1 / mina ] (assuming a does not include 0!)
-	float miidx = max8(idx8);
-	float miidy = max8(idy8);
-	float miidz = max8(idz8);
-
-	float maidx = min8(idx8);
-	float maidy = min8(idy8);
-	float maidz = min8(idz8);
+	__m256 maxt8 = _mm256_set1_ps(maxt);
 
 	__m256 miidx8 = _mm256_set1_ps(miidx);
 	__m256 miidy8 = _mm256_set1_ps(miidy);
@@ -1018,6 +1035,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	unsigned char shft = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
+restart:
 		if ((ofs & NODE_LEAF) == 0) {
 			struct bnode8 *n = (struct bnode8 *)(ptr + ofs);
 
@@ -1089,9 +1107,10 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				assert(spos < 64);
 				stack[spos] =
 				  ((unsigned int *)&n->children8)[child];
-				// Push prnt ofs and lane/child num
-				assert(ofs <= 0x1fffffff);
-				istack[spos++] = (ofs << 3) + child;
+				// Push prnt ofs, fpi and lane/child num
+				assert(ofs <= 0x1ffffff);
+				istack[spos++] =
+				  (ofs << 7) | (fpi << 3) | child;
 			} else if (hitcnt > 1) {
 				// Order, compress, push child node ofs and
 				// parent ofs + child num
@@ -1104,16 +1123,21 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				  _mm256_movemask_ps(hitmaskord8);
 
 				// Order
-				assert(ofs <= 0x1fffffff);
 				__m256i childrenord8 =
 				  _mm256_permutevar8x32_epi32(n->children8,
 				  ord8);
+
+				assert(ofs <= 0x1ffffff);
+				// prnt ofs << 7 | fpi << 3 | child num
+				// child num is per lane
+				// ofs never points to leaf, so can shift it
+				unsigned int ofs_fpi = (ofs << 7) | (fpi << 3);
+				__m256i ofs_fpi8 =
+				  _mm256_set1_epi32(ofs_fpi);
 				__m256i pcnumord8 =
 				  _mm256_permutevar8x32_epi32(
-				  // prnt ofs << 3 | child num for all lanes
-				  // ofs never points to leaf, so can shift it
-				  _mm256_add_epi32(_mm256_set1_epi32(ofs << 3),
-				  defchildnum8), ord8);
+				  _mm256_add_epi32(ofs_fpi8, defchildnum8),
+				  ord8);
 
 				// Map ordered hit mask to compressed indices
 				__m256 cid8 = compr_lut[hitmaskord];
@@ -1135,140 +1159,150 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				spos += hitcnt; // Account for pushed nodes
 			}
 		} else {
-			// Intersect all rays of pckt w/ each embedded tri
+			// Intersect all rays of each pckt w/ each embedded tri
 			struct leaf4 *l = (struct leaf4 *)(ptr
 			  + (ofs & ~NODE_LEAF));
 
-			for (unsigned char i = 0; i < l->tricnt; i++) {
-				__m256 v0x8 = bcl4to8(l->v0x4, i);
-				__m256 v0y8 = bcl4to8(l->v0y4, i);
-				__m256 v0z8 = bcl4to8(l->v0z4, i);
+			maxt = -FLT_MAX; // Recalc tmax
+			for (unsigned char j = 0; j < pcnt; j++) { // Each pckt
+				for (unsigned char i = 0; i < l->tricnt; i++) {
+					__m256 v0x8 = bcl4to8(l->v0x4, i);
+					__m256 v0y8 = bcl4to8(l->v0y4, i);
+					__m256 v0z8 = bcl4to8(l->v0z4, i);
 
-				__m256 e0x8 = bcl4to8(l->e0x4, i);
-				__m256 e0y8 = bcl4to8(l->e0y4, i);
-				__m256 e0z8 = bcl4to8(l->e0z4, i);
+					__m256 e0x8 = bcl4to8(l->e0x4, i);
+					__m256 e0y8 = bcl4to8(l->e0y4, i);
+					__m256 e0z8 = bcl4to8(l->e0z4, i);
 
-				__m256 e1x8 = bcl4to8(l->e1x4, i);
-				__m256 e1y8 = bcl4to8(l->e1y4, i);
-				__m256 e1z8 = bcl4to8(l->e1z4, i);
+					__m256 e1x8 = bcl4to8(l->e1x4, i);
+					__m256 e1y8 = bcl4to8(l->e1y4, i);
+					__m256 e1z8 = bcl4to8(l->e1z4, i);
 
-				// Moeller, Trumbore: Ray-triangle intersection
-				// https://fileadmin.cs.lth.se/cs/Personal/Tomas_Akenine-Moller/raytri/
+					// Moeller, Trumbore: Ray-Tri intersect
+					// https://fileadmin.cs.lth.se/cs/Personal/Tomas_Akenine-Moller/raytri/
 
-				// pv = cross(dir, e1)
-				__m256 pvx8 = _mm256_fmsub_ps(dy8, e1z8,
-				  _mm256_mul_ps(dz8, e1y8));
-				__m256 pvy8 = _mm256_fmsub_ps(dz8, e1x8,
-				  _mm256_mul_ps(dx8, e1z8));
-				__m256 pvz8 = _mm256_fmsub_ps(dx8, e1y8,
-				  _mm256_mul_ps(dy8, e1x8));
+					// pv = cross(dir, e1)
+					__m256 pvx8 = _mm256_fmsub_ps(dy8[j],
+					  e1z8, _mm256_mul_ps(dz8[j], e1y8));
+					__m256 pvy8 = _mm256_fmsub_ps(dz8[j],
+					  e1x8, _mm256_mul_ps(dx8[j], e1z8));
+					__m256 pvz8 = _mm256_fmsub_ps(dx8[j],
+					  e1y8, _mm256_mul_ps(dy8[j], e1x8));
 
-				// tv = ori - v0
-				__m256 tvx8 = _mm256_sub_ps(ox8, v0x8);
-				__m256 tvy8 = _mm256_sub_ps(oy8, v0y8);
-				__m256 tvz8 = _mm256_sub_ps(oz8, v0z8);
+					// tv = ori - v0
+					__m256 tvx8 =
+					  _mm256_sub_ps(ox8[j], v0x8);
+					__m256 tvy8 =
+					  _mm256_sub_ps(oy8[j], v0y8);
+					__m256 tvz8 =
+					  _mm256_sub_ps(oz8[j], v0z8);
 
-				// det = dot(e0, pv)
-				__m256 det8 = _mm256_fmadd_ps(e0x8, pvx8,
-				  _mm256_fmadd_ps(e0y8, pvy8,
-				  _mm256_mul_ps(e0z8, pvz8)));
+					// det = dot(e0, pv)
+					__m256 det8 = _mm256_fmadd_ps(e0x8,
+					  pvx8, _mm256_fmadd_ps(e0y8, pvy8,
+					  _mm256_mul_ps(e0z8, pvz8)));
 
-				// qv = cross(tv, e0)
-				__m256 qvx8 = _mm256_fmsub_ps(tvy8, e0z8,
-				  _mm256_mul_ps(tvz8, e0y8));
-				__m256 qvy8 = _mm256_fmsub_ps(tvz8, e0x8,
-				  _mm256_mul_ps(tvx8, e0z8));
-				__m256 qvz8 = _mm256_fmsub_ps(tvx8, e0y8,
-				  _mm256_mul_ps(tvy8, e0x8));
+					// qv = cross(tv, e0)
+					__m256 qvx8 = _mm256_fmsub_ps(tvy8,
+					  e0z8, _mm256_mul_ps(tvz8, e0y8));
+					__m256 qvy8 = _mm256_fmsub_ps(tvz8,
+					  e0x8, _mm256_mul_ps(tvx8, e0z8));
+					__m256 qvz8 = _mm256_fmsub_ps(tvx8,
+					  e0y8, _mm256_mul_ps(tvy8, e0x8));
 
-				// idet = 1 / det
-				__m256 idet8 = rcp8(det8);
+					// idet = 1 / det
+					__m256 idet8 = rcp8(det8);
 
-				// u = idet * dot(tv, pv)
-				__m256 unew8 = _mm256_mul_ps(idet8,
-				  _mm256_fmadd_ps(tvx8, pvx8,
-				  _mm256_fmadd_ps(tvy8, pvy8,
-				  _mm256_mul_ps(tvz8, pvz8))));
+					// u = idet * dot(tv, pv)
+					__m256 unew8 = _mm256_mul_ps(idet8,
+					  _mm256_fmadd_ps(tvx8, pvx8,
+					  _mm256_fmadd_ps(tvy8, pvy8,
+					  _mm256_mul_ps(tvz8, pvz8))));
 
-				// v = idet * dot(dir, qv)
-				__m256 vnew8 = _mm256_mul_ps(idet8,
-				  _mm256_fmadd_ps(dx8, qvx8,
-				  _mm256_fmadd_ps(dy8, qvy8,
-				  _mm256_mul_ps(dz8, qvz8))));
+					// v = idet * dot(dir, qv)
+					__m256 vnew8 = _mm256_mul_ps(idet8,
+					  _mm256_fmadd_ps(dx8[j], qvx8,
+					  _mm256_fmadd_ps(dy8[j], qvy8,
+					  _mm256_mul_ps(dz8[j], qvz8))));
 
-				// t = idet * dot(e1, qv)
-				__m256 tnew8 = _mm256_mul_ps(idet8,
-				  _mm256_fmadd_ps(e1x8, qvx8,
-				  _mm256_fmadd_ps(e1y8, qvy8,
-				  _mm256_mul_ps(e1z8, qvz8))));
+					// t = idet * dot(e1, qv)
+					__m256 tnew8 = _mm256_mul_ps(idet8,
+					  _mm256_fmadd_ps(e1x8, qvx8,
+					  _mm256_fmadd_ps(e1y8, qvy8,
+					  _mm256_mul_ps(e1z8, qvz8))));
 
-				// u >= 0
-				__m256 uzero8 = _mm256_cmp_ps(unew8, zero8,
-				  _CMP_GE_OQ);
+					// u >= 0
+					__m256 uzero8 = _mm256_cmp_ps(unew8,
+					  zero8, _CMP_GE_OQ);
 
-				// v >= 0
-				__m256 vzero8 = _mm256_cmp_ps(vnew8, zero8,
-				  _CMP_GE_OQ);
+					// v >= 0
+					__m256 vzero8 = _mm256_cmp_ps(vnew8,
+					  zero8, _CMP_GE_OQ);
 
-				// u + v <= 1
-				__m256 uvone8 = _mm256_cmp_ps(
-				  _mm256_add_ps(unew8, vnew8), one8,
-				  _CMP_LE_OQ);
+					// u + v <= 1
+					__m256 uvone8 = _mm256_cmp_ps(
+					  _mm256_add_ps(unew8, vnew8), one8,
+					  _CMP_LE_OQ);
 
-				// t > 0
-				__m256 tzero8 = _mm256_cmp_ps(tnew8, zero8,
-				  _CMP_GT_OQ);
+					// t > 0
+					__m256 tzero8 = _mm256_cmp_ps(tnew8,
+					  zero8, _CMP_GT_OQ);
 
-				// t < h->t
-				__m256 tnear8 = _mm256_cmp_ps(tnew8, *t8,
-				_CMP_LT_OQ);
+					// t < h->t
+					__m256 tnear8 = _mm256_cmp_ps(tnew8,
+					  t8[j], _CMP_LT_OQ);
 
-				// Merge comparison results into one final mask
-				__m256 mask8 = _mm256_and_ps(tnear8,
-				  _mm256_and_ps(_mm256_and_ps(uzero8, vzero8),
-				  _mm256_and_ps(uvone8, tzero8)));
+					// Merge comparison res into final mask
+					__m256 mask8 = _mm256_and_ps(tnear8,
+					  _mm256_and_ps(_mm256_and_ps(uzero8,
+					  vzero8), _mm256_and_ps(uvone8,
+					  tzero8)));
 
-				if (_mm256_movemask_ps(mask8)) { // Any hit?
+					if (_mm256_movemask_ps(mask8)) {
 
-					//__m256i idnew8 = _mm256_set1_epi32(
-					//  (((unsigned int *)&l->id4)[i]
-					//  << INST_ID_BITS) | instid);
-					__m256i idnew8 = bcl4ito8i(l->id4, i);
-					idnew8 = _mm256_slli_epi32(idnew8,
-					  INST_ID_BITS);
-					idnew8 = _mm256_or_si256(idnew8,
-					  instid8);
+						__m256i idnew8 =
+						  bcl4ito8i(l->id4, i);
+						idnew8 =
+						  _mm256_slli_epi32(idnew8,
+						  INST_ID_BITS);
+						idnew8 =
+						  _mm256_or_si256(idnew8,
+						  instid8);
 
-					// Update lane if mask indicates hit
-					*t8 = _mm256_blendv_ps(*t8, tnew8,
-					  mask8);
-					*u8 = _mm256_blendv_ps(*u8, unew8,
-					  mask8);
-					*v8 = _mm256_blendv_ps(*v8, vnew8,
-					  mask8);
-					*id8 = _mm256_blendv_epi8(*id8, idnew8,
-					  mask8);
+						// Update lane if mask is hit
+						t8[j] = _mm256_blendv_ps(t8[j],
+						  tnew8, mask8);
+						u8[j] = _mm256_blendv_ps(u8[j],
+						  unew8, mask8);
+						v8[j] = _mm256_blendv_ps(v8[j],
+						  vnew8, mask8);
+						id8[j] = _mm256_blendv_epi8(
+						  id8[j], idnew8, mask8);
+					}
 
-					// Upd hor max of t8 for interval ray
-					maxt8 = bcmax8(*t8);
+					// Recalc tmax, even if no hit
+					maxt = max(maxt, max8(t8[j]));
 				}
 			}
+
+			// Update maxt
+			maxt8 = _mm256_set1_ps(maxt);
 		}
 
 		// Check actual rays of packets against popped nodes
 		while (true) {
-			unsigned int pc; // Parent ofs and child num
+			unsigned int ppc; // Parent ofs, fpi, child num
 			if (spos > 0) {
-				pc = istack[--spos];
+				ppc = istack[--spos];
 				ofs = stack[spos];
 			} else
 				return;
 
 			// Fetch node at ofs
-			struct bnode8 *p = (struct bnode8 *)(ptr + (pc >> 3));
+			struct bnode8 *p = (struct bnode8 *)(ptr + (ppc >> 7));
 
 			// Intersect packet rays at once with child's aabb
-			__m256i child = _mm256_set1_epi32(pc & 7);
+			__m256i child = _mm256_set1_epi32(ppc & 7);
 
 			__m256 minx8 =
 			  _mm256_permutevar8x32_ps(p->minx8, child);
@@ -1283,30 +1317,46 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 maxz8 =
 			  _mm256_permutevar8x32_ps(p->maxz8, child);
 
-			__m256 t0x8 =
-			  _mm256_fmsub_ps(dx ? minx8 : maxx8, idx8, rx8);
-			__m256 t0y8 =
-			  _mm256_fmsub_ps(dy ? miny8 : maxy8, idy8, ry8);
-			__m256 t0z8 =
-			  _mm256_fmsub_ps(dz ? minz8 : maxz8, idz8, rz8);
+			// Intersect all packets, starting with fpi from stack
+			fpi = (ppc >> 3) & 0xf;
+			unsigned char i = fpi;
+			do {
+				__m256 t0x8 =
+				  _mm256_fmsub_ps(dx ? minx8 : maxx8,
+				  idx8[i], rx8[i]);
+				__m256 t0y8 =
+				  _mm256_fmsub_ps(dy ? miny8 : maxy8,
+				  idy8[i], ry8[i]);
+				__m256 t0z8 =
+				  _mm256_fmsub_ps(dz ? minz8 : maxz8,
+				  idz8[i], rz8[i]);
 
-			__m256 t1x8 =
-			  _mm256_fmsub_ps(dx ? maxx8 : minx8, idx8, rx8);
-			__m256 t1y8 =
-			  _mm256_fmsub_ps(dy ? maxy8 : miny8, idy8, ry8);
-			__m256 t1z8 =
-			  _mm256_fmsub_ps(dz ? maxz8 : minz8, idz8, rz8);
+				__m256 t1x8 =
+				  _mm256_fmsub_ps(dx ? maxx8 : minx8,
+				  idx8[i], rx8[i]);
+				__m256 t1y8 =
+				  _mm256_fmsub_ps(dy ? maxy8 : miny8,
+				  idy8[i], ry8[i]);
+				__m256 t1z8 =
+				  _mm256_fmsub_ps(dz ? maxz8 : minz8,
+				  idz8[i], rz8[i]);
 
-			__m256 tmin8 = _mm256_max_ps(_mm256_max_ps(
-			  _mm256_max_ps(t0x8, t0y8), t0z8), zero8);
+				__m256 tmin8 = _mm256_max_ps(_mm256_max_ps(
+				  _mm256_max_ps(t0x8, t0y8), t0z8), zero8);
 
-			__m256 tmax8 = _mm256_min_ps(_mm256_min_ps(
-			  _mm256_min_ps(t1x8, t1y8), t1z8), *t8);
+				__m256 tmax8 = _mm256_min_ps(_mm256_min_ps(
+				  _mm256_min_ps(t1x8, t1y8), t1z8), t8[i]);
 
-			// OQ = ordered/not signaling, 0 if any operand is NAN
-			__m256 hit8 = _mm256_cmp_ps(tmin8, tmax8, _CMP_LE_OQ);
-			if (_mm256_movemask_ps(hit8) > 0)
-				break;
+				__m256 hit8 = _mm256_cmp_ps(tmin8, tmax8,
+				  _CMP_LE_OQ);
+				if (_mm256_movemask_ps(hit8) > 0) {
+					fpi = i;
+					goto restart;
+				}
+
+				// Next packet index
+				i = (i + 1) % pcnt;
+			} while (i != fpi);
 		}
 	}
 }
@@ -1666,46 +1716,64 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 }
 
 void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
-                         __m256 ox8, __m256 oy8, __m256 oz8,
-                         __m256 dx8, __m256 dy8, __m256 dz8,
+                         __m256 *ox8, __m256 *oy8, __m256 *oz8,
+                         __m256 *dx8, __m256 *dy8, __m256 *dz8,
+                         unsigned char pcnt, // Packet count
                          struct bnode8 *nodes, struct rinst *insts,
                          unsigned int tlasofs)
 {
 	_Alignas(64) unsigned int stack[64];
-	_Alignas(64) unsigned int istack[64]; // Prnt ofs << 3 | child num
+	_Alignas(64) unsigned int istack[64];
 	unsigned int spos = 0;
 
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
-	__m256 maxt8 = bcmax8(*t8);
+	unsigned char fpi = 0; // First packet index
 
-	__m256 idx8 = rcp8(dx8);
-	__m256 idy8 = rcp8(dy8);
-	__m256 idz8 = rcp8(dz8);
+	__m256 idx8[pcnt], idy8[pcnt], idz8[pcnt];
+	__m256 rx8[pcnt], ry8[pcnt], rz8[pcnt];
+	float miox, mioy, mioz;
+	miox = mioy = mioz = FLT_MAX;
+	float maox, maoy, maoz;
+	maox = maoy = maoz = -FLT_MAX;
+	float miidx, miidy, miidz;
+	miidx = miidy = miidz = -FLT_MAX;
+	float maidx, maidy, maidz;
+	maidx = maidy = maidz = FLT_MAX;
+	float maxt = -FLT_MAX;
+	for (unsigned int i = 0; i < pcnt; i++) {
+		idx8[i] = rcp8(dx8[i]);
+		idy8[i] = rcp8(dy8[i]);
+		idz8[i] = rcp8(dz8[i]);
 
-	__m256 rx8 = _mm256_mul_ps(ox8, idx8);
-	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
-	__m256 rz8 = _mm256_mul_ps(oz8, idz8);
+		rx8[i] = _mm256_mul_ps(ox8[i], idx8[i]);
+		ry8[i] = _mm256_mul_ps(oy8[i], idy8[i]);
+		rz8[i] = _mm256_mul_ps(oz8[i], idz8[i]);
 
-	// Calc interval ray (min/max ori/idir)
-	float miox = min8(ox8);
-	float mioy = min8(oy8);
-	float mioz = min8(oz8);
+		// Calc interval ray bounds min/max ori/idir
+		miox = min(miox, min8(ox8[i]));
+		maox = max(maox, max8(ox8[i]));
+		mioy = min(mioy, min8(oy8[i]));
+		maoy = max(maoy, max8(oy8[i]));
+		mioz = min(mioz, min8(oz8[i]));
+		maoz = max(maoz, max8(oz8[i]));
 
-	float maox = max8(ox8);
-	float maoy = max8(oy8);
-	float maoz = max8(oz8);
+		// Use interval arithmetic to precalc values for aabb intersect
+		// a = [ mina, maxa ]
+		// 1 / a = [ 1 / maxa, 1 / mina ] (assumes a does not incl 0!)
+		miidx = max(miidx, max8(idx8[i]));
+		maidx = min(maidx, min8(idx8[i]));
+		miidy = max(miidy, max8(idy8[i]));
+		maidy = min(maidy, min8(idy8[i]));
+		miidz = max(miidz, max8(idz8[i]));
+		maidz = min(maidz, min8(idz8[i]));
 
-	// Use interval arithmetic to precalc values for aabb intersection
-	// 1 / a = [ 1 / maxa, 1 / mina ] (assuming a does not include 0!)
-	float miidx = max8(idx8);
-	float miidy = max8(idy8);
-	float miidz = max8(idz8);
+		// Curr max dist of the ray packets to cull the interval ray
+		maxt = max(maxt, max8(t8[i]));
+	}
 
-	float maidx = min8(idx8);
-	float maidy = min8(idy8);
-	float maidz = min8(idz8);
+	__m256 maxt8 = _mm256_set1_ps(maxt);
 
 	__m256 miidx8 = _mm256_set1_ps(miidx);
 	__m256 miidy8 = _mm256_set1_ps(miidy);
@@ -1742,6 +1810,7 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	unsigned char shft = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
+restart:
 		if ((ofs & NODE_LEAF) == 0) {
 			struct bnode8 *n = (struct bnode8 *)(ptr + ofs);
 
@@ -1813,9 +1882,10 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				assert(spos < 64);
 				stack[spos] =
 				  ((unsigned int *)&n->children8)[child];
-				// Push prnt ofs and lane/child num
-				assert(ofs <= 0x1fffffff);
-				istack[spos++] = (ofs << 3) + child;
+				// Push prnt ofs, fpi and lane/child num
+				assert(ofs <= 0x1ffffff);
+				istack[spos++] =
+				  (ofs << 7) | (fpi << 3) | child;
 			} else if (hitcnt > 1) {
 				// Order, compress, push child node ofs and
 				// parent ofs + child num
@@ -1828,16 +1898,22 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				  _mm256_movemask_ps(hitmaskord8);
 
 				// Order
-				assert(ofs <= 0x1fffffff);
 				__m256i childrenord8 =
 				  _mm256_permutevar8x32_epi32(n->children8,
 				  ord8);
+
+				assert(ofs <= 0x1ffffff);
+				// prnt ofs << 7 | fpi << 3 | child num
+				// child num is per lane
+				// ofs never points to leaf, so can shift it
+				unsigned int ofs_fpi =
+				  (ofs << 7) | (fpi << 3);
+				__m256i ofs_fpi8 =
+				  _mm256_set1_epi32(ofs_fpi);
 				__m256i pcnumord8 =
 				  _mm256_permutevar8x32_epi32(
-				  // prnt ofs << 3 | child num for all lanes
-				  // ofs never points to leaf, so can shift it
-				  _mm256_add_epi32(_mm256_set1_epi32(ofs << 3),
-				  defchildnum8), ord8);
+				  _mm256_add_epi32(ofs_fpi8, defchildnum8),
+				  ord8);
 
 				// Map ordered hit mask to compressed indices
 				__m256 cid8 = compr_lut[hitmaskord];
@@ -1868,53 +1944,41 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			float inv[16];
 			mat4_from3x4(inv, ri->globinv);
 
-			__m256 tox8, toy8, toz8;
-			mulpos_m256(&tox8, &toy8, &toz8, ox8, oy8, oz8, inv);
+			__m256 tox8[pcnt], toy8[pcnt], toz8[pcnt];
+			__m256 tdx8[pcnt], tdy8[pcnt], tdz8[pcnt];
+			for (unsigned char j = 0; j < pcnt; j++) {
+				mulpos_m256(&tox8[j], &toy8[j], &toz8[j],
+				  ox8[j], oy8[j], oz8[j], inv);
+				muldir_m256(&tdx8[j], &tdy8[j], &tdz8[j],
+				  dx8[j], dy8[j], dz8[j], inv);
+			}
 
-			__m256 tdx8, tdy8, tdz8;
-			muldir_m256(&tdx8, &tdy8, &tdz8, dx8, dy8, dz8, inv);
-
-			//if (iscoh3(tdx8, tdy8, tdz8)) {
-				intersect_pckt_blas(t8, u8, v8, id8,
-				  tox8, toy8, toz8, tdx8, tdy8, tdz8, blas,
-				  instid);
-			/*} else {
-				// Separate between coherent and incoh. packets
-				for (unsigned char i = 0; i < PCKT_SZ; i++) {
-					// TEMP TEMP TEMP
-					struct hit h = {(*t8)[i], (*u8)[i],
-					  (*v8)[i], ((unsigned int *)id8)[i]};
-					intersect_blas(&h,
-					  (struct vec3){tox8[i], toy8[i],
-					  toz8[i]},
-					  (struct vec3){tdx8[i], tdy8[i],
-					  tdz8[i]}, blas, instid);
-					(*t8)[i] = h.t;
-					(*u8)[i] = h.u;
-					(*v8)[i] = h.v;
-					((unsigned int *)id8)[i] = h.id;
-				}
-			}//*/
+			intersect_pckt_blas(t8, u8, v8, id8,
+			  tox8, toy8, toz8, tdx8, tdy8, tdz8,
+			  pcnt, blas, instid);
 
 			// t8 dists could be new, so update our max dist
 			// to get proper interval ray culling
-			maxt8 = bcmax8(*t8);
+			maxt = -FLT_MAX;
+			for (unsigned char j = 0; j < pcnt; j++)
+				maxt = max(maxt, max8(t8[j]));
+			maxt8 = _mm256_set1_ps(maxt);
 		}
 
 		// Check actual rays of packets against popped nodes
 		while (true) {
-			unsigned int pc; // Parent ofs and child num
+			unsigned int ppc; // Parent ofs, fpi, child num
 			if (spos > 0) {
-				pc = istack[--spos];
+				ppc = istack[--spos];
 				ofs = stack[spos];
 			} else
 				return;
 
 			// Fetch node at ofs
-			struct bnode8 *p = (struct bnode8 *)(ptr + (pc >> 3));
+			struct bnode8 *p = (struct bnode8 *)(ptr + (ppc >> 7));
 
 			// Intersect packet rays at once with child's aabb
-			__m256i child = _mm256_set1_epi32(pc & 7);
+			__m256i child = _mm256_set1_epi32(ppc & 7);
 			__m256 minx8 =
 			  _mm256_permutevar8x32_ps(p->minx8, child);
 			__m256 miny8 =
@@ -1928,30 +1992,47 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 maxz8 =
 			  _mm256_permutevar8x32_ps(p->maxz8, child);
 
-			__m256 t0x8 =
-			  _mm256_fmsub_ps(dx ? minx8 : maxx8, idx8, rx8);
-			__m256 t0y8 =
-			  _mm256_fmsub_ps(dy ? miny8 : maxy8, idy8, ry8);
-			__m256 t0z8 =
-			  _mm256_fmsub_ps(dz ? minz8 : maxz8, idz8, rz8);
+			// Intersect all packets, starting with fpi from stack
+			fpi = (ppc >> 3) & 0xf;
+			unsigned char i = fpi;
+			do {
 
-			__m256 t1x8 =
-			  _mm256_fmsub_ps(dx ? maxx8 : minx8, idx8, rx8);
-			__m256 t1y8 =
-			  _mm256_fmsub_ps(dy ? maxy8 : miny8, idy8, ry8);
-			__m256 t1z8 =
-			  _mm256_fmsub_ps(dz ? maxz8 : minz8, idz8, rz8);
+				__m256 t0x8 =
+				  _mm256_fmsub_ps(dx ? minx8 : maxx8,
+				  idx8[i], rx8[i]);
+				__m256 t0y8 =
+				  _mm256_fmsub_ps(dy ? miny8 : maxy8,
+				  idy8[i], ry8[i]);
+				__m256 t0z8 =
+				  _mm256_fmsub_ps(dz ? minz8 : maxz8,
+				  idz8[i], rz8[i]);
 
-			__m256 tmin8 = _mm256_max_ps(_mm256_max_ps(
-			  _mm256_max_ps(t0x8, t0y8), t0z8), zero8);
+				__m256 t1x8 =
+				  _mm256_fmsub_ps(dx ? maxx8 : minx8,
+				  idx8[i], rx8[i]);
+				__m256 t1y8 =
+				  _mm256_fmsub_ps(dy ? maxy8 : miny8,
+				  idy8[i], ry8[i]);
+				__m256 t1z8 =
+				  _mm256_fmsub_ps(dz ? maxz8 : minz8,
+				  idz8[i], rz8[i]);
 
-			__m256 tmax8 = _mm256_min_ps(_mm256_min_ps(
-			  _mm256_min_ps(t1x8, t1y8), t1z8), *t8);
+				__m256 tmin8 = _mm256_max_ps(_mm256_max_ps(
+				  _mm256_max_ps(t0x8, t0y8), t0z8), zero8);
 
-			// OQ = ordered/not signaling, 0 if any operand is NAN
-			__m256 hit8 = _mm256_cmp_ps(tmin8, tmax8, _CMP_LE_OQ);
-			if (_mm256_movemask_ps(hit8) > 0)
-				break;
+				__m256 tmax8 = _mm256_min_ps(_mm256_min_ps(
+				  _mm256_min_ps(t1x8, t1y8), t1z8), t8[i]);
+
+				__m256 hit8 = _mm256_cmp_ps(tmin8, tmax8,
+				  _CMP_LE_OQ);
+				if (_mm256_movemask_ps(hit8) > 0) {
+					fpi = i;
+					goto restart;
+				}
+
+				// Next packet index
+				i = (i + 1) % pcnt;
+			} while (i != fpi);
 		}
 	}
 }
@@ -2382,59 +2463,6 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 	return vec3_add(direct, indirect);
 }
 
-// TODO Make proper, ATM just for testing
-void trace_pckt(struct vec3 *col,
-                __m256 ox8, __m256 oy8, __m256 oz8,
-                __m256 dx8, __m256 dy8, __m256 dz8,
-                struct rdata *rd, unsigned int *rays)
-{
-	for (unsigned int i = 0; i < PCKT_SZ; i++)
-		col[i] = rd->bgcol;
-
-	__m256 t8, u8, v8;
-	__m256i id8;
-	t8 = _mm256_set1_ps(FLT_MAX);
-	intersect_pckt_tlas(&t8, &u8, &v8, &id8, ox8, oy8, oz8, dx8, dy8, dz8,
-	  rd->bnodes, rd->insts, rd->tlasofs);
-
-	*rays += PCKT_SZ;
-
-// TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
-	for (unsigned int k = 0; k < PCKT_SZ; k++) {
-		float t = t8[k];
-		if (t == FLT_MAX)
-			continue;
-
-		float u = u8[k];
-		float v = v8[k];
-		unsigned int id = ((unsigned int *)&id8)[k];
-
-		unsigned int instid = id & INST_ID_MASK;
-		unsigned int triid = id >> INST_ID_BITS;
-		struct rinst *ri = &rd->insts[instid];
-		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
-		unsigned int mtlid = rn->mtlid;
-
-		// Inverse transpose, dir mul is 3x4
-		float it[16];
-		float *rt = ri->globinv;
-		for (unsigned int j = 0; j < 4; j++)
-			for (unsigned int i = 0; i < 3; i++)
-				it[4 * j + i] = rt[4 * i + j];
-
-		struct vec3 nrm = calc_nrm(u, v, rn, it);
-		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
-		col[k] = vec3_mul(nrm, rd->mtls[mtlid].col);
-	}
-}
-
-// No SVML functions available on clang/gcc
-// https://stackoverflow.com/questions/40475140/mathematical-functions-for-simd-registers
-__m256 _ZGVdN8v_sinf(__m256 x); // _mm256_sin_ps
-__m256 _ZGVdN8v_cosf(__m256 x); // _mm256_cos_ps
-//void   _ZGVdN8vvv_sincosf(__m256 x, __m256i ptrs_lo, __m256i ptrs_hi,
-//                                    __m256i ptrc_lo, __m256i ptrc_hi);
-
 void make_camray8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
                   __m256 *dx8, __m256 *dy8, __m256 *dz8,
                   unsigned int x, unsigned int y,
@@ -2546,85 +2574,90 @@ void make_camray8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 	}
 }
 
-void make_camray(struct vec3 *ori, struct vec3 *dir,
-                 unsigned int x, unsigned int y,
-                 unsigned int w, unsigned int h,
-                 struct rcam *c, float u0, float u1, float u2, float u3)
+void trace_pckts(struct vec3 *col,
+                 __m256 *ox8, __m256 *oy8, __m256 *oz8,
+                 __m256 *dx8, __m256 *dy8, __m256 *dz8,
+		 unsigned char pcnt,
+                 struct rdata *rd, unsigned int *rays)
 {
-	float px = x + u0 - 0.5f;
-	float py = y + u1 - 0.5f;
+	__m256 t8[pcnt], u8[pcnt], v8[pcnt];
+	__m256i id8[pcnt];
 
-	float sx = (2.0f * px / w - 1.0f) * c->aspect * c->tanvfov * c->focdist;
-	float sy = (2.0f * py / h - 1.0f) * c->tanvfov * c->focdist;
+	struct vec3 *c = col;
+	for (unsigned char j = 0; j < pcnt; j++) {
+		for (unsigned char i = 0; i < PCKT_SZ; i++)
+			*c++ = rd->bgcol;
+		t8[j] = _mm256_set1_ps(FLT_MAX);
+	}
 
-	if (c->tanfangle > 0.0f)
-	{
-		// Jitter eye pos for DOF
-		float fr = c->focdist * c->tanfangle; // Focus radius
-		float r = sqrt(u2);
-		float t = TWO_PI * u3;
-		float ts, tc;
-		sincosf(t, &ts, &tc);
-		float rx = tc * r;
-		float ry = ts * r;
+	intersect_pckt_tlas(t8, u8, v8, id8, ox8, oy8, oz8, dx8, dy8, dz8,
+	  pcnt, rd->bnodes, rd->insts, rd->tlasofs);
 
-		*ori = vec3_add(c->eye, vec3_scale(vec3_add(
-		  vec3_scale(c->ri, rx), vec3_scale(c->up, ry)), fr));
+	*rays += pcnt * PCKT_SZ;
 
-		*dir = vec3_unit(vec3_sub(
-		  vec3_add(vec3_add(c->eye, vec3_scale(c->fwd, c->focdist)),
-		  vec3_sub(vec3_scale(c->ri, sx), vec3_scale(c->up, sy))),
-		  *ori));
-	} else {
-		*ori = c->eye;
+// TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
+	for (unsigned char k = 0; k < pcnt * PCKT_SZ; k++) {
+		float t = ((float *)t8)[k];
+		if (t == FLT_MAX)
+			continue;
 
-		*dir = vec3_unit(
-		  vec3_add(vec3_scale(c->fwd, c->focdist),
-		  vec3_sub(vec3_scale(c->ri, sx), vec3_scale(c->up, sy))));
+		float u = ((float *)u8)[k];
+		float v = ((float *)v8)[k];
+		unsigned int id = ((unsigned int *)&id8)[k];
+
+		unsigned int instid = id & INST_ID_MASK;
+		unsigned int triid = id >> INST_ID_BITS;
+		struct rinst *ri = &rd->insts[instid];
+		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+		unsigned int mtlid = rn->mtlid;
+
+		// Inverse transpose, dir mul is 3x4
+		float it[16];
+		float *rt = ri->globinv;
+		for (unsigned int j = 0; j < 4; j++)
+			for (unsigned int i = 0; i < 3; i++)
+				it[4 * j + i] = rt[4 * i + j];
+
+		struct vec3 nrm = calc_nrm(u, v, rn, it);
+		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
+		col[k] = vec3_mul(nrm, rd->mtls[mtlid].col);
 	}
 }
 
-void make_pckt8(__m256 *ox8, __m256 *oy8, __m256 *oz8,
-                __m256 *dx8, __m256 *dy8, __m256 *dz8,
-                unsigned int x, unsigned int y,
-                unsigned int w, unsigned int h,
-                struct rcam *cam, struct rngstate8 *rngstate)
+void trace_pckt(struct vec3 *col,
+                __m256 ox8, __m256 oy8, __m256 oz8,
+                __m256 dx8, __m256 dy8, __m256 dz8,
+                struct rdata *rd, unsigned int *rays)
 {
-	__m256 u0, u1, u2, u3;
-	u0 = randf8(rngstate);
-	u1 = randf8(rngstate);
-	u2 = randf8(rngstate);
-	u3 = randf8(rngstate);
-
-	struct vec3 ori, dir;
-	unsigned char k = 0;
-	for (unsigned char j = 0; j < PCKT_H; j++) {
-		for (unsigned char i = 0; i < PCKT_W; i++) {
-			make_camray(&ori, &dir, x + i, y + j,
-			  w, h, cam, u0[k], u1[k], u2[k], u3[k]);
-			(*ox8)[k] = ori.x;
-			(*oy8)[k] = ori.y;
-			(*oz8)[k] = ori.z;
-			(*dx8)[k] = dir.x;
-			(*dy8)[k] = dir.y;
-			(*dz8)[k++] = dir.z;
-		}
-	}
+	float *ox = (float *)&ox8;
+	float *oy = (float *)&oy8;
+	float *oz = (float *)&oz8;
+	float *dx = (float *)&dx8;
+	float *dy = (float *)&dy8;
+	float *dz = (float *)&dz8;
+	for (unsigned char j = 0; j < PCKT_SZ; j++)
+		*col++ = trace1((struct vec3){*ox++, *oy++, *oz++},
+		  (struct vec3){*dx++, *dy++, *dz++}, rd, rays);
 }
 
-void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
-                unsigned int x, unsigned int y, unsigned int w, float invspp)
+void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
+                 unsigned int pstart, unsigned int pcnt,
+                 unsigned int bx, unsigned int by, unsigned int w,
+                 float invspp)
 {
-	// TODO Make SIMD?
-	for (unsigned int j = 0; j < PCKT_H; j++) {
-		for (unsigned int i = 0; i < PCKT_W; i++) {
-			unsigned int ofs = w * (y + j) + (x + i);
-			acc[ofs] = vec3_add(acc[ofs], *col++);
-			struct vec3 c = vec3_scale(acc[ofs], invspp);
-			buf[ofs] = 0xffu << 24 |
-			  ((unsigned int)(255 * c.x) & 0xff) << 16 |
-			  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
-			  ((unsigned int)(255 * c.z) & 0xff);
+	for (unsigned int k = pstart; k < pstart + pcnt; k++) {
+		unsigned int x = bx + mortdecx(k) * PCKT_W;
+		unsigned int y = by + mortdecy(k) * PCKT_H;
+		for (unsigned int j = 0; j < PCKT_H; j++) {
+			for (unsigned int i = 0; i < PCKT_W; i++) {
+				unsigned int ofs = w * (y + j) + (x + i);
+				acc[ofs] = vec3_add(acc[ofs], *col++);
+				struct vec3 c = vec3_scale(acc[ofs], invspp);
+				buf[ofs] = 0xffu << 24 |
+				  ((unsigned int)(255 * c.x) & 0xff) << 16 |
+				  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
+				  ((unsigned int)(255 * c.z) & 0xff);
+			}
 		}
 	}
 }
@@ -2634,86 +2667,51 @@ int rend_render(void *d)
 	struct rdata *rd = d;
 
 	unsigned int w = rd->width;
-	unsigned int bsz = rd->blksz;
-	unsigned int blksx = w / bsz;
-	unsigned int blksy = rd->height / bsz;
-	int          blkcnt = blksx * blksy;
+	unsigned int blkszx = rd->blkszx;
+	unsigned int blkszy = rd->blkszy;
+	unsigned int blkcntx = w / blkszx;
+	unsigned int blkcnty = rd->height / blkszy;
+	int          blkcnt = blkcntx * blkcnty;
+	unsigned int blkpckts = blkszx * blkszy / PCKT_SZ;
 
 	unsigned int rays = 0;
 
 	float invspp = 1.0f / (1.0f + rd->samples);
 
-	__m256 ox8, oy8, oz8;
-	__m256 dx8, dy8, dz8;
-	struct vec3 col[PCKT_SZ];
+	__m256 ox8[MAX_PCKTS], oy8[MAX_PCKTS], oz8[MAX_PCKTS];
+	__m256 dx8[MAX_PCKTS], dy8[MAX_PCKTS], dz8[MAX_PCKTS];
+	struct vec3 col[MAX_PCKTS * PCKT_SZ];
 
 	struct rngstate8 rngstate;
 
-	// Previous coherence mask and coherent packet cnt
-	//unsigned char pcmask = 0xff; // Start with impossible value
-	//unsigned int ccnt = 0;
-
-	while (true) {
+	while (true) { // Blocks
 		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
 		if (blk >= blkcnt)
 			break;
 
 		rand8_init(&rngstate, (blk + 13) * 1571, rd->samples * 23);
 
-		unsigned int bx = (blk % blksx) * bsz;
-		unsigned int by = (blk / blksx) * bsz;
+		unsigned int bx = (blk % blkcntx) * blkszx;
+		unsigned int by = (blk / blkcntx) * blkszy;
+		unsigned int tpcnt = 0; // Total packet cnt
 
-		for (unsigned int j = 0; j < bsz; j += PCKT_H) {
-			unsigned int y = by + j;
-			for (unsigned int i = 0; i < bsz; i += PCKT_W) {
-				unsigned int x = bx + i;
-
-				/*
-				make_pckt8(&ox8, &oy8, &oz8,
-				  &dx8, &dy8, &dz8, x, y, rd->width,
-				  rd->height, &rd->cam, &rngstate);
-				//*/
-				make_camray8(&ox8, &oy8, &oz8,
-				  &dx8, &dy8, &dz8, x, y, &rd->cam, &rngstate);
-
-				// TODO Support tracing multiple pckts at once
-				/*
-				unsigned char cmask;
-				if (iscohval3(&cmask, dx8, dy8, dz8) &&
-				  cmask == pcmask) {
-					ccnt++;
-				} else {
-					printf("Found %d successive coherent packets\n",
-					  ccnt);
-					ccnt = 0;
-				}
-				pcmask = cmask;
-				//*/
-
-				if (iscoh3(dx8, dy8, dz8)) {
-				//if (0) {
-					trace_pckt(col, ox8, oy8, oz8,
-					  dx8, dy8, dz8, rd, &rays);
-				} else {
-					for (unsigned char k = 0; k < PCKT_SZ;
-					  k++)
-						col[k] = trace1(
-						  (struct vec3){ox8[k], oy8[k],
-						  oz8[k]},
-						  (struct vec3){dx8[k], dy8[k],
-						  dz8[k]},
-						  rd, &rays);//*/
-						/*col[k] = trace3(
-						  (struct vec3){ox8[k], oy8[k],
-						  oz8[k]},
-						  (struct vec3){dx8[k], dy8[k],
-						  dz8[k]},
-						  rd, 0, &rngstate, &rays);//*/
-				}
-
-				accum_pckt(rd->acc, rd->buf, col, x, y, w,
-				  invspp);
+		while (tpcnt < blkpckts) { // Packets per block
+			unsigned int pcnt = 0;
+			while (pcnt < MAX_PCKTS) {
+				make_camray8(
+				  &ox8[pcnt], &oy8[pcnt], &oz8[pcnt],
+				  &dx8[pcnt], &dy8[pcnt], &dz8[pcnt],
+				  bx + mortdecx(tpcnt) * PCKT_W,
+				  by + mortdecy(tpcnt) * PCKT_H,
+				  &rd->cam, &rngstate);
+				pcnt++;
+				tpcnt++;
 			}
+
+			trace_pckts(col, ox8, oy8, oz8, dx8, dy8, dz8, pcnt,
+			  rd, &rays);
+			accum_pckts(rd->acc, rd->buf, col, tpcnt - pcnt, pcnt,
+			  bx, by, w, invspp);
 		}
 	}
 

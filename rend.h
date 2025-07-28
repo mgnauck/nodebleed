@@ -137,7 +137,8 @@ struct rdata {
 	struct vec3    *acc; // Accumulator (managed by renderer)
 	unsigned int   *buf; // Color buffer (managed by application)
 
-	unsigned int   blksz; // Size of a block being rendered
+	unsigned int   blkszx; // Size of a block being rendered
+	unsigned int   blkszy;
 	int            blknum; // Block number, accessed atomically
 
 	unsigned int   rays;

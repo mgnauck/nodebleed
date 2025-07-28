@@ -114,6 +114,37 @@ void randfv8(struct rngstate8 *s, float v[8])
 	_mm256_store_ps(v, randf8(s));
 }
 
+// TODO Can be optimized for 8 bit or use LUT
+// http://www-graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN
+// Interleave lower 16 bits with zeros
+unsigned int intleave(unsigned int v)
+{
+	v &= 0x0000ffff;
+	v = (v ^ (v << 8)) & 0x00ff00ff;
+	v = (v ^ (v << 4)) & 0x0f0f0f0f;
+	v = (v ^ (v << 2)) & 0x33333333;
+	return (v ^ (v << 1)) & 0x55555555;
+}
+
+unsigned int mortenc(unsigned int x, unsigned int y)
+{
+	return intleave(y) << 1 | intleave(x);
+}
+
+unsigned int mortdecx(unsigned int v)
+{
+	v &= 0x55555555;
+	v = (v ^ (v >> 1)) & 0x33333333;
+	v = (v ^ (v >> 2)) & 0x0f0f0f0f;
+	v = (v ^ (v >> 4)) & 0x00ff00ff;
+	return (v ^ (v >> 8)) & 0x0000ffff;
+}
+
+unsigned int mortdecy(unsigned int v)
+{
+	return mortdecx(v >> 1);
+}
+
 void setflags(unsigned int *state, unsigned int flags)
 {
 	*state |= flags;
