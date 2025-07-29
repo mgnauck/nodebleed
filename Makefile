@@ -22,16 +22,21 @@ LDLIBS += $(shell sdl2-config --libs)
 #LDFLAGS = -flto -O3
 LDFLAGS += -fuse-ld=lld
 LDFLAGS += -s
-#strip -R .comment a.out
+DROP = T=/tmp/u;tail -n+2 $$0|lzcat>$$T;chmod +x $$T;$$T;rm $$T;exit
 
 all: $(OUT).sh
 
 $(OUT).sh: $(OUT)
-	lzmadrop.sh $(OUT) $@
+	@rm -f $@
+	@touch $@
+	@printf '$(DROP)\n' >> $@
+	@lzma -e -c $^ >> $@
+	@chmod +x $@
 
 $(OUT): $(OBJ)
 	$(CC) $(LDFLAGS) $^ -o $@ $(LDLIBS)
-
+	@strip -R .comment $@
+ 
 clean:
 	rm -rf $(OUT) $(OUT).sh $(OBJ)
 
