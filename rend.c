@@ -45,6 +45,13 @@ static __m128 zero4;
 static __m128 one4;
 static __m128 fltmax4;
 
+static unsigned int blkszx;
+static unsigned int blkszy;
+static unsigned int blkpcktcnt;
+
+static unsigned int *mortx;
+static unsigned int *morty;
+
 struct split { // Result from SAH binning step
 	float          cost;
 	unsigned char  axis;
@@ -88,7 +95,7 @@ unsigned long long get_perm(unsigned char mask)
 	return perm;
 }
 
-void rend_init_compresslut(void)
+void rend_staticinit(unsigned int bszx, unsigned int bszy)
 {
 	// 8 bit mask: 0 will be compressed, 1's will be considered (= hit)
 	for (unsigned int bm = 0; bm < 256; bm++) {
@@ -114,6 +121,24 @@ void rend_init_compresslut(void)
 	zero4 = _mm_setzero_ps();
 	one4 = _mm_set1_ps(1.0f);
 	fltmax4 = _mm_set1_ps(FLT_MAX);
+
+	blkszx = bszx;
+	blkszy = bszy;
+
+	blkpcktcnt = bszx * bszy / PCKT_SZ;
+
+	mortx = malloc(blkpcktcnt * sizeof(*mortx));
+	morty = malloc(blkpcktcnt * sizeof(*morty));
+	for (unsigned int i = 0; i < blkpcktcnt; i++) {
+		mortx[i] = mortdecx(i);
+		morty[i] = mortdecy(i);
+	}
+}
+
+void rend_staticrelease(void)
+{
+	free(morty);
+	free(mortx);
 }
 
 void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
@@ -2646,8 +2671,8 @@ void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                  float invspp)
 {
 	for (unsigned int k = pstart; k < pstart + pcnt; k++) {
-		unsigned int x = bx + mortdecx(k) * PCKT_W;
-		unsigned int y = by + mortdecy(k) * PCKT_H;
+		unsigned int x = bx + mortx[k] * PCKT_W;
+		unsigned int y = by + morty[k] * PCKT_H;
 		for (unsigned int j = 0; j < PCKT_H; j++) {
 			for (unsigned int i = 0; i < PCKT_W; i++) {
 				unsigned int ofs = w * (y + j) + (x + i);
@@ -2667,12 +2692,9 @@ int rend_render(void *d)
 	struct rdata *rd = d;
 
 	unsigned int w = rd->width;
-	unsigned int blkszx = rd->blkszx;
-	unsigned int blkszy = rd->blkszy;
 	unsigned int blkcntx = w / blkszx;
 	unsigned int blkcnty = rd->height / blkszy;
 	int          blkcnt = blkcntx * blkcnty;
-	unsigned int blkpckts = blkszx * blkszy / PCKT_SZ;
 
 	unsigned int rays = 0;
 
@@ -2695,14 +2717,14 @@ int rend_render(void *d)
 		unsigned int by = (blk / blkcntx) * blkszy;
 		unsigned int tpcnt = 0; // Total packet cnt
 
-		while (tpcnt < blkpckts) { // Packets per block
+		while (tpcnt < blkpcktcnt) { // Packets per block
 			unsigned int pcnt = 0;
 			while (pcnt < MAX_PCKTS) {
 				make_camray8(
 				  &ox8[pcnt], &oy8[pcnt], &oz8[pcnt],
 				  &dx8[pcnt], &dy8[pcnt], &dz8[pcnt],
-				  bx + mortdecx(tpcnt) * PCKT_W,
-				  by + mortdecy(tpcnt) * PCKT_H,
+				  bx + mortx[tpcnt] * PCKT_W,
+				  by + morty[tpcnt] * PCKT_H,
 				  &rd->cam, &rngstate);
 				pcnt++;
 				tpcnt++;

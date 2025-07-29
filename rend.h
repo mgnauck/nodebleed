@@ -137,15 +137,14 @@ struct rdata {
 	struct vec3    *acc; // Accumulator (managed by renderer)
 	unsigned int   *buf; // Color buffer (managed by application)
 
-	unsigned int   blkszx; // Size of a block being rendered
-	unsigned int   blkszy;
 	int            blknum; // Block number, accessed atomically
 
 	unsigned int   rays;
 	unsigned int   samples;
 };
 
-void  rend_init_compresslut(void);
+void  rend_staticinit(unsigned int blkszx, unsigned int blkszy);
+void  rend_staticrelease(void);
 
 void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
                 unsigned int maxinsts);

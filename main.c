@@ -217,7 +217,7 @@ void init(struct scene *s, struct rdata *rd)
 	unsigned int trimax = get_max_tris(s->meshes, s->meshcnt);
 	unsigned int instmax = get_max_insts(s->objs, s->nodecnt);
 
-	rend_init_compresslut();
+	rend_staticinit(64, 32);
 	rend_init(rd, s->mtlmax, trimax, instmax);
 	rend_resaccum(rd, WIDTH, HEIGHT);
 
@@ -367,8 +367,6 @@ int main(void)
 	init(&s, &rd);
 
 	rd.buf = scr->pixels;
-	rd.blkszx = 64;
-	rd.blkszy = 32;
 
 	unsigned int thrdcnt = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	thrd_t thrds[thrdcnt];
@@ -415,6 +413,7 @@ int main(void)
 
 	rend_release(&rd);
 	scene_release(&s);
+	rend_staticrelease();
 
 	SDL_DestroyWindow(win);
 	SDL_Quit();
