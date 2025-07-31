@@ -2665,6 +2665,12 @@ void trace_pckt(struct vec3 *col,
 		  (struct vec3){*dx++, *dy++, *dz++}, rd, rays);
 }
 
+//#define LIVE_SORTED_PCKTS
+#define PRE_SORTED_PCKTS
+//#define NO_PCKTS
+
+#ifdef LIVE_SORTED_PCKTS
+
 void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                  unsigned int pstart, unsigned int pcnt,
                  unsigned int bx, unsigned int by, unsigned int w,
@@ -2719,20 +2725,178 @@ int rend_render(void *d)
 
 		while (tpcnt < blkpcktcnt) { // Packets per block
 			unsigned int pcnt = 0;
-			while (pcnt < MAX_PCKTS) {
+			unsigned int dpcnt = 0;
+			unsigned char pcmask = 0xff;
+			while (pcnt < MAX_PCKTS && tpcnt < blkpcktcnt) {
 				make_camray8(
 				  &ox8[pcnt], &oy8[pcnt], &oz8[pcnt],
 				  &dx8[pcnt], &dy8[pcnt], &dz8[pcnt],
 				  bx + mortx[tpcnt] * PCKT_W,
 				  by + morty[tpcnt] * PCKT_H,
 				  &rd->cam, &rngstate);
+
+				unsigned char cmask = 0;
+				if (!iscohval3(&cmask, dx8[pcnt], dy8[pcnt],
+				  dz8[pcnt]) ||
+				  (pcmask != 0xff && pcmask != cmask)) {
+					// Trace last pckt individually
+					trace_pckt(col,
+					  ox8[pcnt], oy8[pcnt], oz8[pcnt],
+					  dx8[pcnt], dy8[pcnt], dz8[pcnt],
+					  rd, &rays);
+					accum_pckts(rd->acc, rd->buf, col,
+					  tpcnt, 1, bx, by, w, invspp);
+
+					// Account for directly handled packet
+					dpcnt = 1;
+					// Restart packet gathering
+					break;
+				}
+
 				pcnt++;
 				tpcnt++;
+
+				pcmask = cmask;
 			}
 
-			trace_pckts(col, ox8, oy8, oz8, dx8, dy8, dz8, pcnt,
-			  rd, &rays);
-			accum_pckts(rd->acc, rd->buf, col, tpcnt - pcnt, pcnt,
+			if (pcnt > 0) {
+				trace_pckts(col, ox8, oy8, oz8, dx8, dy8, dz8,
+				  pcnt, rd, &rays);
+				accum_pckts(rd->acc, rd->buf, col,
+				  tpcnt - pcnt, pcnt, bx, by, w, invspp);
+			}
+
+			tpcnt += dpcnt;
+		}
+	}
+
+	__atomic_fetch_add(&rd->rays, rays, __ATOMIC_SEQ_CST);
+
+	return 0;
+}
+
+#endif
+
+#ifdef PRE_SORTED_PCKTS
+
+void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
+                 unsigned int *pmap, unsigned int pcnt,
+                 unsigned int bx, unsigned int by, unsigned int w,
+                 float invspp)
+{
+	for (unsigned int k = 0; k < pcnt; k++) {
+		unsigned int o = pmap[k];
+		unsigned int x = bx + mortx[o] * PCKT_W;
+		unsigned int y = by + morty[o] * PCKT_H;
+		for (unsigned int j = 0; j < PCKT_H; j++) {
+			for (unsigned int i = 0; i < PCKT_W; i++) {
+				unsigned int ofs = w * (y + j) + (x + i);
+				acc[ofs] = vec3_add(acc[ofs], *col++);
+				struct vec3 c = vec3_scale(acc[ofs], invspp);
+				buf[ofs] = 0xffu << 24 |
+				  ((unsigned int)(255 * c.x) & 0xff) << 16 |
+				  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
+				  ((unsigned int)(255 * c.z) & 0xff);
+			}
+		}
+	}
+}
+
+int rend_render(void *d)
+{
+	struct rdata *rd = d;
+
+	unsigned int w = rd->width;
+	unsigned int blkcntx = w / blkszx;
+	unsigned int blkcnty = rd->height / blkszy;
+	int          blkcnt = blkcntx * blkcnty;
+
+	unsigned int rays = 0;
+
+	float invspp = 1.0f / (1.0f + rd->samples);
+
+	__m256 ox8[9 * blkpcktcnt], oy8[9 * blkpcktcnt], oz8[9 * blkpcktcnt];
+	__m256 dx8[9 * blkpcktcnt], dy8[9 * blkpcktcnt], dz8[9 * blkpcktcnt];
+	struct vec3 col[blkpcktcnt * PCKT_SZ];
+
+	struct rngstate8 rngstate;
+
+	while (true) { // Blocks
+		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
+		if (blk >= blkcnt)
+			break;
+
+		rand8_init(&rngstate, (blk + 13) * 1571, rd->samples * 23);
+
+		// Block start coordinates
+		unsigned int bx = (blk % blkcntx) * blkszx;
+		unsigned int by = (blk / blkcntx) * blkszy;
+
+		// Slots 0-7 are packets according to coherence mask
+		// Slot 8 are incoherent packets to be traced individually
+		unsigned int pmap[9 * blkpcktcnt];
+		unsigned int pmapcnt[9] = {0};
+
+		unsigned int pofs = 0; // Potential ofs
+		unsigned char pcmask = 0; // Previous coherence mask
+
+		for (unsigned int j = 0; j < blkpcktcnt; j++) {
+			make_camray8(
+			  &ox8[pofs], &oy8[pofs], &oz8[pofs],
+			  &dx8[pofs], &dy8[pofs], &dz8[pofs],
+			  bx + mortx[j] * PCKT_W, by + morty[j] * PCKT_H,
+			  &rd->cam, &rngstate);
+
+			unsigned char cmask = 0;
+			cmask = iscohval3(&cmask, dx8[pofs], dy8[pofs],
+			  dz8[pofs]) ? cmask : 8;
+			//assert(cmask < 9);
+
+			unsigned int cnt = pmapcnt[cmask]++;
+			unsigned int ofs = cmask * blkpcktcnt + cnt;
+			pmap[ofs] = j;
+			if (pcmask != cmask) { // pofs was wrong, adjust data
+				ox8[ofs] = ox8[pofs];
+				oy8[ofs] = oy8[pofs];
+				oz8[ofs] = oz8[pofs];
+				dx8[ofs] = dx8[pofs];
+				dy8[ofs] = dy8[pofs];
+				dz8[ofs] = dz8[pofs];
+			}
+
+			pcmask = cmask;
+
+			// Potential ofs for next slot based on current cmask
+			pofs = cmask * blkpcktcnt + cnt + 1;
+		}
+
+		// Trace coherent packets
+		for (unsigned char j = 0; j < 8; j++) {
+			unsigned int cnt = pmapcnt[j];
+			unsigned int ofs = j * blkpcktcnt;
+			unsigned int i = 0;
+			while (i < cnt) {
+				unsigned char step = min(MAX_PCKTS, cnt - i);
+				trace_pckts(col,
+				  &ox8[ofs], &oy8[ofs], &oz8[ofs],
+				  &dx8[ofs], &dy8[ofs], &dz8[ofs],
+				  step, rd, &rays);
+
+				accum_pckts(rd->acc, rd->buf, col,
+				  &pmap[ofs], step, bx, by, w, invspp);
+
+				i += step;
+				ofs += step;
+			}
+		}
+
+		// Trace incoherent packets with individual rays
+		unsigned int cnt = pmapcnt[8];
+		unsigned int ofs = 8 * blkpcktcnt;
+		for (unsigned int j = ofs; j < ofs + cnt; j++) {
+			trace_pckt(col, ox8[j], oy8[j], oz8[j],
+			  dx8[j], dy8[j], dz8[j], rd, &rays);
+			accum_pckts(rd->acc, rd->buf, col, &pmap[j], 1,
 			  bx, by, w, invspp);
 		}
 	}
@@ -2741,3 +2905,11 @@ int rend_render(void *d)
 
 	return 0;
 }
+
+#endif
+
+#ifdef NO_PCKTS
+
+// TODO Use normal trace w/o packets but with Z-curve
+
+#endif
