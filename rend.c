@@ -248,7 +248,7 @@ bool iscohval(unsigned char *bmask, __m256 v8, unsigned char shift)
 {
 	// bmask is irrelevant if v8 is not coherent
 	unsigned char mask = _mm256_movemask_ps(v8);
-	*bmask = (mask & 1) << shift;
+	*bmask |= (mask & 1) << shift;
 	return abs((~mask & 0xff) - mask) == 0xff;
 }
 
