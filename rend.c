@@ -25,12 +25,22 @@
 
 #define INTERVAL_CNT  16 // Binning intervals
 
+// Each packet contains 8 rays
 #define PCKT_W     4
 #define PCKT_H     2
-#define PCKT_SZ    (PCKT_W * PCKT_H)
-#define MAX_PCKTS  16
+#define PCKT_SZ    8
+
+#define MAX_PCKTS  16 // Max number of packets we intersect at once
+
+// Bits for node ofs, first packet index and child num (multiple pckts only)
+#define CNUM_BITS  3 // Child num bits is fixed, there are always 8 child nodes
+#define CNUM_MASK  7
+#define FPI_BITS   4 // First packet index bits is tied to MAX_PCKTS
+#define FPI_MASK   0xf
+#define MAX_OFS    0x1ffffff // Node ofs bits = 32 - CNUM_BITS - FPI_BITS
 
 static __m256i compr_lut[256];
+
 static __m256i defchildnum8;
 
 static __m256 pcktxofs8;
@@ -49,7 +59,7 @@ static unsigned int blkszx;
 static unsigned int blkszy;
 static unsigned int blkpcktcnt;
 
-static unsigned int *mortx;
+static unsigned int *mortx; // Morten decode LUT
 static unsigned int *morty;
 
 struct split { // Result from SAH binning step
@@ -704,6 +714,7 @@ unsigned int build_bvh8(struct bnode8 *nodes, struct aabb *aabbs,
 	return ncnt;
 }
 
+// Intersect with single ray (no packets)
 // Fuetterling, 2017, Accelerated Single Ray Tracing for Wide Vector Units
 // Fuetterling, 2019, Scalable Algorithms for Realistic Real-time Rendering
 void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
@@ -960,7 +971,8 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
-// Interval arithmetic from:
+// Intersect with single packet
+// Interval arithmetic:
 // Brian Hayes, 2003, A lucid interval
 // Wald et al, 2006, Geometric and Arithmetic Culling Methods for Entire
 // Ray Packets
@@ -1337,9 +1349,8 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	}
 }
 
-// TODO Improve maxt / maxt8 handling
-// TODO Make bits for fpi customizable
 // Intersect with multiple packets
+// TODO Improve maxt/maxt8 handling
 void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
                           __m256 *ox8, __m256 *oy8, __m256 *oz8,
                           __m256 *dx8, __m256 *dy8, __m256 *dz8,
@@ -1509,9 +1520,10 @@ restart:
 				stack[spos] =
 				  ((unsigned int *)&n->children8)[child];
 				// Push prnt ofs, fpi and lane/child num
-				assert(ofs <= 0x1ffffff);
+				assert(ofs <= MAX_OFS);
 				istack[spos++] =
-				  (ofs << 7) | (fpi << 3) | child;
+				  (ofs << (FPI_BITS + CNUM_BITS)) |
+				  (fpi << CNUM_BITS) | child;
 			} else if (hitcnt > 1) {
 				// Order, compress, push child node ofs and
 				// parent ofs + child num
@@ -1528,11 +1540,12 @@ restart:
 				  _mm256_permutevar8x32_epi32(n->children8,
 				  ord8);
 
-				assert(ofs <= 0x1ffffff);
-				// prnt ofs << 7 | fpi << 3 | child num
+				assert(ofs <= MAX_OFS);
 				// child num is per lane
 				// ofs never points to leaf, so can shift it
-				unsigned int ofs_fpi = (ofs << 7) | (fpi << 3);
+				unsigned int ofs_fpi =
+				  (ofs << (FPI_BITS + CNUM_BITS)) |
+				  (fpi << CNUM_BITS);
 				__m256i ofs_fpi8 =
 				  _mm256_set1_epi32(ofs_fpi);
 				__m256i pcnumord8 =
@@ -1700,10 +1713,11 @@ restart:
 				return;
 
 			// Fetch node at ofs
-			struct bnode8 *p = (struct bnode8 *)(ptr + (ppc >> 7));
+			struct bnode8 *p = (struct bnode8 *)(ptr +
+			  (ppc >> (FPI_BITS + CNUM_BITS)));
 
 			// Intersect packet rays at once with child's aabb
-			__m256i child = _mm256_set1_epi32(ppc & 7);
+			__m256i child = _mm256_set1_epi32(ppc & CNUM_MASK);
 
 			__m256 minx8 =
 			  _mm256_permutevar8x32_ps(p->minx8, child);
@@ -1719,7 +1733,7 @@ restart:
 			  _mm256_permutevar8x32_ps(p->maxz8, child);
 
 			// Intersect all packets, starting with fpi from stack
-			fpi = (ppc >> 3) & 0xf;
+			fpi = (ppc >> CNUM_BITS) & FPI_MASK;
 			unsigned char i = fpi;
 			do {
 				__m256 t0x8 =
@@ -1940,6 +1954,7 @@ bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
 	}
 }
 
+// Intersect with single ray (no packets)
 void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
                     struct bnode8 *nodes, struct rinst *insts,
                     unsigned int tlasofs)
@@ -2116,6 +2131,7 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 	}
 }
 
+// Intersect with single packet
 void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
                          __m256 ox8, __m256 oy8, __m256 oz8,
                          __m256 dx8, __m256 dy8, __m256 dz8,
@@ -2325,12 +2341,14 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			__m256 tdx8, tdy8, tdz8;
 			muldir_m256(&tdx8, &tdy8, &tdz8, dx8, dy8, dz8, inv);
 
+			// Accepting slight visual errors here from packets
+			// that are not coherent
 			//if (iscoh3(tdx8, tdy8, tdz8)) {
 				intersect_pckt_blas(t8, u8, v8, id8,
 				  tox8, toy8, toz8, tdx8, tdy8, tdz8, blas,
 				  instid);
 			/*} else {
-				// Separate between coherent and incoh. packets
+				// Trace rays of packet individually
 				for (unsigned char i = 0; i < PCKT_SZ; i++) {
 					// TEMP TEMP TEMP
 					struct hit h = {(*t8)[i], (*u8)[i],
@@ -2407,6 +2425,8 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	}
 }
 
+// Intersect with multiple packets
+// TODO Improve maxt/maxt8 handling
 void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
                           __m256 *ox8, __m256 *oy8, __m256 *oz8,
                           __m256 *dx8, __m256 *dy8, __m256 *dz8,
@@ -2575,9 +2595,10 @@ restart:
 				stack[spos] =
 				  ((unsigned int *)&n->children8)[child];
 				// Push prnt ofs, fpi and lane/child num
-				assert(ofs <= 0x1ffffff);
+				assert(ofs <= MAX_OFS);
 				istack[spos++] =
-				  (ofs << 7) | (fpi << 3) | child;
+				  (ofs << (FPI_BITS + CNUM_BITS)) |
+				  (fpi << CNUM_BITS) | child;
 			} else if (hitcnt > 1) {
 				// Order, compress, push child node ofs and
 				// parent ofs + child num
@@ -2594,12 +2615,12 @@ restart:
 				  _mm256_permutevar8x32_epi32(n->children8,
 				  ord8);
 
-				assert(ofs <= 0x1ffffff);
-				// prnt ofs << 7 | fpi << 3 | child num
+				assert(ofs <= MAX_OFS);
 				// child num is per lane
 				// ofs never points to leaf, so can shift it
 				unsigned int ofs_fpi =
-				  (ofs << 7) | (fpi << 3);
+				  (ofs << (FPI_BITS + CNUM_BITS)) |
+				  (fpi << CNUM_BITS);
 				__m256i ofs_fpi8 =
 				  _mm256_set1_epi32(ofs_fpi);
 				__m256i pcnumord8 =
@@ -2645,6 +2666,10 @@ restart:
 				  dx8[j], dy8[j], dz8[j], inv);
 			}
 
+			// Accepting slight visual errors here from packets
+			// that are not coherent as well as across multiple
+			// packets. Otherwise split packets like we do for
+			// camera rays..
 			intersect_pckts_blas(t8, u8, v8, id8,
 			  tox8, toy8, toz8, tdx8, tdy8, tdz8,
 			  pcnt, blas, instid);
@@ -2667,10 +2692,11 @@ restart:
 				return;
 
 			// Fetch node at ofs
-			struct bnode8 *p = (struct bnode8 *)(ptr + (ppc >> 7));
+			struct bnode8 *p = (struct bnode8 *)(ptr +
+			  (ppc >> (FPI_BITS + CNUM_BITS)));
 
 			// Intersect packet rays at once with child's aabb
-			__m256i child = _mm256_set1_epi32(ppc & 7);
+			__m256i child = _mm256_set1_epi32(ppc & CNUM_MASK);
 			__m256 minx8 =
 			  _mm256_permutevar8x32_ps(p->minx8, child);
 			__m256 miny8 =
@@ -2685,7 +2711,7 @@ restart:
 			  _mm256_permutevar8x32_ps(p->maxz8, child);
 
 			// Intersect all packets, starting with fpi from stack
-			fpi = (ppc >> 3) & 0xf;
+			fpi = (ppc >> CNUM_BITS) & FPI_MASK;
 			unsigned char i = fpi;
 			do {
 
@@ -2979,6 +3005,7 @@ struct vec3 rand_hemicos(float u0, float u1)
 	return (struct vec3){cosf(phi) * su1, sinf(phi) * su1, sqrtf(1 - u1)};
 }
 
+// Not in use currently
 struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
                    unsigned char depth, unsigned int *seed, unsigned int *rays)
 {
@@ -3038,6 +3065,7 @@ struct vec3 trace2(struct vec3 o, struct vec3 d, struct rdata *rd,
 	  vec3_mul(brdf, irr));
 }
 
+// Not in use currently
 struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
                    unsigned char depth, unsigned int *seed, unsigned int *rays)
 {
@@ -3234,6 +3262,7 @@ void make_camray_pckt(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 	}
 }
 
+// Multiple packets
 void trace_pckts(struct vec3 *col,
                  __m256 *ox8, __m256 *oy8, __m256 *oz8,
                  __m256 *dx8, __m256 *dy8, __m256 *dz8,
@@ -3253,7 +3282,7 @@ void trace_pckts(struct vec3 *col,
 	*rays += pcnt * PCKT_SZ;
 
 // TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
-	for (unsigned char k = 0; k < pcnt * PCKT_SZ; k++) {
+	for (unsigned int k = 0; k < pcnt * PCKT_SZ; k++) {
 		float t = ((float *)t8)[k];
 		if (t == FLT_MAX) {
 			col[k] = rd->bgcol;
@@ -3283,6 +3312,7 @@ void trace_pckts(struct vec3 *col,
 	}
 }
 
+// Single packet
 void trace_pckt(struct vec3 *col,
                 __m256 ox8, __m256 oy8, __m256 oz8,
                 __m256 dx8, __m256 dy8, __m256 dz8,
@@ -3374,6 +3404,7 @@ void trace_pckt_ind(struct vec3 *col,
 	}
 }
 
+// Accumulate single packet
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                 unsigned int pckt, unsigned int bx, unsigned int by,
                 unsigned int w, float invspp)
@@ -3393,10 +3424,10 @@ void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 	}
 }
 
-#define LIVE_SORTED_PCKTS
-//#define PRE_SORTED_PCKTS
-//#define SINGLE_PCKT
-//#define NO_PCKTS
+#define LIVE_SORTED_PCKTS // Sort/trace packets while being created
+//#define PRE_SORTED_PCKTS // Create and sort first, then trace
+//#define SINGLE_PCKT // Create single packet only and trace it
+//#define NO_PCKTS // Each ray individually
 
 #ifdef LIVE_SORTED_PCKTS
 
