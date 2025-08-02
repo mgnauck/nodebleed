@@ -128,10 +128,11 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 		float *m = t->glob;
 		struct bnode8 *n = &rd->bnodes[ri->triofs << 1];
 
-		struct vec3 nmi =
-		  {min8(n->minx8), min8(n->miny8), min8(n->minz8)};
-		struct vec3 nma =
-		  {max8(n->maxx8), max8(n->maxy8), max8(n->maxz8)};
+		struct vec3 nmi = {bcmin8(n->minx8)[0], bcmin8(n->miny8)[0],
+		  bcmin8(n->minz8)[0]};
+		  
+		struct vec3 nma = {bcmax8(n->maxx8)[0], bcmax8(n->maxy8)[0],
+		  bcmax8(n->maxz8)[0]};
 
 		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
 		struct vec3 ma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
