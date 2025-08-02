@@ -52,7 +52,6 @@ static __m256 zero8;
 static __m256 half8;
 static __m256 one8;
 static __m256 twopi8;
-static __m256 three8;
 static __m128 zero4;
 static __m128 one4;
 static __m128 fltmax4;
@@ -130,7 +129,6 @@ void rend_staticinit(unsigned int bszx, unsigned int bszy)
 	half8 = _mm256_set1_ps(0.5f);
 	one8 = _mm256_set1_ps(1.0f);
 	twopi8 = _mm256_set1_ps(TWO_PI);
-	three8 = _mm256_set1_ps(3.0f);
 	zero4 = _mm_setzero_ps();
 	one4 = _mm_set1_ps(1.0f);
 	fltmax4 = _mm_set1_ps(FLT_MAX);
@@ -876,7 +874,7 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 		  _mm_mul_ps(tvy4, l->e0x4));
 
 		// idet = 1 / det
-		__m128 idet4 = rcp4(det4);
+		__m128 idet4 = _mm_rcp_ps(det4);
 
 		// u = idet * dot(tv, pv)
 		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
@@ -996,9 +994,9 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	// Curr max dist of the ray packets to cull the interval ray
 	__m256 maxt8 = bcmax8(*t8);
 
-	__m256 idx8 = rcp8(dx8);
-	__m256 idy8 = rcp8(dy8);
-	__m256 idz8 = rcp8(dz8);
+	__m256 idx8 = _mm256_rcp_ps(dx8);
+	__m256 idy8 = _mm256_rcp_ps(dy8);
+	__m256 idz8 = _mm256_rcp_ps(dz8);
 
 	__m256 rx8 = _mm256_mul_ps(ox8, idx8);
 	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
@@ -1227,7 +1225,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				  _mm256_mul_ps(tvy8, e0x8));
 
 				// idet = 1 / det
-				__m256 idet8 = rcp8(det8);
+				__m256 idet8 = _mm256_rcp_ps(det8);
 
 				// u = idet * dot(tv, pv)
 				__m256 unew8 = _mm256_mul_ps(idet8,
@@ -1376,9 +1374,9 @@ void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 	__m256 idx8[pcnt], idy8[pcnt], idz8[pcnt];
 
-	idx8[0] = rcp8(dx8[0]);
-	idy8[0] = rcp8(dy8[0]);
-	idz8[0] = rcp8(dz8[0]);
+	idx8[0] = _mm256_rcp_ps(dx8[0]);
+	idy8[0] = _mm256_rcp_ps(dy8[0]);
+	idz8[0] = _mm256_rcp_ps(dz8[0]);
 
 	__m256 rx8[pcnt], ry8[pcnt], rz8[pcnt];
 
@@ -1406,9 +1404,9 @@ void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 maxt8 = bcmax8(t8[0]);
 
 	for (unsigned int i = 1; i < pcnt; i++) {
-		idx8[i] = rcp8(dx8[i]);
-		idy8[i] = rcp8(dy8[i]);
-		idz8[i] = rcp8(dz8[i]);
+		idx8[i] = _mm256_rcp_ps(dx8[i]);
+		idy8[i] = _mm256_rcp_ps(dy8[i]);
+		idz8[i] = _mm256_rcp_ps(dz8[i]);
 
 		rx8[i] = _mm256_mul_ps(ox8[i], idx8[i]);
 		ry8[i] = _mm256_mul_ps(oy8[i], idy8[i]);
@@ -1645,7 +1643,7 @@ restart:
 					  e0y8, _mm256_mul_ps(tvy8, e0x8));
 
 					// idet = 1 / det
-					__m256 idet8 = rcp8(det8);
+					__m256 idet8 = _mm256_rcp_ps(det8);
 
 					// u = idet * dot(tv, pv)
 					__m256 unew8 = _mm256_mul_ps(idet8,
@@ -1928,7 +1926,7 @@ bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
 		  _mm_mul_ps(tvy4, l->e0x4));
 
 		// idet = 1 / det
-		__m128 idet4 = rcp4(det4);
+		__m128 idet4 = _mm_rcp_ps(det4);
 
 		// u = idet * dot(tv, pv)
 		__m128 u4 = _mm_mul_ps(idet4, _mm_fmadd_ps(tvx4, pvx4,
@@ -2166,9 +2164,9 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 	__m256 maxt8 = bcmax8(*t8);
 
-	__m256 idx8 = rcp8(dx8);
-	__m256 idy8 = rcp8(dy8);
-	__m256 idz8 = rcp8(dz8);
+	__m256 idx8 = _mm256_rcp_ps(dx8);
+	__m256 idy8 = _mm256_rcp_ps(dy8);
+	__m256 idz8 = _mm256_rcp_ps(dz8);
 
 	__m256 rx8 = _mm256_mul_ps(ox8, idx8);
 	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
@@ -2468,9 +2466,9 @@ void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 	__m256 idx8[pcnt], idy8[pcnt], idz8[pcnt];
 
-	idx8[0] = rcp8(dx8[0]);
-	idy8[0] = rcp8(dy8[0]);
-	idz8[0] = rcp8(dz8[0]);
+	idx8[0] = _mm256_rcp_ps(dx8[0]);
+	idy8[0] = _mm256_rcp_ps(dy8[0]);
+	idz8[0] = _mm256_rcp_ps(dz8[0]);
 
 	__m256 rx8[pcnt], ry8[pcnt], rz8[pcnt];
 
@@ -2498,9 +2496,9 @@ void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 maxt8 = bcmax8(t8[0]);
 
 	for (unsigned int i = 1; i < pcnt; i++) {
-		idx8[i] = rcp8(dx8[i]);
-		idy8[i] = rcp8(dy8[i]);
-		idz8[i] = rcp8(dz8[i]);
+		idx8[i] = _mm256_rcp_ps(dx8[i]);
+		idy8[i] = _mm256_rcp_ps(dy8[i]);
+		idz8[i] = _mm256_rcp_ps(dz8[i]);
 
 		rx8[i] = _mm256_mul_ps(ox8[i], idx8[i]);
 		ry8[i] = _mm256_mul_ps(oy8[i], idy8[i]);
@@ -3265,7 +3263,7 @@ void make_camray_pckt(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 		// dir = normalize(td)
 		__m256 rlen8 = _mm256_fmadd_ps(tdx8, tdx8, _mm256_fmadd_ps(
 		  tdy8, tdy8, _mm256_mul_ps(tdz8, tdz8)));
-		rlen8 = rsqrt8_(rlen8, three8, half8);
+		rlen8 = _mm256_rsqrt_ps(rlen8);
 		*dx8 = _mm256_mul_ps(tdx8, rlen8);
 		*dy8 = _mm256_mul_ps(tdy8, rlen8);
 		*dz8 = _mm256_mul_ps(tdz8, rlen8);
@@ -3292,7 +3290,7 @@ void make_camray_pckt(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 		// dir = normalize(td)
 		__m256 rlen8 = _mm256_fmadd_ps(tdx8, tdx8, _mm256_fmadd_ps(
 		  tdy8, tdy8, _mm256_mul_ps(tdz8, tdz8)));
-		rlen8 = rsqrt8_(rlen8, three8, half8);
+		rlen8 = _mm256_rsqrt_ps(rlen8);
 		*dx8 = _mm256_mul_ps(tdx8, rlen8);
 		*dy8 = _mm256_mul_ps(tdy8, rlen8);
 		*dz8 = _mm256_mul_ps(tdz8, rlen8);

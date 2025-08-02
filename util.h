@@ -42,21 +42,62 @@ void                clrflags(unsigned int *state, unsigned int flags);
 bool                hasflags(unsigned int state, unsigned int flags);
 bool                anyflags(unsigned int state, unsigned int flags);
 
-float               min8(__m256 x8);
-float               max8(__m256 x8);
-
 // Broadcasted max m256
-__m256              bcmin8(__m256 x8);
-__m256              bcmax8(__m256 x8);
+static inline __m256 bcmin8(__m256 a8)
+{
+	// a8 = 7654 3210
 
-__m128              rcp4(__m128 a4);
-__m256              rcp8(__m256 a8);
+	// p0 = 5476 1032
+	__m256 p0 = _mm256_permute_ps(a8, 0x4e); // 0100 1110
 
-__m256              rsqrt8(__m256 a8);
-__m256              rsqrt8_(__m256 a8, __m256 three8, __m256 half8);
+	// m0 = 5454 1010
+	__m256 m0 = _mm256_min_ps(a8, p0);
+
+	// p1 = 4545 0101
+	__m256 p1 = _mm256_permute_ps(m0, 0xb1); // 1011 0001
+
+	// m1 = 4444 0000
+	__m256 m1 = _mm256_min_ps(m0, p1);
+
+	// p2 = 0000 4444
+	__m256 p2 = _mm256_permute2f128_ps(m1, m1, 0x01);
+
+	return _mm256_min_ps(m1, p2);
+}
+
+static inline __m256 bcmax8(__m256 a8)
+{
+	// a8 = 7654 3210
+
+	// p0 = 5476 1032
+	__m256 p0 = _mm256_permute_ps(a8, 0x4e); // 0100 1110
+
+	// m0 = 7676 3232
+	__m256 m0 = _mm256_max_ps(a8, p0);
+
+	// p1 = 6767 2323
+	__m256 p1 = _mm256_permute_ps(m0, 0xb1); // 1011 0001
+
+	// m1 = 7777 3333
+	__m256 m1 = _mm256_max_ps(m0, p1);
+
+	// p2 = 3333 7777
+	__m256 p2 = _mm256_permute2f128_ps(m1, m1, 0x01);
+
+	return _mm256_max_ps(m1, p2);
+}
 
 // Broadcast m128 lane to m256
-__m256              bcl4to8(__m128 a4, unsigned char lane);
-__m256i             bcl4ito8i(__m128i a4, unsigned char lane);
+static inline __m256 bcl4to8(__m128 a4, unsigned char lane)
+{
+	__m256 r8 = _mm256_zextps128_ps256(a4);
+	return _mm256_permutevar8x32_ps(r8, _mm256_set1_epi32(lane));
+}
+
+static inline __m256i bcl4ito8i(__m128i a4, unsigned char lane)
+{
+	__m256i r8 = _mm256_zextsi128_si256(a4);
+	return _mm256_permutevar8x32_epi32(r8, _mm256_set1_epi32(lane));
+}
 
 #endif
