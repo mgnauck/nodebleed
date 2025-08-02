@@ -338,8 +338,9 @@ void mousemove(struct scene *s, int dx, int dy)
 
 int main(void)
 {
-	// TODO Test bvh refit with bnode8
 	// TODO Import from blender custom bin export
+	// TODO Re-activate path tracing
+	// TODO Test bvh refit with bnode8
 	// TODO Subdiv surfaces
 	// TODO Move code from main into some subsys
 

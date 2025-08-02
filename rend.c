@@ -2365,14 +2365,14 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 			// Accepting slight visual errors here from packets
 			// that are not coherent
-			//if (iscoh3(tdx8, tdy8, tdz8)) {
+			if (iscoh3(tdx8, tdy8, tdz8)) {
 				intersect_pckt_blas(t8, u8, v8, id8,
 				  tox8, toy8, toz8, tdx8, tdy8, tdz8, blas,
 				  instid);
-			/*} else {
+			} else {
+		// TODO Improve this path
 				// Trace rays of packet individually
 				for (unsigned char i = 0; i < PCKT_SZ; i++) {
-					// TEMP TEMP TEMP
 					struct hit h = {(*t8)[i], (*u8)[i],
 					  (*v8)[i], ((unsigned int *)id8)[i]};
 					intersect_blas(&h,
@@ -2702,6 +2702,7 @@ restart:
 				  dx8[j], dy8[j], dz8[j], inv);
 			}
 
+	// TODO Add path that differentiates between coherent and incoherent
 			// Accepting slight visual errors here from packets
 			// that are not coherent as well as across multiple
 			// packets. Otherwise split packets like we do for
@@ -3220,7 +3221,6 @@ void make_camray_pckt(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 		// Sample disk for jitter offsets
 		__m256 rad8 = _mm256_sqrt_ps(u2);
 		__m256 theta8 = _mm256_mul_ps(twopi8, u3);
-		// TODO sincos?
 		__m256 rx8 = _mm256_mul_ps(_ZGVdN8v_cosf(theta8), rad8);
 		__m256 ry8 = _mm256_mul_ps(_ZGVdN8v_sinf(theta8), rad8);
 
@@ -3739,8 +3739,12 @@ int rend_render(void *d)
 			  &ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
 			  bx + mortx[j] * PCKT_W, by + morty[j] * PCKT_H,
 			  &rd->cam, &rngstate);
-			trace_pckt(col, ox8, oy8, oz8, dx8, dy8, dz8,
-			  rd, &rays);
+			if (iscoh3(dx8, dy8, dz8))
+				trace_pckt(col, ox8, oy8, oz8, dx8, dy8, dz8,
+				  rd, &rays);
+			else
+				trace_pckt_ind(col, ox8, oy8, oz8, dx8, dy8,
+				  dz8, rd, &rays);
 			accum_pckt(rd->acc, rd->buf, col, j, bx, by, w,
 			  invspp);
 		}
