@@ -46,6 +46,7 @@ float               min8(__m256 x8);
 float               max8(__m256 x8);
 
 // Broadcasted max m256
+__m256              bcmin8(__m256 x8);
 __m256              bcmax8(__m256 x8);
 
 __m128              rcp4(__m128 a4);

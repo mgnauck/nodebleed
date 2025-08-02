@@ -46,6 +46,7 @@ static __m256i defchildnum8;
 static __m256 pcktxofs8;
 static __m256 pcktyofs8;
 
+static __m256 sgnmsk8;
 static __m256 zero8;
 static __m256 half8;
 static __m256 one8;
@@ -123,6 +124,7 @@ void rend_staticinit(unsigned int bszx, unsigned int bszy)
 	pcktyofs8 = _mm256_set_ps(1, 1, 1, 1, 0, 0, 0, 0);
 
 	// Default values 4 and 8 lanes
+	sgnmsk8 = _mm256_set1_ps(-0.0f);
 	zero8 = _mm256_setzero_ps();
 	half8 = _mm256_set1_ps(0.5f);
 	one8 = _mm256_set1_ps(1.0f);
@@ -1002,57 +1004,61 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 rz8 = _mm256_mul_ps(oz8, idz8);
 
 	// Calc interval ray (min/max ori/idir)
-	float miox = min8(ox8);
-	float mioy = min8(oy8);
-	float mioz = min8(oz8);
+	__m256 miox8 = bcmin8(ox8);
+	__m256 mioy8 = bcmin8(oy8);
+	__m256 mioz8 = bcmin8(oz8);
 
-	float maox = max8(ox8);
-	float maoy = max8(oy8);
-	float maoz = max8(oz8);
+	__m256 maox8 = bcmax8(ox8);
+	__m256 maoy8 = bcmax8(oy8);
+	__m256 maoz8 = bcmax8(oz8);
 
 	// Use interval arithmetic to precalc values for aabb intersection
 	// a = [ mina, maxa ]
 	// 1 / a = [ 1 / maxa, 1 / mina ] (assuming a does not include 0!)
-	float miidx = max8(idx8);
-	float miidy = max8(idy8);
-	float miidz = max8(idz8);
+	__m256 miidx8 = bcmax8(idx8);
+	__m256 miidy8 = bcmax8(idy8);
+	__m256 miidz8 = bcmax8(idz8);
 
-	float maidx = min8(idx8);
-	float maidy = min8(idy8);
-	float maidz = min8(idz8);
-
-	__m256 miidx8 = _mm256_set1_ps(miidx);
-	__m256 miidy8 = _mm256_set1_ps(miidy);
-	__m256 miidz8 = _mm256_set1_ps(miidz);
-
-	__m256 maidx8 = _mm256_set1_ps(maidx);
-	__m256 maidy8 = _mm256_set1_ps(maidy);
-	__m256 maidz8 = _mm256_set1_ps(maidz);
+	__m256 maidx8 = bcmin8(idx8);
+	__m256 maidy8 = bcmin8(idy8);
+	__m256 maidz8 = bcmin8(idz8);
 
 	// 1. ori * idir =
 	//   [ min(mio * miid, mio * maid, mao * miid, mao * maid),
 	//     max(mio * miid, mio * maid, mao * miid, mao * maid) ]
 	// 2. Negate, so we can add (instead of sub) later on
 	//  -[ mi, ma ] = [ -ma, -mi ]
-	__m256 marx8 = _mm256_set1_ps(-min(miox * miidx, min(miox * maidx,
-	  min(maox * miidx, maox * maidx))));
-	__m256 mary8 = _mm256_set1_ps(-min(mioy * miidy, min(mioy * maidy,
-	  min(maoy * miidy, maoy * maidy))));
-	__m256 marz8 = _mm256_set1_ps(-min(mioz * miidz, min(mioz * maidz,
-	  min(maoz * miidz, maoz * maidz))));
+	__m256 marx8 = _mm256_xor_ps(sgnmsk8, _mm256_min_ps(
+	  _mm256_mul_ps(miox8, miidx8), _mm256_min_ps(
+	  _mm256_mul_ps(miox8, maidx8), _mm256_min_ps(
+	  _mm256_mul_ps(maox8, miidx8), _mm256_mul_ps(maox8, maidx8)))));
+	__m256 mary8 = _mm256_xor_ps(sgnmsk8, _mm256_min_ps(
+	  _mm256_mul_ps(mioy8, miidy8), _mm256_min_ps(
+	  _mm256_mul_ps(mioy8, maidy8), _mm256_min_ps(
+	  _mm256_mul_ps(maoy8, miidy8), _mm256_mul_ps(maoy8, maidy8)))));
+	__m256 marz8 = _mm256_xor_ps(sgnmsk8, _mm256_min_ps(
+	  _mm256_mul_ps(mioz8, miidz8), _mm256_min_ps(
+	  _mm256_mul_ps(mioz8, maidz8), _mm256_min_ps(
+	  _mm256_mul_ps(maoz8, miidz8), _mm256_mul_ps(maoz8, maidz8)))));
 
-	__m256 mirx8 = _mm256_set1_ps(-max(miox * miidx, max(miox * maidx,
-	  max(maox * miidx, maox * maidx))));
-	__m256 miry8 = _mm256_set1_ps(-max(mioy * miidy, max(mioy * maidy,
-	  max(maoy * miidy, maoy * maidy))));
-	__m256 mirz8 = _mm256_set1_ps(-max(mioz * miidz, max(mioz * maidz,
-	  max(maoz * miidz, maoz * maidz))));
+	__m256 mirx8 = _mm256_xor_ps(sgnmsk8, _mm256_max_ps(
+	  _mm256_mul_ps(miox8, miidx8), _mm256_max_ps(
+	  _mm256_mul_ps(miox8, maidx8), _mm256_max_ps(
+	  _mm256_mul_ps(maox8, miidx8), _mm256_mul_ps(maox8, maidx8)))));
+	__m256 miry8 = _mm256_xor_ps(sgnmsk8, _mm256_max_ps(
+	  _mm256_mul_ps(mioy8, miidy8), _mm256_max_ps(
+	  _mm256_mul_ps(mioy8, maidy8), _mm256_max_ps(
+	  _mm256_mul_ps(maoy8, miidy8), _mm256_mul_ps(maoy8, maidy8)))));
+	__m256 mirz8 = _mm256_xor_ps(sgnmsk8, _mm256_max_ps(
+	  _mm256_mul_ps(mioz8, miidz8), _mm256_max_ps(
+	  _mm256_mul_ps(mioz8, maidz8), _mm256_max_ps(
+	  _mm256_mul_ps(maoz8, miidz8), _mm256_mul_ps(maoz8, maidz8)))));
 
 	// Ray dir sign defines how to shift the permutation map
 	// Assumes (primary) rays of this packet are coherent
-	bool dx = miidx >= 0.0f;
-	bool dy = miidy >= 0.0f;
-	bool dz = miidz >= 0.0f;
+	bool dx = !_mm256_movemask_ps(miidx8);
+	bool dy = !_mm256_movemask_ps(miidy8);
+	bool dz = !_mm256_movemask_ps(miidz8);
 	unsigned char shft = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {
@@ -2156,56 +2162,61 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 rz8 = _mm256_mul_ps(oz8, idz8);
 
 	// Calc interval ray (min/max ori/idir)
-	float miox = min8(ox8);
-	float mioy = min8(oy8);
-	float mioz = min8(oz8);
+	__m256 miox8 = bcmin8(ox8);
+	__m256 mioy8 = bcmin8(oy8);
+	__m256 mioz8 = bcmin8(oz8);
 
-	float maox = max8(ox8);
-	float maoy = max8(oy8);
-	float maoz = max8(oz8);
+	__m256 maox8 = bcmax8(ox8);
+	__m256 maoy8 = bcmax8(oy8);
+	__m256 maoz8 = bcmax8(oz8);
 
 	// Use interval arithmetic to precalc values for aabb intersection
+	// a = [ mina, maxa ]
 	// 1 / a = [ 1 / maxa, 1 / mina ] (assuming a does not include 0!)
-	float miidx = max8(idx8);
-	float miidy = max8(idy8);
-	float miidz = max8(idz8);
+	__m256 miidx8 = bcmax8(idx8);
+	__m256 miidy8 = bcmax8(idy8);
+	__m256 miidz8 = bcmax8(idz8);
 
-	float maidx = min8(idx8);
-	float maidy = min8(idy8);
-	float maidz = min8(idz8);
-
-	__m256 miidx8 = _mm256_set1_ps(miidx);
-	__m256 miidy8 = _mm256_set1_ps(miidy);
-	__m256 miidz8 = _mm256_set1_ps(miidz);
-
-	__m256 maidx8 = _mm256_set1_ps(maidx);
-	__m256 maidy8 = _mm256_set1_ps(maidy);
-	__m256 maidz8 = _mm256_set1_ps(maidz);
+	__m256 maidx8 = bcmin8(idx8);
+	__m256 maidy8 = bcmin8(idy8);
+	__m256 maidz8 = bcmin8(idz8);
 
 	// 1. ori * idir =
 	//   [ min(mio * miid, mio * maid, mao * miid, mao * maid),
 	//     max(mio * miid, mio * maid, mao * miid, mao * maid) ]
-	// 2. Negate and switch, so we can add (instead of sub) later on
+	// 2. Negate, so we can add (instead of sub) later on
 	//  -[ mi, ma ] = [ -ma, -mi ]
-	__m256 marx8 = _mm256_set1_ps(-min(miox * miidx, min(miox * maidx,
-	  min(maox * miidx, maox * maidx))));
-	__m256 mary8 = _mm256_set1_ps(-min(mioy * miidy, min(mioy * maidy,
-	  min(maoy * miidy, maoy * maidy))));
-	__m256 marz8 = _mm256_set1_ps(-min(mioz * miidz, min(mioz * maidz,
-	  min(maoz * miidz, maoz * maidz))));
+	__m256 marx8 = _mm256_xor_ps(sgnmsk8, _mm256_min_ps(
+	  _mm256_mul_ps(miox8, miidx8), _mm256_min_ps(
+	  _mm256_mul_ps(miox8, maidx8), _mm256_min_ps(
+	  _mm256_mul_ps(maox8, miidx8), _mm256_mul_ps(maox8, maidx8)))));
+	__m256 mary8 = _mm256_xor_ps(sgnmsk8, _mm256_min_ps(
+	  _mm256_mul_ps(mioy8, miidy8), _mm256_min_ps(
+	  _mm256_mul_ps(mioy8, maidy8), _mm256_min_ps(
+	  _mm256_mul_ps(maoy8, miidy8), _mm256_mul_ps(maoy8, maidy8)))));
+	__m256 marz8 = _mm256_xor_ps(sgnmsk8, _mm256_min_ps(
+	  _mm256_mul_ps(mioz8, miidz8), _mm256_min_ps(
+	  _mm256_mul_ps(mioz8, maidz8), _mm256_min_ps(
+	  _mm256_mul_ps(maoz8, miidz8), _mm256_mul_ps(maoz8, maidz8)))));
 
-	__m256 mirx8 = _mm256_set1_ps(-max(miox * miidx, max(miox * maidx,
-	  max(maox * miidx, maox * maidx))));
-	__m256 miry8 = _mm256_set1_ps(-max(mioy * miidy, max(mioy * maidy,
-	  max(maoy * miidy, maoy * maidy))));
-	__m256 mirz8 = _mm256_set1_ps(-max(mioz * miidz, max(mioz * maidz,
-	  max(maoz * miidz, maoz * maidz))));
+	__m256 mirx8 = _mm256_xor_ps(sgnmsk8, _mm256_max_ps(
+	  _mm256_mul_ps(miox8, miidx8), _mm256_max_ps(
+	  _mm256_mul_ps(miox8, maidx8), _mm256_max_ps(
+	  _mm256_mul_ps(maox8, miidx8), _mm256_mul_ps(maox8, maidx8)))));
+	__m256 miry8 = _mm256_xor_ps(sgnmsk8, _mm256_max_ps(
+	  _mm256_mul_ps(mioy8, miidy8), _mm256_max_ps(
+	  _mm256_mul_ps(mioy8, maidy8), _mm256_max_ps(
+	  _mm256_mul_ps(maoy8, miidy8), _mm256_mul_ps(maoy8, maidy8)))));
+	__m256 mirz8 = _mm256_xor_ps(sgnmsk8, _mm256_max_ps(
+	  _mm256_mul_ps(mioz8, miidz8), _mm256_max_ps(
+	  _mm256_mul_ps(mioz8, maidz8), _mm256_max_ps(
+	  _mm256_mul_ps(maoz8, miidz8), _mm256_mul_ps(maoz8, maidz8)))));
 
 	// Ray dir sign defines how to shift the permutation map
 	// Assumes (primary) rays of this packet are coherent
-	bool dx = miidx >= 0.0f;
-	bool dy = miidy >= 0.0f;
-	bool dz = miidz >= 0.0f;
+	bool dx = !_mm256_movemask_ps(miidx8);
+	bool dy = !_mm256_movemask_ps(miidy8);
+	bool dz = !_mm256_movemask_ps(miidz8);
 	unsigned char shft = ((dz << 2) | (dy << 1) | dx) * 3;
 
 	while (true) {

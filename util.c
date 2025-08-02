@@ -214,24 +214,95 @@ float max8(__m256 x8)
 	return _mm_cvtss_f32(ma);
 }
 
-__m256 bcmax8(__m256 x8)
+__m256 bcmin8(__m256 a8)
 {
-	// Reduce 4 floats in each lane to a single max val per lane
-	// Shuffle to swap elements: h2, h3, h0, h1, l2, l3, l0, l1
-	__m256 s1 = _mm256_shuffle_ps(x8, x8, _MM_SHUFFLE(2, 3, 0, 1));
-	// 1st max: max(h3, h2), max(h3, h2), max(h1, h0), max(h1, h0), ..
-	__m256 m1 = _mm256_max_ps(x8, s1);
-	// Shuffle to swap: max(h1, h0), max(h1, h0), max(h3, h2), max(h3, h2)
-	__m256 s2 = _mm256_shuffle_ps(x8, x8, _MM_SHUFFLE(0, 1, 2, 3));
-	// 2nd max:  4x max high lane, 4x max low lane
-	__m256 m2 = _mm256_max_ps(m1, s2);
+	// a8 = 7654 3210
 
-	// Cross lane reduction to single max and broadcast
-	// 4x max low lane, 4x max high lane
-	__m256 swp = _mm256_permute2f128_ps(m2, m2, 1);
-	// Final max: max(max high, max low), max(max high, max low), ..
-	return _mm256_max_ps(m2, swp);
+	// p0 = 5476 1032
+	__m256 p0 = _mm256_permute_ps(a8, 0x4e); // 0100 1110
+
+	// m0 = 5454 1010
+	__m256 m0 = _mm256_min_ps(a8, p0);
+
+	// p1 = 4545 0101
+	__m256 p1 = _mm256_permute_ps(m0, 0xb1); // 1011 0001
+
+	// m1 = 4444 0000
+	__m256 m1 = _mm256_min_ps(m0, p1);
+
+	// p2 = 0000 4444
+	__m256 p2 = _mm256_permute2f128_ps(m1, m1, 0x01);
+
+	return _mm256_min_ps(m1, p2);
 }
+
+__m256 bcmax8(__m256 a8)
+{
+	// a8 = 7654 3210
+
+	// p0 = 5476 1032
+	__m256 p0 = _mm256_permute_ps(a8, 0x4e); // 0100 1110
+
+	// m0 = 7676 3232
+	__m256 m0 = _mm256_max_ps(a8, p0);
+
+	// p1 = 6767 2323
+	__m256 p1 = _mm256_permute_ps(m0, 0xb1); // 1011 0001
+
+	// m1 = 7777 3333
+	__m256 m1 = _mm256_max_ps(m0, p1);
+
+	// p2 = 3333 7777
+	__m256 p2 = _mm256_permute2f128_ps(m1, m1, 0x01);
+
+	return _mm256_max_ps(m1, p2);
+}
+
+/*
+__m256 bcmin8(__m256 a8)
+{
+	// a8 = 7654 3210
+
+	// s0 = 6547 2103
+	__m256 s0 = _mm256_shuffle_ps(a8, a8, _MM_SHUFFLE(2, 1, 0, 3));
+
+	// m0 = 6544 2100
+	__m256 m0 = _mm256_min_ps(a8, s0);
+
+	// s1 = 4465 0021
+	__m256 s1 = _mm256_shuffle_ps(m0, m0, _MM_SHUFFLE(1, 0, 3, 2));
+
+	// m1 = 4444 0000
+	__m256 m1 = _mm256_min_ps(m0, s1);
+
+	// swp = 0000 4444
+	__m256 swp = _mm256_permute2f128_ps(m1, m1, 0x1);
+
+	return _mm256_min_ps(m1, swp);
+}
+
+__m256 bcmax8(__m256 a8)
+{
+	// a8 = 7654 3210
+
+	// s0 = 6547 2103
+	__m256 s0 = _mm256_shuffle_ps(a8, a8, _MM_SHUFFLE(2, 1, 0, 3));
+
+	// m0 = 7657 3213
+	__m256 m0 = _mm256_max_ps(a8, s0);
+
+	// s1 = 5776 1332
+	__m256 s1 = _mm256_shuffle_ps(m0, m0, _MM_SHUFFLE(1, 0, 3, 2));
+
+	// m1 = 7777 3333
+	__m256 m1 = _mm256_max_ps(m0, s1);
+
+	// swp = 3333 7777
+	__m256 swp = _mm256_permute2f128_ps(m1, m1, 0x1);
+
+	return _mm256_max_ps(m1, swp);
+}
+*/
 
 // https://stackoverflow.com/questions/31555260/fast-vectorized-rsqrt-and-reciprocal-with-sse-avx-depending-on-precision
 __m128 rcp4(__m128 a4)
