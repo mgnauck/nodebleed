@@ -146,52 +146,32 @@ void rend_staticrelease(void)
 	free(mortx);
 }
 
-void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
-                 __m256 * restrict oz8,
-                 __m256 x8, __m256 y8, __m256 z8, float m[16])
+void mulpospd8(__m256 * restrict ox8, __m256 * restrict oy8,
+               __m256 * restrict oz8,
+               __m256 x8, __m256 y8, __m256 z8,
+               __m256 m0, __m256 m1, __m256 m2, __m256 m3,
+               __m256 m4, __m256 m5, __m256 m6, __m256 m7,
+               __m256 m8, __m256 m9, __m256 m10, __m256 m11,
+               __m256 m12, __m256 m13, __m256 m14, __m256 m15)
 {
-#ifdef PERSP_DIV
 	__m256 tx8, ty8, tz8, tw8;
-#else
-	__m256 tx8, ty8, tz8;
-#endif
-
-	__m256 m0 = _mm256_set1_ps(m[0]);
-	__m256 m1 = _mm256_set1_ps(m[1]);
-	__m256 m2 = _mm256_set1_ps(m[2]);
-	__m256 m3 = _mm256_set1_ps(m[3]);
 
 	tx8 = _mm256_mul_ps(x8, m0);
 	tx8 = _mm256_fmadd_ps(y8, m1, tx8);
 	tx8 = _mm256_fmadd_ps(z8, m2, tx8);
 	tx8 = _mm256_add_ps(m3, tx8);
 
-	__m256 m4 = _mm256_set1_ps(m[4]);
-	__m256 m5 = _mm256_set1_ps(m[5]);
-	__m256 m6 = _mm256_set1_ps(m[6]);
-	__m256 m7 = _mm256_set1_ps(m[7]);
-
 	ty8 = _mm256_mul_ps(x8, m4);
 	ty8 = _mm256_fmadd_ps(y8, m5, ty8);
 	ty8 = _mm256_fmadd_ps(z8, m6, ty8);
 	ty8 = _mm256_add_ps(m7, ty8);
-
-	__m256 m8 = _mm256_set1_ps(m[8]);
-	__m256 m9 = _mm256_set1_ps(m[9]);
-	__m256 m10 = _mm256_set1_ps(m[10]);
-	__m256 m11 = _mm256_set1_ps(m[11]);
 
 	tz8 = _mm256_mul_ps(x8, m8);
 	tz8 = _mm256_fmadd_ps(y8, m9, tz8);
 	tz8 = _mm256_fmadd_ps(z8, m10, tz8);
 	tz8 = _mm256_add_ps(m11, tz8);
 
-#ifdef PERSP_DIV
-	__m256 m12 = _mm256_set1_ps(m[12]);
-	__m256 m13 = _mm256_set1_ps(m[13]);
-	__m256 m14 = _mm256_set1_ps(m[14]);
-	__m256 m15 = _mm256_set1_ps(m[15]);
-
+	// With perspective divide
 	tw8 = _mm256_mul_ps(x8, m12);
 	tw8 = _mm256_fmadd_ps(y8, m13, tw8);
 	tw8 = _mm256_fmadd_ps(z8, m14, tw8);
@@ -200,36 +180,51 @@ void mulpos_m256(__m256 * restrict ox8, __m256 * restrict oy8,
 	*ox8 = _mm256_div_ps(tx8, tw8);
 	*oy8 = _mm256_div_ps(ty8, tw8);
 	*oz8 = _mm256_div_ps(tz8, tw8);
-#else
+}
+
+void mulpos8(__m256 * restrict ox8, __m256 * restrict oy8,
+             __m256 * restrict oz8,
+             __m256 x8, __m256 y8, __m256 z8,
+             __m256 m0, __m256 m1, __m256 m2, __m256 m3,
+             __m256 m4, __m256 m5, __m256 m6, __m256 m7,
+             __m256 m8, __m256 m9, __m256 m10, __m256 m11)
+{
+	__m256 tx8, ty8, tz8;
+
+	tx8 = _mm256_mul_ps(x8, m0);
+	tx8 = _mm256_fmadd_ps(y8, m1, tx8);
+	tx8 = _mm256_fmadd_ps(z8, m2, tx8);
+	tx8 = _mm256_add_ps(m3, tx8);
+
+	ty8 = _mm256_mul_ps(x8, m4);
+	ty8 = _mm256_fmadd_ps(y8, m5, ty8);
+	ty8 = _mm256_fmadd_ps(z8, m6, ty8);
+	ty8 = _mm256_add_ps(m7, ty8);
+
+	tz8 = _mm256_mul_ps(x8, m8);
+	tz8 = _mm256_fmadd_ps(y8, m9, tz8);
+	tz8 = _mm256_fmadd_ps(z8, m10, tz8);
+	tz8 = _mm256_add_ps(m11, tz8);
+
 	*ox8 = tx8;
 	*oy8 = ty8;
 	*oz8 = tz8;
-#endif
 }
 
-void muldir_m256(__m256 * restrict ox8, __m256 * restrict oy8,
-                 __m256 * restrict oz8,
-                 __m256 x8, __m256 y8, __m256 z8, float m[16])
+void muldir8(__m256 * restrict ox8, __m256 * restrict oy8,
+             __m256 * restrict oz8,
+             __m256 x8, __m256 y8, __m256 z8,
+             __m256 m0, __m256 m1, __m256 m2,
+             __m256 m4, __m256 m5, __m256 m6,
+             __m256 m8, __m256 m9, __m256 m10)
 {
-	__m256 m0 = _mm256_set1_ps(m[0]);
-	__m256 m1 = _mm256_set1_ps(m[1]);
-	__m256 m2 = _mm256_set1_ps(m[2]);
-
 	*ox8 = _mm256_fmadd_ps(z8, m2,
 	  _mm256_fmadd_ps(y8, m1,
 	  _mm256_mul_ps(x8, m0)));
 
-	__m256 m4 = _mm256_set1_ps(m[4]);
-	__m256 m5 = _mm256_set1_ps(m[5]);
-	__m256 m6 = _mm256_set1_ps(m[6]);
-
 	*oy8 = _mm256_fmadd_ps(z8, m6,
 	  _mm256_fmadd_ps(y8, m5,
 	  _mm256_mul_ps(x8, m4)));
-
-	__m256 m8 = _mm256_set1_ps(m[8]);
-	__m256 m9 = _mm256_set1_ps(m[9]);
-	__m256 m10 = _mm256_set1_ps(m[10]);
 
 	*oz8 = _mm256_fmadd_ps(z8, m10,
 	  _mm256_fmadd_ps(y8, m9,
@@ -2363,19 +2358,32 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 			// Transform ray into object space of instance
 			float inv[16];
 			mat4_from3x4(inv, ri->globinv);
+			__m256 m0 = _mm256_set1_ps(inv[0]);
+			__m256 m1 = _mm256_set1_ps(inv[1]);
+			__m256 m2 = _mm256_set1_ps(inv[2]);
+			__m256 m3 = _mm256_set1_ps(inv[3]);
+			__m256 m4 = _mm256_set1_ps(inv[4]);
+			__m256 m5 = _mm256_set1_ps(inv[5]);
+			__m256 m6 = _mm256_set1_ps(inv[6]);
+			__m256 m7 = _mm256_set1_ps(inv[7]);
+			__m256 m8 = _mm256_set1_ps(inv[8]);
+			__m256 m9 = _mm256_set1_ps(inv[9]);
+			__m256 m10 = _mm256_set1_ps(inv[10]);
+			__m256 m11 = _mm256_set1_ps(inv[11]);
 
 			__m256 tox8, toy8, toz8;
-			mulpos_m256(&tox8, &toy8, &toz8, ox8, oy8, oz8, inv);
+			mulpos8(&tox8, &toy8, &toz8, ox8, oy8, oz8,
+			  m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11);
 
 			__m256 tdx8, tdy8, tdz8;
-			muldir_m256(&tdx8, &tdy8, &tdz8, dx8, dy8, dz8, inv);
+			muldir8(&tdx8, &tdy8, &tdz8, dx8, dy8, dz8,
+			  m0, m1, m2, m4, m5, m6, m8, m9, m10);
 
 			if (iscoh3(tdx8, tdy8, tdz8)) {
 				intersect_pckt_blas(t8, u8, v8, id8,
 				  tox8, toy8, toz8, tdx8, tdy8, tdz8, blas,
 				  instid);
 			} else {
-		// TODO Improve?
 				// Trace rays of packet individually
 				for (unsigned char i = 0; i < PCKT_SZ; i++) {
 					intersect_blas(
@@ -2700,16 +2708,31 @@ restart:
 			float inv[16];
 			mat4_from3x4(inv, ri->globinv);
 
+			__m256 m0 = _mm256_set1_ps(inv[0]);
+			__m256 m1 = _mm256_set1_ps(inv[1]);
+			__m256 m2 = _mm256_set1_ps(inv[2]);
+			__m256 m3 = _mm256_set1_ps(inv[3]);
+			__m256 m4 = _mm256_set1_ps(inv[4]);
+			__m256 m5 = _mm256_set1_ps(inv[5]);
+			__m256 m6 = _mm256_set1_ps(inv[6]);
+			__m256 m7 = _mm256_set1_ps(inv[7]);
+			__m256 m8 = _mm256_set1_ps(inv[8]);
+			__m256 m9 = _mm256_set1_ps(inv[9]);
+			__m256 m10 = _mm256_set1_ps(inv[10]);
+			__m256 m11 = _mm256_set1_ps(inv[11]);
+
 			__m256 tox8[pcnt], toy8[pcnt], toz8[pcnt];
 			__m256 tdx8[pcnt], tdy8[pcnt], tdz8[pcnt];
 			unsigned char l = 0; // Last pckt index
 			unsigned char pcmask = 0xff; // Prev coherency mask
 			for (unsigned char j = 0; j < pcnt; j++) {
 				// Transform pckt into object space of instance
-				mulpos_m256(&tox8[j], &toy8[j], &toz8[j],
-				  ox8[j], oy8[j], oz8[j], inv);
-				muldir_m256(&tdx8[j], &tdy8[j], &tdz8[j],
-				  dx8[j], dy8[j], dz8[j], inv);
+				mulpos8(&tox8[j], &toy8[j], &toz8[j],
+				  ox8[j], oy8[j], oz8[j], m0, m1, m2, m3, m4,
+				  m5, m6, m7, m8, m9, m10, m11);
+				muldir8(&tdx8[j], &tdy8[j], &tdz8[j],
+				  dx8[j], dy8[j], dz8[j], m0, m1, m2, m4, m5,
+				  m6, m8, m9, m10);
 				// Check packet coherence
 				unsigned char cmask = 0;
 				if (!iscohval3(&cmask, tdx8[j], tdy8[j],
@@ -2723,7 +2746,6 @@ restart:
 						  &tox8[l], &toy8[l], &toz8[l],
 						  &tdx8[l], &tdy8[l], &tdz8[l],
 						  j - l, blas, instid);
-			// TODO Improve?
 					// Trace rays of last pckt individually
 					float *t = (float *)&t8[j];
 					float *u = (float *)&u8[j];
