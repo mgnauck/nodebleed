@@ -146,6 +146,24 @@ void rend_staticrelease(void)
 	free(mortx);
 }
 
+void mulpos(float *ox, float *oy, float *oz,
+            float m[16], float x, float y, float z)
+{
+	*ox = m[0] * x + m[1] * y + m[2] * z + m[3];
+	*oy = m[4] * x + m[5] * y + m[6] * z + m[7];
+	*oz = m[8] * x + m[9] * y + m[10] * z + m[11];
+
+	// No perspective divide
+}
+
+void muldir(float *ox, float *oy, float *oz,
+            float m[16], float x, float y, float z)
+{
+	*ox = m[0] * x + m[1] * y + m[2] * z;
+	*oy = m[4] * x + m[5] * y + m[6] * z;
+	*oz = m[8] * x + m[9] * y + m[10] * z;
+}
+
 void mulpos8(__m256 * restrict ox8, __m256 * restrict oy8,
              __m256 * restrict oz8,
              __m256 x8, __m256 y8, __m256 z8,
@@ -208,19 +226,19 @@ bool iscoh3(__m256 x8, __m256 y8, __m256 z8)
 	return iscoh(x8) && iscoh(y8) && iscoh(z8);
 }
 
-bool iscohval(unsigned char *bmask, __m256 v8, unsigned char shift)
+bool iscohval(unsigned char *cmask, __m256 v8, unsigned char shift)
 {
-	// bmask is irrelevant if v8 is not coherent
+	// cmask is invalid if v8 is not coherent
 	unsigned char mask = _mm256_movemask_ps(v8);
-	*bmask |= (mask & 1) << shift;
+	*cmask |= (mask & 1) << shift;
 	return abs((~mask & 0xff) - mask) == 0xff;
 }
 
-bool iscohval3(unsigned char *bmask, __m256 x8, __m256 y8, __m256 z8)
+bool iscohval3(unsigned char *cmask, __m256 x8, __m256 y8, __m256 z8)
 {
-	bool res = iscohval(bmask, x8, 0);
-	res &= iscohval(bmask, y8, 1);
-	return res & iscohval(bmask, z8, 2);
+	bool res = iscohval(cmask, x8, 0);
+	res &= iscohval(cmask, y8, 1);
+	return res & iscohval(cmask, z8, 2);
 }
 
 float calc_area(struct vec3 mi, struct vec3 ma)
@@ -2060,11 +2078,12 @@ void intersect_tlas(float *t, float *u, float *v, unsigned int *id,
 		float inv[16];
 		mat4_from3x4(inv, ri->globinv);
 
-		struct vec3 to = mat4_mulpos(inv, (struct vec3){ox, oy, oz});
-		struct vec3 td = mat4_muldir(inv, (struct vec3){dx, dy, dz});
+		float tox, toy, toz, tdx, tdy, tdz;
+		mulpos(&tox, &toy, &toz, inv, ox, oy, oz);
+		muldir(&tdx, &tdy, &tdz, inv, dx, dy, dz);
 
 		float tt = *t;
-		intersect_blas(t, u, v, id, to.x, to.y, to.z, td.x, td.y, td.z,
+		intersect_blas(t, u, v, id, tox, toy, toz, tdx, tdy, tdz,
 		  &nodes[ri->triofs << 1], instid);
 
 		if (*t < tt) {
@@ -2934,11 +2953,12 @@ bool intersect_any_tlas(float tfar, float ox, float oy, float oz, float dx,
 		float inv[16];
 		mat4_from3x4(inv, ri->globinv);
 
-		struct vec3 to = mat4_mulpos(inv, (struct vec3){ox, oy, oz});
-		struct vec3 td = mat4_muldir(inv, (struct vec3){dx, dy, dz});
+		float tox, toy, toz, tdx, tdy, tdz;
+		mulpos(&tox, &toy, &toz, inv, ox, oy, oz);
+		muldir(&tdx, &tdy, &tdz, inv, dx, dy, dz);
 
-		if (intersect_any_blas(tfar, to.x, to.y, to.z, td.x, td.y,
-		  td.z, &nodes[ri->triofs << 1]))
+		if (intersect_any_blas(tfar, tox, toy, toz, tdx, tdy, tdz,
+		  &nodes[ri->triofs << 1]))
 			return true;
 
 		// Pop next node from stack if something is left
@@ -3060,14 +3080,16 @@ struct vec3 calc_nrm(float u, float v, struct rnrm *rn,
 {
 	struct vec3 nrm = vec3_add(vec3_scale(rn->n1, u),
 	  vec3_add(vec3_scale(rn->n2, v), vec3_scale(rn->n0, 1.0f - u - v)));
-	return vec3_unit(mat4_muldir(inv_transpose, nrm));
+	muldir(&nrm.x, &nrm.y, &nrm.z, inv_transpose, nrm.x, nrm.y, nrm.z);
+	return vec3_unit(nrm);
 }
 
 struct vec3 calc_fnrm(struct rtri *t, float inv_transpose[16])
 {
 	struct vec3 nrm = vec3_unit(vec3_cross(vec3_sub(t->v0, t->v1),
 	  vec3_sub(t->v0, t->v2)));
-	return vec3_unit(mat4_muldir(inv_transpose, nrm));
+	muldir(&nrm.x, &nrm.y, &nrm.z, inv_transpose, nrm.x, nrm.y, nrm.z);
+	return vec3_unit(nrm);
 }
 
 void create_onb(struct vec3 *b1, struct vec3 *b2, struct vec3 n)

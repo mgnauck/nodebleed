@@ -110,6 +110,9 @@ void cpy_rdata(struct rdata *rd, struct scene *s)
 	rd->bgcol = s->bgcol;
 }
 
+void mulpos(float *ox, float *oy, float *oz,
+            float m[16], float x, float y, float z);
+
 void upd_rinsts(struct rdata *rd, struct scene *s)
 {
 	for (unsigned int j = 0; j < s->nodecnt; j++) {
@@ -128,19 +131,22 @@ void upd_rinsts(struct rdata *rd, struct scene *s)
 		float *m = t->glob;
 		struct bnode8 *n = &rd->bnodes[ri->triofs << 1];
 
-		struct vec3 nmi = {bcmin8(n->minx8)[0], bcmin8(n->miny8)[0],
-		  bcmin8(n->minz8)[0]};
+		float nmix = bcmin8(n->minx8)[0];
+		float nmiy = bcmin8(n->miny8)[0];
+		float nmiz = bcmin8(n->minz8)[0];
 		  
-		struct vec3 nma = {bcmax8(n->maxx8)[0], bcmax8(n->maxy8)[0],
-		  bcmax8(n->maxz8)[0]};
+		float nmax = bcmax8(n->maxx8)[0];
+		float nmay = bcmax8(n->maxy8)[0];
+		float nmaz = bcmax8(n->maxz8)[0];
 
 		struct vec3 mi = {FLT_MAX, FLT_MAX, FLT_MAX};
 		struct vec3 ma = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
 		for (unsigned char i = 0; i < 8; i++) {
-			struct vec3 v = mat4_mulpos(m, (struct vec3){
-			  i & 1 ? nmi.x : nma.x,
-			  i & 2 ? nmi.y : nma.y,
-			  i & 4 ? nmi.z : nma.z});
+			struct vec3 v;
+			mulpos(&v.x, &v.y, &v.z, m,
+			  i & 1 ? nmix : nmax,
+			  i & 2 ? nmiy : nmay,
+			  i & 4 ? nmiz : nmaz);
 			mi = vec3_min(mi, v);
 			ma = vec3_max(ma, v);
 		}

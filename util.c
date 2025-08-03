@@ -164,6 +164,8 @@ bool anyflags(unsigned int state, unsigned int flags)
 	return (state & flags);
 }
 
+// Code down here is currently not in use
+
 // https://stackoverflow.com/questions/13219146/how-to-sum-m256-horizontally
 float min8(__m256 x8)
 {

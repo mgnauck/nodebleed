@@ -13,10 +13,12 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
-unsigned int        randu(unsigned int *s); // xorshift32
+// xorshift32
+unsigned int        randu(unsigned int *s);
 float               randf(unsigned int *s);
 
-struct rngstate8 { // m256 xorshift128+
+// xorshift128+
+struct rngstate8 {
 	__m256i state0;
 	__m256i state1;
 };
@@ -42,7 +44,7 @@ void                clrflags(unsigned int *state, unsigned int flags);
 bool                hasflags(unsigned int state, unsigned int flags);
 bool                anyflags(unsigned int state, unsigned int flags);
 
-// Broadcasted max m256
+// Broadcasted min/max
 static inline __m256 bcmin8(__m256 a8)
 {
 	// a8 = 7654 3210
