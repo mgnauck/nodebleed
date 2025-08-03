@@ -146,42 +146,6 @@ void rend_staticrelease(void)
 	free(mortx);
 }
 
-void mulpospd8(__m256 * restrict ox8, __m256 * restrict oy8,
-               __m256 * restrict oz8,
-               __m256 x8, __m256 y8, __m256 z8,
-               __m256 m0, __m256 m1, __m256 m2, __m256 m3,
-               __m256 m4, __m256 m5, __m256 m6, __m256 m7,
-               __m256 m8, __m256 m9, __m256 m10, __m256 m11,
-               __m256 m12, __m256 m13, __m256 m14, __m256 m15)
-{
-	__m256 tx8, ty8, tz8, tw8;
-
-	tx8 = _mm256_mul_ps(x8, m0);
-	tx8 = _mm256_fmadd_ps(y8, m1, tx8);
-	tx8 = _mm256_fmadd_ps(z8, m2, tx8);
-	tx8 = _mm256_add_ps(m3, tx8);
-
-	ty8 = _mm256_mul_ps(x8, m4);
-	ty8 = _mm256_fmadd_ps(y8, m5, ty8);
-	ty8 = _mm256_fmadd_ps(z8, m6, ty8);
-	ty8 = _mm256_add_ps(m7, ty8);
-
-	tz8 = _mm256_mul_ps(x8, m8);
-	tz8 = _mm256_fmadd_ps(y8, m9, tz8);
-	tz8 = _mm256_fmadd_ps(z8, m10, tz8);
-	tz8 = _mm256_add_ps(m11, tz8);
-
-	// With perspective divide
-	tw8 = _mm256_mul_ps(x8, m12);
-	tw8 = _mm256_fmadd_ps(y8, m13, tw8);
-	tw8 = _mm256_fmadd_ps(z8, m14, tw8);
-	tw8 = _mm256_add_ps(m15, tw8);
-
-	*ox8 = _mm256_div_ps(tx8, tw8);
-	*oy8 = _mm256_div_ps(ty8, tw8);
-	*oz8 = _mm256_div_ps(tz8, tw8);
-}
-
 void mulpos8(__m256 * restrict ox8, __m256 * restrict oy8,
              __m256 * restrict oz8,
              __m256 x8, __m256 y8, __m256 z8,
