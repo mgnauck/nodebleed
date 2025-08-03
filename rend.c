@@ -728,7 +728,7 @@ void intersect_blas(struct hit *h, struct vec3 ori, struct vec3 dir,
 	unsigned char *ptr = (unsigned char *)blas;
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
-	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
+	// TODO Safer inverse ray dir calc avoiding NANs
 	float idx = 1.0f / dir.x;
 	float idy = 1.0f / dir.y;
 	float idz = 1.0f / dir.z;
@@ -1002,7 +1002,7 @@ void intersect_pckt_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
 	__m256 rz8 = _mm256_mul_ps(oz8, idz8);
 
-	// Calc interval ray (min/max ori/idir)
+	// Calc interval ray bounds min/max ori/idir
 	__m256 miox8 = bcmin8(ox8);
 	__m256 mioy8 = bcmin8(oy8);
 	__m256 mioz8 = bcmin8(oz8);
@@ -1372,6 +1372,9 @@ void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 	__m256i instid8 = _mm256_set1_epi32(instid);
 
+	// Curr max dist of the ray packets to cull the interval ray
+	__m256 maxt8 = bcmax8(t8[0]);
+
 	__m256 idx8[pcnt], idy8[pcnt], idz8[pcnt];
 
 	idx8[0] = _mm256_rcp_ps(dx8[0]);
@@ -1384,7 +1387,7 @@ void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	ry8[0] = _mm256_mul_ps(oy8[0], idy8[0]);
 	rz8[0] = _mm256_mul_ps(oz8[0], idz8[0]);
 
-	// See intersect_pckt_blas for interval arithmetic notes
+	// Calc interval ray bounds min/max ori/idir
 	__m256 miox8 = bcmin8(ox8[0]);
 	__m256 mioy8 = bcmin8(oy8[0]);
 	__m256 mioz8 = bcmin8(oz8[0]);
@@ -1393,6 +1396,9 @@ void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 maoy8 = bcmax8(oy8[0]);
 	__m256 maoz8 = bcmax8(oz8[0]);
 
+	// Use interval arithmetic to precalc values for aabb intersection
+	// a = [ mina, maxa ]
+	// 1 / a = [ 1 / maxa, 1 / mina ] (assuming a does not include 0!)
 	__m256 miidx8 = bcmax8(idx8[0]);
 	__m256 miidy8 = bcmax8(idy8[0]);
 	__m256 miidz8 = bcmax8(idz8[0]);
@@ -1401,9 +1407,9 @@ void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 maidy8 = bcmin8(idy8[0]);
 	__m256 maidz8 = bcmin8(idz8[0]);
 
-	__m256 maxt8 = bcmax8(t8[0]);
+	for (unsigned int i = 1; i < pcnt; i++) { // Repeat for all pckts
+		maxt8 = _mm256_max_ps(maxt8, bcmax8(t8[i]));
 
-	for (unsigned int i = 1; i < pcnt; i++) {
 		idx8[i] = _mm256_rcp_ps(dx8[i]);
 		idy8[i] = _mm256_rcp_ps(dy8[i]);
 		idz8[i] = _mm256_rcp_ps(dz8[i]);
@@ -1412,7 +1418,6 @@ void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 		ry8[i] = _mm256_mul_ps(oy8[i], idy8[i]);
 		rz8[i] = _mm256_mul_ps(oz8[i], idz8[i]);
 
-		// Calc interval ray bounds min/max ori/idir
 		miox8 = _mm256_min_ps(miox8, bcmin8(ox8[i]));
 		maox8 = _mm256_max_ps(maox8, bcmax8(ox8[i]));
 		mioy8 = _mm256_min_ps(mioy8, bcmin8(oy8[i]));
@@ -1420,20 +1425,19 @@ void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 		mioz8 = _mm256_min_ps(mioz8, bcmin8(oz8[i]));
 		maoz8 = _mm256_max_ps(maoz8, bcmax8(oz8[i]));
 
-		// Use interval arithmetic to precalc values for aabb intersect
-		// a = [ mina, maxa ]
-		// 1 / a = [ 1 / maxa, 1 / mina ] (assumes a does not incl 0!)
 		miidx8 = _mm256_max_ps(miidx8, bcmax8(idx8[i]));
 		maidx8 = _mm256_min_ps(maidx8, bcmin8(idx8[i]));
 		miidy8 = _mm256_max_ps(miidy8, bcmax8(idy8[i]));
 		maidy8 = _mm256_min_ps(maidy8, bcmin8(idy8[i]));
 		miidz8 = _mm256_max_ps(miidz8, bcmax8(idz8[i]));
 		maidz8 = _mm256_min_ps(maidz8, bcmin8(idz8[i]));
-
-		// Curr max dist of the ray packets to cull the interval ray
-		maxt8 = _mm256_max_ps(maxt8, bcmax8(t8[i]));
 	}
 
+	// 1. ori * idir =
+	//   [ min(mio * miid, mio * maid, mao * miid, mao * maid),
+	//     max(mio * miid, mio * maid, mao * miid, mao * maid) ]
+	// 2. Negate, so we can add (instead of sub) later on
+	//  -[ mi, ma ] = [ -ma, -mi ]
 	__m256 marx8 = _mm256_xor_ps(sgnmsk8, _mm256_min_ps(
 	  _mm256_mul_ps(miox8, miidx8), _mm256_min_ps(
 	  _mm256_mul_ps(miox8, maidx8), _mm256_min_ps(
@@ -1460,6 +1464,8 @@ void intersect_pckts_blas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	  _mm256_mul_ps(mioz8, maidz8), _mm256_max_ps(
 	  _mm256_mul_ps(maoz8, miidz8), _mm256_mul_ps(maoz8, maidz8)))));
 
+	// Ray dir sign defines how to shift the permutation map
+	// Assumes (primary) rays of this packet are coherent
 	bool dx = !_mm256_movemask_ps(miidx8);
 	bool dy = !_mm256_movemask_ps(miidy8);
 	bool dz = !_mm256_movemask_ps(miidz8);
@@ -1802,7 +1808,7 @@ bool intersect_any_blas(float tfar, struct vec3 ori, struct vec3 dir,
 	unsigned char *ptr = (unsigned char *)blas;
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
-	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
+	// TODO Safer inverse ray dir calc avoiding NANs
 	float idx = 1.0f / dir.x;
 	float idy = 1.0f / dir.y;
 	float idz = 1.0f / dir.z;
@@ -1983,7 +1989,7 @@ void intersect_tlas(struct hit *h, struct vec3 ori, struct vec3 dir,
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
-	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
+	// TODO Safer inverse ray dir calc avoiding NANs
 	float idx = 1.0f / dir.x;
 	float idy = 1.0f / dir.y;
 	float idz = 1.0f / dir.z;
@@ -2162,6 +2168,7 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
+	// Curr max dist of the ray packets to cull the interval ray
 	__m256 maxt8 = bcmax8(*t8);
 
 	__m256 idx8 = _mm256_rcp_ps(dx8);
@@ -2172,7 +2179,7 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 ry8 = _mm256_mul_ps(oy8, idy8);
 	__m256 rz8 = _mm256_mul_ps(oz8, idz8);
 
-	// Calc interval ray (min/max ori/idir)
+	// Calc interval ray bounds min/max ori/idir
 	__m256 miox8 = bcmin8(ox8);
 	__m256 mioy8 = bcmin8(oy8);
 	__m256 mioz8 = bcmin8(oz8);
@@ -2462,6 +2469,9 @@ void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 
 	unsigned char fpi = 0; // First packet index
 
+	// Curr max dist of the ray packets to cull the interval ray
+	__m256 maxt8 = bcmax8(t8[0]);
+
 	__m256 idx8[pcnt], idy8[pcnt], idz8[pcnt];
 
 	idx8[0] = _mm256_rcp_ps(dx8[0]);
@@ -2474,7 +2484,7 @@ void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	ry8[0] = _mm256_mul_ps(oy8[0], idy8[0]);
 	rz8[0] = _mm256_mul_ps(oz8[0], idz8[0]);
 
-	// See intersect_pckt_blas for interval arithmetic notes
+	// Calc interval ray bounds min/max ori/idir
 	__m256 miox8 = bcmin8(ox8[0]);
 	__m256 mioy8 = bcmin8(oy8[0]);
 	__m256 mioz8 = bcmin8(oz8[0]);
@@ -2483,6 +2493,9 @@ void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 maoy8 = bcmax8(oy8[0]);
 	__m256 maoz8 = bcmax8(oz8[0]);
 
+	// Use interval arithmetic to precalc values for aabb intersection
+	// a = [ mina, maxa ]
+	// 1 / a = [ 1 / maxa, 1 / mina ] (assuming a does not include 0!)
 	__m256 miidx8 = bcmax8(idx8[0]);
 	__m256 miidy8 = bcmax8(idy8[0]);
 	__m256 miidz8 = bcmax8(idz8[0]);
@@ -2491,9 +2504,9 @@ void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	__m256 maidy8 = bcmin8(idy8[0]);
 	__m256 maidz8 = bcmin8(idz8[0]);
 
-	__m256 maxt8 = bcmax8(t8[0]);
+	for (unsigned int i = 1; i < pcnt; i++) { // Repeat for all pckts
+		maxt8 = _mm256_max_ps(maxt8, bcmax8(t8[i]));
 
-	for (unsigned int i = 1; i < pcnt; i++) {
 		idx8[i] = _mm256_rcp_ps(dx8[i]);
 		idy8[i] = _mm256_rcp_ps(dy8[i]);
 		idz8[i] = _mm256_rcp_ps(dz8[i]);
@@ -2502,7 +2515,6 @@ void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 		ry8[i] = _mm256_mul_ps(oy8[i], idy8[i]);
 		rz8[i] = _mm256_mul_ps(oz8[i], idz8[i]);
 
-		// Calc interval ray bounds min/max ori/idir
 		miox8 = _mm256_min_ps(miox8, bcmin8(ox8[i]));
 		maox8 = _mm256_max_ps(maox8, bcmax8(ox8[i]));
 		mioy8 = _mm256_min_ps(mioy8, bcmin8(oy8[i]));
@@ -2510,20 +2522,19 @@ void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 		mioz8 = _mm256_min_ps(mioz8, bcmin8(oz8[i]));
 		maoz8 = _mm256_max_ps(maoz8, bcmax8(oz8[i]));
 
-		// Use interval arithmetic to precalc values for aabb intersect
-		// a = [ mina, maxa ]
-		// 1 / a = [ 1 / maxa, 1 / mina ] (assumes a does not incl 0!)
 		miidx8 = _mm256_max_ps(miidx8, bcmax8(idx8[i]));
 		maidx8 = _mm256_min_ps(maidx8, bcmin8(idx8[i]));
 		miidy8 = _mm256_max_ps(miidy8, bcmax8(idy8[i]));
 		maidy8 = _mm256_min_ps(maidy8, bcmin8(idy8[i]));
 		miidz8 = _mm256_max_ps(miidz8, bcmax8(idz8[i]));
 		maidz8 = _mm256_min_ps(maidz8, bcmin8(idz8[i]));
-
-		// Curr max dist of the ray packets to cull the interval ray
-		maxt8 = _mm256_max_ps(maxt8, bcmax8(t8[i]));
 	}
 
+	// 1. ori * idir =
+	//   [ min(mio * miid, mio * maid, mao * miid, mao * maid),
+	//     max(mio * miid, mio * maid, mao * miid, mao * maid) ]
+	// 2. Negate, so we can add (instead of sub) later on
+	//  -[ mi, ma ] = [ -ma, -mi ]
 	__m256 marx8 = _mm256_xor_ps(sgnmsk8, _mm256_min_ps(
 	  _mm256_mul_ps(miox8, miidx8), _mm256_min_ps(
 	  _mm256_mul_ps(miox8, maidx8), _mm256_min_ps(
@@ -2550,6 +2561,8 @@ void intersect_pckts_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 	  _mm256_mul_ps(mioz8, maidz8), _mm256_max_ps(
 	  _mm256_mul_ps(maoz8, miidz8), _mm256_mul_ps(maoz8, maidz8)))));
 
+	// Ray dir sign defines how to shift the permutation map
+	// Assumes (primary) rays of this packet are coherent
 	bool dx = !_mm256_movemask_ps(miidx8);
 	bool dy = !_mm256_movemask_ps(miidy8);
 	bool dz = !_mm256_movemask_ps(miidz8);
@@ -2855,7 +2868,7 @@ bool intersect_any_tlas(float tfar, struct vec3 ori, struct vec3 dir,
 	unsigned char *ptr = (unsigned char *)&nodes[tlasofs];
 	unsigned int ofs = 0; // Offset to curr node or leaf data
 
-	// TODO Safer inverse ray dir calc avoiding NANs due to _mm256_cmp_ps
+	// TODO Safer inverse ray dir calc avoiding NANs
 	float idx = 1.0f / dir.x;
 	float idy = 1.0f / dir.y;
 	float idz = 1.0f / dir.z;
