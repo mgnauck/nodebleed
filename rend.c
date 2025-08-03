@@ -3361,61 +3361,52 @@ void make_camray_pckt(__m256 *ox8, __m256 *oy8, __m256 *oz8,
 	}
 }
 
-// Multiple packets
-void trace_pckts(struct vec3 *col,
-                 __m256 *ox8, __m256 *oy8, __m256 *oz8,
-                 __m256 *dx8, __m256 *dy8, __m256 *dz8,
-		 unsigned char pcnt,
-                 struct rdata *rd, unsigned int *rays)
+void trace_rays(struct vec3 *col, __m256 ox8, __m256 oy8, __m256 oz8,
+                __m256 dx8, __m256 dy8, __m256 dz8, struct rdata *rd,
+                unsigned int *rays)
 {
-	__m256 t8[pcnt], u8[pcnt], v8[pcnt];
-	__m256i id8[pcnt];
+	float *ox = (float *)&ox8;
+	float *oy = (float *)&oy8;
+	float *oz = (float *)&oz8;
+	float *dx = (float *)&dx8;
+	float *dy = (float *)&dy8;
+	float *dz = (float *)&dz8;
 
-	for (unsigned char j = 0; j < pcnt; j++) {
-		t8[j] = _mm256_set1_ps(FLT_MAX);
-	}
+	for (unsigned char k = 0; k < PCKT_SZ; k++) {
 
-	intersect_pckts_tlas(t8, u8, v8, id8, ox8, oy8, oz8, dx8, dy8, dz8,
-	  pcnt, rd->bnodes, rd->insts, rd->tlasofs);
+		float t = FLT_MAX, u, v;
+		unsigned int id;
+		intersect_tlas(&t, &u, &v, &id, *ox++, *oy++, *oz++,
+		  *dx++, *dy++, *dz++, rd->bnodes, rd->insts, rd->tlasofs);
 
-	*rays += pcnt * PCKT_SZ;
+		*rays += 1;
 
-// TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
-	for (unsigned int k = 0; k < pcnt * PCKT_SZ; k++) {
-		float t = ((float *)t8)[k];
-		if (t == FLT_MAX) {
-			col[k] = rd->bgcol;
-			continue;
-		}
+		if (t < FLT_MAX) {
+			unsigned int instid = id & INST_ID_MASK;
+			unsigned int triid = id >> INST_ID_BITS;
+			struct rinst *ri = &rd->insts[instid];
+			struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+			unsigned int mtlid = rn->mtlid;
 
-		float u = ((float *)u8)[k];
-		float v = ((float *)v8)[k];
-		unsigned int id = ((unsigned int *)&id8)[k];
+			// Inverse transpose, dir mul is 3x4
+			float it[16];
+			float *rt = ri->globinv;
+			for (int j = 0; j < 4; j++)
+				for (int i = 0; i < 3; i++)
+					it[4 * j + i] = rt[4 * i + j];
 
-		unsigned int instid = id & INST_ID_MASK;
-		unsigned int triid = id >> INST_ID_BITS;
-		struct rinst *ri = &rd->insts[instid];
-		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
-		unsigned int mtlid = rn->mtlid;
-
-		// Inverse transpose, dir mul is 3x4
-		float it[16];
-		float *rt = ri->globinv;
-		for (unsigned int j = 0; j < 4; j++)
-			for (unsigned int i = 0; i < 3; i++)
-				it[4 * j + i] = rt[4 * i + j];
-
-		struct vec3 nrm = calc_nrm(u, v, rn, it);
-		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
-		col[k] = vec3_mul(nrm, rd->mtls[mtlid].col);
+			struct vec3 nrm = calc_nrm(u, v, rn, it);
+			nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}),
+			  0.5f);
+			*col++ = vec3_mul(nrm, rd->mtls[mtlid].col);
+		} else
+			*col++ = rd->bgcol;
 	}
 }
 
-// Single packet
-void trace_pckt(struct vec3 *col,
-                __m256 ox8, __m256 oy8, __m256 oz8,
-                __m256 dx8, __m256 dy8, __m256 dz8,
-                struct rdata *rd, unsigned int *rays)
+void trace_pckt(struct vec3 *col, __m256 ox8, __m256 oy8, __m256 oz8,
+                __m256 dx8, __m256 dy8, __m256 dz8, struct rdata *rd,
+                unsigned int *rays)
 {
 	__m256 t8, u8, v8;
 	__m256i id8;
@@ -3457,52 +3448,52 @@ void trace_pckt(struct vec3 *col,
 	}
 }
 
-// Trace all rays of packet individually (for comparison only)
-void trace_pckt_ind(struct vec3 *col,
-                    __m256 ox8, __m256 oy8, __m256 oz8,
-                    __m256 dx8, __m256 dy8, __m256 dz8,
-                    struct rdata *rd, unsigned int *rays)
+void trace_pckts(struct vec3 *col, __m256 *ox8, __m256 *oy8, __m256 *oz8,
+                 __m256 *dx8, __m256 *dy8, __m256 *dz8, unsigned char pcnt,
+                 struct rdata *rd, unsigned int *rays)
 {
-	float *ox = (float *)&ox8;
-	float *oy = (float *)&oy8;
-	float *oz = (float *)&oz8;
-	float *dx = (float *)&dx8;
-	float *dy = (float *)&dy8;
-	float *dz = (float *)&dz8;
+	__m256 t8[pcnt], u8[pcnt], v8[pcnt];
+	__m256i id8[pcnt];
 
-	for (unsigned char k = 0; k < PCKT_SZ; k++) {
+	for (unsigned char j = 0; j < pcnt; j++)
+		t8[j] = _mm256_set1_ps(FLT_MAX);
 
-		float t = FLT_MAX, u, v;
-		unsigned int id;
-		intersect_tlas(&t, &u, &v, &id, *ox++, *oy++, *oz++,
-		  *dx++, *dy++, *dz++, rd->bnodes, rd->insts, rd->tlasofs);
+	intersect_pckts_tlas(t8, u8, v8, id8, ox8, oy8, oz8, dx8, dy8, dz8,
+	  pcnt, rd->bnodes, rd->insts, rd->tlasofs);
 
-		*rays += 1;
+	*rays += pcnt * PCKT_SZ;
 
-		if (t < FLT_MAX) {
-			unsigned int instid = id & INST_ID_MASK;
-			unsigned int triid = id >> INST_ID_BITS;
-			struct rinst *ri = &rd->insts[instid];
-			struct rnrm *rn = &rd->nrms[ri->triofs + triid];
-			unsigned int mtlid = rn->mtlid;
+// TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
+	for (unsigned int k = 0; k < pcnt * PCKT_SZ; k++) {
+		float t = ((float *)t8)[k];
+		if (t == FLT_MAX) {
+			col[k] = rd->bgcol;
+			continue;
+		}
 
-			// Inverse transpose, dir mul is 3x4
-			float it[16];
-			float *rt = ri->globinv;
-			for (int j = 0; j < 4; j++)
-				for (int i = 0; i < 3; i++)
-					it[4 * j + i] = rt[4 * i + j];
+		float u = ((float *)u8)[k];
+		float v = ((float *)v8)[k];
+		unsigned int id = ((unsigned int *)&id8)[k];
 
-			struct vec3 nrm = calc_nrm(u, v, rn, it);
-			nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}),
-			  0.5f);
-			*col++ = vec3_mul(nrm, rd->mtls[mtlid].col);
-		} else
-			*col++ = rd->bgcol;
+		unsigned int instid = id & INST_ID_MASK;
+		unsigned int triid = id >> INST_ID_BITS;
+		struct rinst *ri = &rd->insts[instid];
+		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+		unsigned int mtlid = rn->mtlid;
+
+		// Inverse transpose, dir mul is 3x4
+		float it[16];
+		float *rt = ri->globinv;
+		for (unsigned int j = 0; j < 4; j++)
+			for (unsigned int i = 0; i < 3; i++)
+				it[4 * j + i] = rt[4 * i + j];
+
+		struct vec3 nrm = calc_nrm(u, v, rn, it);
+		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
+		col[k] = vec3_mul(nrm, rd->mtls[mtlid].col);
 	}
 }
 
-// Accumulate single packet
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                 unsigned int pckt, unsigned int bx, unsigned int by,
                 unsigned int w, float invspp)
@@ -3522,33 +3513,22 @@ void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 	}
 }
 
-#define MULTIPLE_PCKTS
-//#define SINGLE_PCKT
-//#define NO_PCKTS
-
-#ifdef MULTIPLE_PCKTS
-
 void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                  unsigned int pstart, unsigned int pcnt,
                  unsigned int bx, unsigned int by, unsigned int w,
                  float invspp)
 {
 	for (unsigned int k = pstart; k < pstart + pcnt; k++) {
-		unsigned int x = bx + mortx[k] * PCKT_W;
-		unsigned int y = by + morty[k] * PCKT_H;
-		for (unsigned int j = 0; j < PCKT_H; j++) {
-			for (unsigned int i = 0; i < PCKT_W; i++) {
-				unsigned int ofs = w * (y + j) + (x + i);
-				acc[ofs] = vec3_add(acc[ofs], *col++);
-				struct vec3 c = vec3_scale(acc[ofs], invspp);
-				buf[ofs] = 0xffu << 24 |
-				  ((unsigned int)(255 * c.x) & 0xff) << 16 |
-				  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
-				  ((unsigned int)(255 * c.z) & 0xff);
-			}
-		}
+		accum_pckt(acc, buf, col, k, bx, by, w, invspp);
+		col += PCKT_SZ;
 	}
 }
+
+#define MULTIPLE_PCKTS
+//#define SINGLE_PCKT
+//#define NO_PCKTS
+
+#ifdef MULTIPLE_PCKTS
 
 int rend_render(void *d)
 {
@@ -3608,10 +3588,8 @@ int rend_render(void *d)
 					}
 					// Trace rays of last pckt individually
 					// because it was incoherent
-					trace_pckt_ind(col,
-					  ox8[j], oy8[j], oz8[j],
-					  dx8[j], dy8[j], dz8[j],
-					  rd, &rays);
+					trace_rays(col, ox8[j], oy8[j], oz8[j],
+					  dx8[j], dy8[j], dz8[j], rd, &rays);
 					accum_pckt(rd->acc, rd->buf, col,
 					  k + j, bx, by, w, invspp);
 
@@ -3694,8 +3672,8 @@ int rend_render(void *d)
 				trace_pckt(col, ox8, oy8, oz8, dx8, dy8, dz8,
 				  rd, &rays);
 			else
-				trace_pckt_ind(col, ox8, oy8, oz8, dx8, dy8,
-				  dz8, rd, &rays);
+				trace_rays(col, ox8, oy8, oz8, dx8, dy8, dz8,
+				  rd, &rays);
 			accum_pckt(rd->acc, rd->buf, col, j, bx, by, w,
 			  invspp);
 		}
@@ -3744,8 +3722,8 @@ int rend_render(void *d)
 			  &ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
 			  bx + mortx[j] * PCKT_W, by + morty[j] * PCKT_H,
 			  &rd->cam, &rngstate);
-			trace_pckt_ind(col, ox8, oy8, oz8, dx8, dy8, dz8,
-			  rd, &rays);
+			trace_rays(col, ox8, oy8, oz8, dx8, dy8, dz8, rd,
+			  &rays);
 			accum_pckt(rd->acc, rd->buf, col, j, bx, by, w,
 			  invspp);
 		}
