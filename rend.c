@@ -2983,6 +2983,7 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 	// Bvh nodes for blas and tlas
 	rd->bnodes = aligned_alloc(64, 2 * (maxtris + maxinsts)
 	  * sizeof(*rd->bnodes));
+	memset(rd->bnodes, 0, 2 * (maxtris + maxinsts) * sizeof(*rd->bnodes));
 
 	// Start of tlas nodes
 	rd->tlasofs = 2 * maxtris;

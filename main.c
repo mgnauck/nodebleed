@@ -208,6 +208,7 @@ void cam_setdir(struct cam *c, struct vec3 dir)
 void init(struct scene *s, struct rdata *rd)
 {
 	//import_file_gltf(s, "../data/animcube.gltf");
+	//import_file_gltf(s, "../data/coordsys.gltf");
 	//import_file_gltf(s, "../data/suzy.gltf");
 	//import_file_gltf(s, "../data/sponza.gltf");
 	//import_file_gltf(s, "../data/toycar.gltf");
