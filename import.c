@@ -24,7 +24,7 @@
 #define abort(...) exit(1);
 #endif
 
-void *mmread(const char *relpathname, unsigned long long *sz)
+void *mmread(char *relpathname, unsigned long long *sz)
 {
 	int fd = open(relpathname, O_RDONLY);
 	if (fd < 0)
@@ -46,6 +46,48 @@ void *mmread(const char *relpathname, unsigned long long *sz)
 
 	*sz = st.st_size;
 	return buf;
+}
+
+unsigned char *rduchar(unsigned char *v, unsigned char *b)
+{
+	unsigned long long sz = sizeof(*v);
+	memcpy(v, b, sz);
+	return b + sz;
+}
+
+unsigned char *rdushort(unsigned short *v, unsigned char *b)
+{
+	unsigned long long sz = sizeof(*v);
+	memcpy(v, b, sz);
+	return b + sz;
+}
+
+unsigned char *rduint(unsigned int *v, unsigned char *b)
+{
+	unsigned long long sz = sizeof(*v);
+	memcpy(v, b, sz);
+	return b + sz;
+}
+
+unsigned char *rdint(int *v, unsigned char *b)
+{
+	unsigned long long sz = sizeof(*v);
+	memcpy(v, b, sz);
+	return b + sz;
+}
+
+unsigned char *rdfloat(float *v, unsigned char *b)
+{
+	unsigned long long sz = sizeof(*v);
+	memcpy(v, b, sz);
+	return b + sz;
+}
+
+unsigned char *rdvec3(struct vec3 *v, unsigned char *b)
+{
+	unsigned long long sz = sizeof(*v);
+	memcpy(v, b, sz);
+	return b + sz;
 }
 
 unsigned int getmtlflags(struct gltfmtl *gm)
@@ -79,7 +121,7 @@ void import_mtl(struct scene *s, struct gltfmtl *gm)
 }
 
 void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
-                 const unsigned char *bin)
+                 unsigned char *bin)
 {
 	// Sum number of indices and vertices of each primitive
 	unsigned int icnt = 0, vcnt = 0;
@@ -140,26 +182,23 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		// Read indices
 		struct gltfbufview *ibv = &g->bufviews[iacc->bufview];
 		unsigned int *ip = m->inds + m->icnt;
-		const unsigned char *bi = bin + ibv->byteofs + iacc->byteofs;
+		unsigned char *bi = bin + ibv->byteofs + iacc->byteofs;
 		if (iacc->comptype == 5121) {
 			unsigned char v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
-				memcpy(&v, bi, sizeof(v));
-				bi += sizeof(v);
+				bi = rduchar(&v, bi);
 				*ip++ = m->vcnt + v;
 			}
 		} else if (iacc->comptype == 5123) {
 			unsigned short v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
-				memcpy(&v, bi, sizeof(v));
-				bi += sizeof(v);
+				bi = rdushort(&v, bi);
 				*ip++ = m->vcnt + v;
 			}
 		} else if(iacc->comptype == 5125) {
 			unsigned int v;
 			for (unsigned int i = 0; i < iacc->cnt; i++) {
-				memcpy(&v, bi, sizeof(v));
-				bi += sizeof(v);
+				bi = rduint(&v, bi);
 				*ip++ = m->vcnt + v;
 			}
 		} else {
@@ -171,29 +210,16 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 		// Read vertices and normals
 		struct vec3 *vp = m->vrts + m->vcnt;
 		struct vec3 *np = m->nrms + m->vcnt;
-		const unsigned char *bv = bin + vbv->byteofs + vacc->byteofs;
-		const unsigned char *bn = bin + nbv->byteofs + nacc->byteofs;
+		unsigned char *bv = bin + vbv->byteofs + vacc->byteofs;
+		unsigned char *bn = bin + nbv->byteofs + nacc->byteofs;
 		// Stride applies only to vertex attributes
 		int vec3sz = sizeof(vp->x) + sizeof(vp->y) + sizeof(vp->z);
 		unsigned int vstride = max(0, (int)vbv->bytestride - vec3sz); 
 		unsigned int nstride = max(0, (int)nbv->bytestride - vec3sz); 
 		for (unsigned int i = 0; i < vacc->cnt; i++) {
-			memcpy(&vp->x, bv, sizeof(vp->x));
-			bv += sizeof(vp->x);
-			memcpy(&vp->y, bv, sizeof(vp->y));
-			bv += sizeof(vp->y);
-			memcpy(&vp->z, bv, sizeof(vp->z));
-			bv += sizeof(vp->z);
-			bv += vstride; // Advance remains from stride
+			bv = rdvec3(vp, bv) + vstride;
 			vp++;
-
-			memcpy(&np->x, bn, sizeof(np->x));
-			bn += sizeof(np->x);
-			memcpy(&np->y, bn, sizeof(np->y));
-			bn += sizeof(np->y);
-			memcpy(&np->z, bn, sizeof(np->z));
-			bn += sizeof(np->z);
-			bn += nstride;
+			bn = rdvec3(np, bn) + nstride;
 			np++;
 		}
 		m->vcnt += vacc->cnt;
@@ -299,8 +325,8 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 	}
 }
 
-void import_gltf(struct scene *s, const char *gltfbuf,
-                 const unsigned char *binbuf)
+void import_gltf(struct scene *s, char *gltfbuf,
+                 unsigned char *binbuf)
 {
 	struct gltf g = { 0 };
 	if (gltf_init(&g, gltfbuf) != 0)
