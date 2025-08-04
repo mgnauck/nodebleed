@@ -432,11 +432,68 @@ void import_file_gltf(struct scene *s, char *name)
 	munmap(gltf, gltfsz);
 }
 
-void import_bkse(struct scene *s, unsigned char *bkse)
+void import_bkse(struct scene *s, unsigned char *bin)
 {
-	// Placeholder, avoid warning
-	bkse = (unsigned char *)s;
-	s = (struct scene *)bkse;
+	printf("- bkse ----\n");
+
+	unsigned char *b = bin;
+	unsigned int dummy;
+
+	unsigned int nodecnt;
+	b = rduint(&nodecnt, b);
+	printf("nodecnt: %d\n", nodecnt);
+
+	unsigned int meshcnt;
+	b = rduint(&meshcnt, b);
+	printf("meshcnt: %d\n", meshcnt);
+
+	unsigned int camcnt;
+	b = rduint(&camcnt, b);
+	printf("camcnt: %d\n", camcnt);
+
+	b = rduint(&dummy, b); // Light cnt
+
+	unsigned int mtlcnt;
+	b = rduint(&mtlcnt, b);
+	printf("mtlcnt: %d\n", mtlcnt);
+
+	unsigned int facegcnt;
+	b = rduint(&facegcnt, b);
+	printf("facegrpcnt: %d\n", facegcnt);
+
+	unsigned int vertgcnt;
+	b = rduint(&vertgcnt, b);
+	printf("vertexgrpcnt: %d\n", vertgcnt);
+
+	unsigned int nrmgcnt;
+	b = rduint(&nrmgcnt, b);
+	printf("nrmgrpcnt: %d\n", nrmgcnt);
+
+	unsigned int trackcnt;
+	b = rduint(&trackcnt, b);
+	printf("trackcnt: %d\n", trackcnt);
+
+	unsigned int animstartframe;
+	b = rduint(&animstartframe, b);
+	printf("animstartframe: %d\n", animstartframe);
+
+	unsigned int animendframe;
+	b = rduint(&animendframe, b);
+	printf("animendframe: %d\n", animendframe);
+
+	unsigned int animsmplstep;
+	b = rduint(&animsmplstep, b);
+	printf("animsmplstep: %d\n", animsmplstep);
+
+	float animscenefps;
+	b = rdfloat(&animscenefps, b);
+	printf("animscenefps: %6.3f\n", animscenefps);
+
+	float animfps;
+	b = rdfloat(&animfps, b);
+	printf("animfps: %6.3f\n", animfps);
+
+	printf("- eskb ----\n");
 }
 
 void import_file_bkse(struct scene *s, char *name)
