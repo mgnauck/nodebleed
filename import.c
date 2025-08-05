@@ -337,7 +337,7 @@ void import_gltf(struct scene *s, char *gltfbuf,
 
 	unsigned int animacc[g.accessorcnt]; // Anim data accessors
 	for (unsigned int i = 0; i < g.accessorcnt; i++)
-		animacc[0] = 0;
+		animacc[i] = 0;
 
 	unsigned int scnt = 0, tcnt = 0;
 	for (unsigned int j = 0; j < g.animcnt; j++) {
@@ -347,7 +347,8 @@ void import_gltf(struct scene *s, char *gltfbuf,
 		// Create a list of accessors which reference animation data
 		for (unsigned int i = 0; i < a->samplercnt; i++) {
 			struct gltfsampler *sa = &a->samplers[i];
-			animacc[sa->input] = 1; // Will replace by data ofs later
+			// Will replace by data ofs later
+			animacc[sa->input] = 1;
 			animacc[sa->output] = 1;
 		}
 	}
@@ -360,6 +361,8 @@ void import_gltf(struct scene *s, char *gltfbuf,
 
 	scene_init(s, g.meshcnt, max(1, g.mtlcnt), max(1, g.camcnt),
 	  1 + g.nodecnt, tcnt, scnt, animbytes);
+
+	printf(">>>>>>>> animbytes: %d\n", animbytes);
 
 	for (unsigned int i = 0; i < g.mtlcnt; i++)
 		import_mtl(s, &g.mtls[i]);
