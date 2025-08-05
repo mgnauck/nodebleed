@@ -208,10 +208,11 @@ void cam_setdir(struct cam *c, struct vec3 dir)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	// TEMP
+	/*// TEMP
 	struct scene ts = {0};
 	imp_bin_f(&ts, "../data/coordsys.bkse.bin");
 	scene_release(&ts);
+	//*/
 
 	//imp_gltf_f(s, "../data/animcube.gltf");
 	//imp_gltf_f(s, "../data/coordsys.gltf");
