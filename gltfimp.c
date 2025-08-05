@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "gltf.h"
-#include "import.h"
+#include "gltfimp.h"
 #include "mat4.h"
 #include "scene.h"
 #include "util.h"
@@ -24,7 +24,7 @@
 #define abort(...) exit(1);
 #endif
 
-void *mmread(char *relpathname, unsigned long long *sz)
+static void *mmread(char *relpathname, unsigned long long *sz)
 {
 	int fd = open(relpathname, O_RDONLY);
 	if (fd < 0)
@@ -48,42 +48,44 @@ void *mmread(char *relpathname, unsigned long long *sz)
 	return buf;
 }
 
-unsigned char *rduchar(unsigned char *v, unsigned char *b)
+static unsigned char *rduchar(unsigned char *v, unsigned char *b)
 {
 	unsigned long long sz = sizeof(*v);
 	memcpy(v, b, sz);
 	return b + sz;
 }
 
-unsigned char *rdushort(unsigned short *v, unsigned char *b)
+static unsigned char *rdushort(unsigned short *v, unsigned char *b)
 {
 	unsigned long long sz = sizeof(*v);
 	memcpy(v, b, sz);
 	return b + sz;
 }
 
-unsigned char *rduint(unsigned int *v, unsigned char *b)
+static unsigned char *rduint(unsigned int *v, unsigned char *b)
 {
 	unsigned long long sz = sizeof(*v);
 	memcpy(v, b, sz);
 	return b + sz;
 }
 
-unsigned char *rdint(int *v, unsigned char *b)
+/*
+static unsigned char *rdint(int *v, unsigned char *b)
 {
 	unsigned long long sz = sizeof(*v);
 	memcpy(v, b, sz);
 	return b + sz;
 }
 
-unsigned char *rdfloat(float *v, unsigned char *b)
+static unsigned char *rdfloat(float *v, unsigned char *b)
 {
 	unsigned long long sz = sizeof(*v);
 	memcpy(v, b, sz);
 	return b + sz;
 }
+*/
 
-unsigned char *rdvec3(struct vec3 *v, unsigned char *b)
+static unsigned char *rdvec3(struct vec3 *v, unsigned char *b)
 {
 	unsigned long long sz = sizeof(*v);
 	memcpy(v, b, sz);
@@ -100,12 +102,12 @@ unsigned int getmtlflags(struct gltfmtl *gm)
 	return flags;
 }
 
-void import_cam(struct scene *s, struct gltfcam *gc)
+void imp_cam(struct scene *s, struct gltfcam *gc)
 {
 	scene_initcam(s, gc->name, gc->vfov * 180.0f / PI, 10.0f, 0.0f, -1);
 }
 
-void import_mtl(struct scene *s, struct gltfmtl *gm)
+void imp_mtl(struct scene *s, struct gltfmtl *gm)
 {
 	int id = scene_initmtl(s, gm->name,
 	  (struct vec3){gm->col[0], gm->col[1], gm->col[2]});
@@ -120,7 +122,7 @@ void import_mtl(struct scene *s, struct gltfmtl *gm)
 		  gm->emission[0], gm->emission[1], gm->emission[2]};
 }
 
-void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
+void imp_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
                  unsigned char *bin)
 {
 	// Sum number of indices and vertices of each primitive
@@ -239,7 +241,7 @@ void import_mesh(struct scene *s, struct gltfmesh *gm, struct gltf *g,
 	}
 }
 
-void import_nodes(struct scene *s, unsigned int *nmap, struct gltfnode *nodes,
+void imp_nodes(struct scene *s, unsigned int *nmap, struct gltfnode *nodes,
                   unsigned int id, int prntid)
 {
 	struct gltfnode *n = &nodes[id];
@@ -268,10 +270,10 @@ void import_nodes(struct scene *s, unsigned int *nmap, struct gltfnode *nodes,
 	nmap[id] = nid;
 
 	for (unsigned int i = 0; i < n->childcnt; i++)
-		import_nodes(s, nmap, nodes, n->children[i], nid);
+		imp_nodes(s, nmap, nodes, n->children[i], nid);
 }
 
-void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
+void imp_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
                  unsigned int *nmap, unsigned int *accmap)
 {
 	unsigned int sofs = s->samplercnt; // Sampler offset
@@ -325,8 +327,7 @@ void import_anim(struct scene *s, struct gltfanim *a, struct gltf *g,
 	}
 }
 
-void import_gltf(struct scene *s, char *gltfbuf,
-                 unsigned char *binbuf)
+void imp_gltf(struct scene *s, char *gltfbuf, unsigned char *binbuf)
 {
 	struct gltf g = { 0 };
 	if (gltf_init(&g, gltfbuf) != 0)
@@ -362,10 +363,8 @@ void import_gltf(struct scene *s, char *gltfbuf,
 	scene_init(s, g.meshcnt, max(1, g.mtlcnt), max(1, g.camcnt),
 	  1 + g.nodecnt, tcnt, scnt, animbytes);
 
-	printf(">>>>>>>> animbytes: %d\n", animbytes);
-
 	for (unsigned int i = 0; i < g.mtlcnt; i++)
-		import_mtl(s, &g.mtls[i]);
+		imp_mtl(s, &g.mtls[i]);
 
 	if (g.mtlcnt == 0) {
 		dprintf("Found no materials. Creating default material.\n");
@@ -373,7 +372,7 @@ void import_gltf(struct scene *s, char *gltfbuf,
 	}
 
 	for (unsigned int i = 0; i < g.camcnt; i++)
-		import_cam(s, &g.cams[i]);
+		imp_cam(s, &g.cams[i]);
 
 	if (g.camcnt == 0) {
 		dprintf("Found no cameras. Creating default cam using transform of node 0.\n");
@@ -381,7 +380,7 @@ void import_gltf(struct scene *s, char *gltfbuf,
 	}
 
 	for (unsigned int i = 0; i < g.meshcnt; i++)
-		import_mesh(s, &g.meshes[i], &g, binbuf);
+		imp_mesh(s, &g.meshes[i], &g, binbuf);
 
 	// Create single scene root node at id 0
 	float ro[4] = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -393,7 +392,7 @@ void import_gltf(struct scene *s, char *gltfbuf,
 
 	unsigned int nodemap[g.nodecnt];
 	for (unsigned int i = 0; i < g.rootcnt; i++)
-		import_nodes(s, nodemap, g.nodes, g.roots[i], /* root */ 0);
+		imp_nodes(s, nodemap, g.nodes, g.roots[i], /* root */ 0);
 
 	// Copy raw animation data and map anim accessor to data ofs
 	unsigned int ofs = 0; // In bytes
@@ -408,12 +407,12 @@ void import_gltf(struct scene *s, char *gltfbuf,
 		}
 
 	for (unsigned int i = 0; i < g.animcnt; i++)
-		import_anim(s, &g.anims[i], &g, nodemap, animacc);
+		imp_anim(s, &g.anims[i], &g, nodemap, animacc);
 
 	gltf_release(&g);
 }
 
-void import_file_gltf(struct scene *s, char *name)
+void imp_gltf_f(struct scene *s, char *name)
 {
 	unsigned long long gltfsz;
 	char *gltf = mmread(name, &gltfsz);
@@ -429,82 +428,8 @@ void import_file_gltf(struct scene *s, char *name)
 	unsigned long long binsz;
 	unsigned char *bin = mmread(binname, &binsz);
 
-	import_gltf(s, gltf, bin);
+	imp_gltf(s, gltf, bin);
 
 	munmap(bin, binsz);
 	munmap(gltf, gltfsz);
-}
-
-void import_bkse(struct scene *s, unsigned char *bin)
-{
-	printf("- bkse ----\n");
-
-	unsigned char *b = bin;
-	unsigned int dummy;
-
-	unsigned int nodecnt;
-	b = rduint(&nodecnt, b);
-	printf("nodecnt: %d\n", nodecnt);
-
-	unsigned int meshcnt;
-	b = rduint(&meshcnt, b);
-	printf("meshcnt: %d\n", meshcnt);
-
-	unsigned int camcnt;
-	b = rduint(&camcnt, b);
-	printf("camcnt: %d\n", camcnt);
-
-	b = rduint(&dummy, b); // Light cnt
-
-	unsigned int mtlcnt;
-	b = rduint(&mtlcnt, b);
-	printf("mtlcnt: %d\n", mtlcnt);
-
-	unsigned int facegcnt;
-	b = rduint(&facegcnt, b);
-	printf("facegrpcnt: %d\n", facegcnt);
-
-	unsigned int vertgcnt;
-	b = rduint(&vertgcnt, b);
-	printf("vertexgrpcnt: %d\n", vertgcnt);
-
-	unsigned int nrmgcnt;
-	b = rduint(&nrmgcnt, b);
-	printf("nrmgrpcnt: %d\n", nrmgcnt);
-
-	unsigned int trackcnt;
-	b = rduint(&trackcnt, b);
-	printf("trackcnt: %d\n", trackcnt);
-
-	unsigned int animstartframe;
-	b = rduint(&animstartframe, b);
-	printf("animstartframe: %d\n", animstartframe);
-
-	unsigned int animendframe;
-	b = rduint(&animendframe, b);
-	printf("animendframe: %d\n", animendframe);
-
-	unsigned int animsmplstep;
-	b = rduint(&animsmplstep, b);
-	printf("animsmplstep: %d\n", animsmplstep);
-
-	float animscenefps;
-	b = rdfloat(&animscenefps, b);
-	printf("animscenefps: %6.3f\n", animscenefps);
-
-	float animfps;
-	b = rdfloat(&animfps, b);
-	printf("animfps: %6.3f\n", animfps);
-
-	printf("- eskb ----\n");
-}
-
-void import_file_bkse(struct scene *s, char *name)
-{
-	unsigned long long sz;
-	unsigned char *bkse = mmread(name, &sz);
-
-	import_bkse(s, bkse);
-
-	munmap(bkse, sz);
 }

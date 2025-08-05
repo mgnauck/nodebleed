@@ -10,7 +10,8 @@
 #include <math.h>
 #include <float.h>
 
-#include "import.h"
+#include "binimp.h"
+#include "gltfimp.h"
 #include "mat4.h"
 #include "rend.h"
 #include "scene.h"
@@ -207,14 +208,17 @@ void cam_setdir(struct cam *c, struct vec3 dir)
 
 void init(struct scene *s, struct rdata *rd)
 {
-	import_file_bkse(s, "../data/coordsys.bkse.bin");
+	// TEMP
+	struct scene ts = {0};
+	imp_bin_f(&ts, "../data/coordsys.bkse.bin");
+	scene_release(&ts);
 
-	//import_file_gltf(s, "../data/animcube.gltf");
-	//import_file_gltf(s, "../data/coordsys.gltf");
-	//import_file_gltf(s, "../data/suzy.gltf");
-	//import_file_gltf(s, "../data/sponza.gltf");
-	//import_file_gltf(s, "../data/toycar.gltf");
-	import_file_gltf(s, "../raynin/data/good_7.gltf");
+	//imp_gltf_f(s, "../data/animcube.gltf");
+	//imp_gltf_f(s, "../data/coordsys.gltf");
+	//imp_gltf_f(s, "../data/suzy.gltf");
+	//imp_gltf_f(s, "../data/sponza.gltf");
+	//imp_gltf_f(s, "../data/toycar.gltf");
+	imp_gltf_f(s, "../raynin/data/good_7.gltf");
 
 	assert(s);
 

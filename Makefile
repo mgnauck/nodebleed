@@ -1,5 +1,5 @@
 .POSIX:
-OBJ = gltf.o import.o main.o mat4.o rend.o scene.o util.o vec3.o
+OBJ = binimp.o gltf.o gltfimp.o main.o mat4.o rend.o scene.o util.o vec3.o
 OUT = a.out
 CC = clang
 CFLAGS = -std=c11 -mavx2 -mfma -O3 -Wall -Wextra -Wpedantic -Wshadow
