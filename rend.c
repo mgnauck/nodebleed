@@ -3472,17 +3472,41 @@ void trace_pckts(struct vec3 *col, __m256 *ox8, __m256 *oy8, __m256 *oz8,
 
 	*rays += pcnt * PCKT_SZ;
 
+	//float *ox = (float *)ox8;
+	//float *oy = (float *)oy8;
+	//float *oz = (float *)oz8;
+
+	//float *dx = (float *)dx8;
+	//float *dy = (float *)dy8;
+	//float *dz = (float *)dz8;
+
+	float *tp = (float *)t8;
+	float *up = (float *)u8;
+	float *vp = (float *)v8;
+	unsigned int *idp = (unsigned int *)id8;
+
+	struct vec3 *c = col;
+
 // TODO Think about evaluation/shade calc for full package? Bitscan hitmask?
 	for (unsigned int k = 0; k < pcnt * PCKT_SZ; k++) {
-		float t = ((float *)t8)[k];
+		float t = *tp++;
 		if (t == FLT_MAX) {
-			col[k] = rd->bgcol;
+			//ox++;
+			//oy++;
+			//oz++;
+			//dx++;
+			//dy++;
+			//dz++;
+			up++;
+			vp++;
+			idp++;
+			*c++ = rd->bgcol;
 			continue;
 		}
 
-		float u = ((float *)u8)[k];
-		float v = ((float *)v8)[k];
-		unsigned int id = ((unsigned int *)&id8)[k];
+		float u = *up++;
+		float v = *vp++;
+		unsigned int id = *idp++;
 
 		unsigned int instid = id & INST_ID_MASK;
 		unsigned int triid = id >> INST_ID_BITS;
@@ -3498,8 +3522,12 @@ void trace_pckts(struct vec3 *col, __m256 *ox8, __m256 *oy8, __m256 *oz8,
 				it[4 * j + i] = rt[4 * i + j];
 
 		struct vec3 nrm = calc_nrm(u, v, rn, it);
+
+		//struct vec3 o = {*ox++, *oy++, *oz++};
+		//struct vec3 d = {*dx++, *dy++, *dz++};
+
 		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
-		col[k] = vec3_mul(nrm, rd->mtls[mtlid].col);
+		*c++ = vec3_mul(nrm, rd->mtls[mtlid].col);
 	}
 }
 
