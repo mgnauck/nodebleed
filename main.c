@@ -20,8 +20,6 @@
 #define WIDTH    1920
 #define HEIGHT   960
 
-#define SPP  1
-
 #define CAMMOV   0.800
 #define CAMLOOK  0.025
 

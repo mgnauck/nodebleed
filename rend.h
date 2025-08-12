@@ -4,6 +4,8 @@
 #include <immintrin.h>
 #include "vec3.h"
 
+#define SPP 1
+
 #define BRANCH_MAX     8 // Child nodes
 #define BLAS_LEAF_MAX  4 // Tris
 #define TLAS_LEAF_MAX  1 // Instances

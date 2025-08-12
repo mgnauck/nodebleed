@@ -31,6 +31,20 @@
 #define PCKT_H     2
 #define PCKT_SZ    8
 
+#if SPP == 1
+	#define PIX_PER_PCKT_W    4  // Linked to pckt pixel ofs (pcktxofs8)
+	#define PIX_PER_PCKT_H    2
+	#define PIX_PER_PCKT      8
+#elif SPP == 2
+	#define PIX_PER_PCKT_W    2
+	#define PIX_PER_PCKT_H    2
+	#define PIX_PER_PCKT      4
+#elif SPP == 8
+	#define PIX_PER_PCKT_W    1
+	#define PIX_PER_PCKT_H    1
+	#define PIX_PER_PCKT      1
+#endif
+
 #define MAX_PCKTS  16 // Max number of packets we intersect at once
 
 // Bits for node ofs, first packet index and child num (multiple pckts only)
@@ -113,9 +127,17 @@ void rend_staticinit(unsigned int bszx, unsigned int bszy)
 	// Default child nums/lanes (will be ordered, masked and compressed)
 	defchildnum8 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
 
-	// Packet position ofs (assuming 4x2)
+	// Packet pixel position ofs (assuming 4x2)
+#if SPP == 1
 	pcktxofs8 = _mm256_set_ps(3, 2, 1, 0, 3, 2, 1, 0);
 	pcktyofs8 = _mm256_set_ps(1, 1, 1, 1, 0, 0, 0, 0);
+#elif SPP == 2
+	pcktxofs8 = _mm256_set_ps(1, 1, 0, 0, 1, 1, 0, 0);
+	pcktyofs8 = _mm256_set_ps(1, 1, 1, 1, 0, 0, 0, 0);
+#elif SPP == 8
+	pcktxofs8 = _mm256_set1_ps(0);
+	pcktyofs8 = _mm256_set1_ps(0);
+#endif
 
 	// Default values 4 and 8 lanes
 	sgnmsk8 = _mm256_set1_ps(-0.0f);
@@ -130,7 +152,7 @@ void rend_staticinit(unsigned int bszx, unsigned int bszy)
 	blkszx = bszx;
 	blkszy = bszy;
 
-	blkpcktcnt = bszx * bszy / PCKT_SZ;
+	blkpcktcnt = bszx * bszy / PIX_PER_PCKT;
 
 	mortx = malloc(blkpcktcnt * sizeof(*mortx));
 	morty = malloc(blkpcktcnt * sizeof(*morty));
@@ -2368,14 +2390,20 @@ void intersect_pckt_tlas(__m256 *t8, __m256 *u8, __m256 *v8, __m256i *id8,
 				  instid);
 			} else {
 				// Trace rays of packet individually
+				float *t = (float *)t8;
+				float *u = (float *)u8;
+				float *v = (float *)v8;
+				unsigned int *id = (unsigned int *)id8;
+				float *tox = (float *)&tox8;
+				float *toy = (float *)&toy8;
+				float *toz = (float *)&toz8;
+				float *tdx = (float *)&tdx8;
+				float *tdy = (float *)&tdy8;
+				float *tdz = (float *)&tdz8;
 				for (unsigned char i = 0; i < PCKT_SZ; i++) {
-					intersect_blas(
-					  &((float *)t8)[i],
-					  &((float *)u8)[i],
-					  &((float *)v8)[i],
-					  &((unsigned int *)id8)[i],
-					  tox8[i], toy8[i], toz8[i],
-					  tdx8[i], tdy8[i], tdz8[i],
+					intersect_blas(t++, u++, v++, id++,
+					  *tox++, *toy++, *toz++,
+					  *tdx++, *tdy++, *tdz++,
 					  blas, instid);
 				}
 			}
@@ -3535,14 +3563,12 @@ void trace_pckts(struct vec3 *col, __m256 *ox8, __m256 *oy8, __m256 *oz8,
 }
 
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
-                unsigned int pckt, unsigned int bx, unsigned int by,
+                unsigned int px, unsigned int py, float *xofs, float *yofs,
                 unsigned int w, float invsamples)
 {
-	unsigned int x = bx + mortx[pckt] * PCKT_W;
-	unsigned int y = by + morty[pckt] * PCKT_H;
 	for (unsigned int j = 0; j < PCKT_H; j++) {
 		for (unsigned int i = 0; i < PCKT_W; i++) {
-			unsigned int ofs = w * (y + j) + (x + i);
+			unsigned int ofs = w * (py + *yofs++) + (px + *xofs++);
 			acc[ofs] = vec3_add(acc[ofs], *col++);
 			struct vec3 c = vec3_scale(acc[ofs], invsamples);
 			buf[ofs] = 0xffu << 24 |
@@ -3555,11 +3581,15 @@ void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 
 void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                  unsigned int pstart, unsigned int pcnt,
-                 unsigned int bx, unsigned int by, unsigned int w,
-                 float invsamples)
+                 unsigned int bx, unsigned int by, float *xofs, float *yofs,
+                 unsigned int w, float invsamples)
 {
+	unsigned int *mx = &mortx[pstart];
+	unsigned int *my = &morty[pstart];
 	for (unsigned int k = pstart; k < pstart + pcnt; k++) {
-		accum_pckt(acc, buf, col, k, bx, by, w, invsamples);
+		unsigned int x = bx + *mx++ * PIX_PER_PCKT_W;
+		unsigned int y = by + *my++ * PIX_PER_PCKT_H;
+		accum_pckt(acc, buf, col, x, y, xofs, yofs, w, invsamples);
 		col += PCKT_SZ;
 	}
 }
@@ -3581,7 +3611,7 @@ int rend_render(void *d)
 
 	unsigned int rays = 0;
 
-	float invsamples = 1.0f / (rd->spp + rd->samples);
+	float invsmpls = 1.0f / (rd->spp + rd->samples);
 
 	__m256 ox8[MAX_PCKTS], oy8[MAX_PCKTS], oz8[MAX_PCKTS];
 	__m256 dx8[MAX_PCKTS], dy8[MAX_PCKTS], dz8[MAX_PCKTS];
@@ -3605,13 +3635,13 @@ int rend_render(void *d)
 			unsigned char l = 0; // Last pckt index
 			unsigned char pcmask = 0xff; // Prev coherency mask
 			for (unsigned char j = 0; j < pcnt; j++) {
-				make_camray_pckt(
-				  &ox8[j], &oy8[j], &oz8[j],
-				  &dx8[j], &dy8[j], &dz8[j],
-				  bx + mortx[k + j] * PCKT_W,
-				  by + morty[k + j] * PCKT_H,
-				  pcktxofs8, pcktyofs8,
-				  &rd->cam, &rngstate);
+				unsigned int px =
+				  bx + mortx[k + j] * PIX_PER_PCKT_W;
+				unsigned int py =
+				  by + morty[k + j] * PIX_PER_PCKT_H;
+				make_camray_pckt( &ox8[j], &oy8[j], &oz8[j],
+				  &dx8[j], &dy8[j], &dz8[j], px, py,
+				  pcktxofs8, pcktyofs8, &rd->cam, &rngstate);
 				// Check packet coherence
 				unsigned char cmask = 0;
 				if (!iscohval3(&cmask, dx8[j], dy8[j],
@@ -3624,15 +3654,18 @@ int rend_render(void *d)
 						  &dx8[l], &dy8[l], &dz8[l],
 						  j - l, rd, &rays);
 						accum_pckts(rd->acc, rd->buf,
-						  col, k + l, j - l, bx, by, w,
-						  invsamples);
+						  col, k + l, j - l, bx, by,
+						  (float *)&pcktxofs8,
+						  (float *)&pcktyofs8,
+						  w, invsmpls);
 					}
 					// Trace rays of last pckt individually
 					// because it was incoherent
 					trace_rays(col, ox8[j], oy8[j], oz8[j],
 					  dx8[j], dy8[j], dz8[j], rd, &rays);
 					accum_pckt(rd->acc, rd->buf, col,
-					  k + j, bx, by, w, invsamples);
+					  px, py, (float *)&pcktxofs8,
+					  (float *)&pcktyofs8, w, invsmpls);
 
 					l = j + 1; // Account for handled pckts
 					cmask = 0xff; // Reset coherency mask
@@ -3643,9 +3676,11 @@ int rend_render(void *d)
 					  &ox8[l], &oy8[l], &oz8[l],
 					  &dx8[l], &dy8[l], &dz8[l],
 					  j - l, rd, &rays);
-					accum_pckts(rd->acc, rd->buf,
-					  col, k + l, j - l, bx, by, w,
-					  invsamples);
+					accum_pckts(rd->acc, rd->buf, col,
+					  k + l, j - l, bx, by,
+					  (float *)&pcktxofs8,
+					  (float *)&pcktyofs8,
+					  w, invsmpls);
 					l = j;
 				}
 				// Track coherency among packets
@@ -3659,8 +3694,9 @@ int rend_render(void *d)
 				  &dx8[l], &dy8[l], &dz8[l],
 				  pcnt - l, rd, &rays);
 				accum_pckts(rd->acc, rd->buf,
-				  col, k + l, pcnt - l, bx, by, w,
-				  invsamples);
+				  col, k + l, pcnt - l, bx, by,
+				  (float *)&pcktxofs8, (float *)&pcktyofs8,
+				  w, invsmpls);
 			}
 			k += pcnt;
 		}
@@ -3686,7 +3722,7 @@ int rend_render(void *d)
 
 	unsigned int rays = 0;
 
-	float invsamples = 1.0f / (rd->spp + rd->samples);
+	float invsmpls = 1.0f / (rd->spp + rd->samples);
 
 	__m256 ox8, oy8, oz8;
 	__m256 dx8, dy8, dz8;
@@ -3705,19 +3741,20 @@ int rend_render(void *d)
 		unsigned int by = (blk / blkcntx) * blkszy;
 
 		for (unsigned int j = 0; j < blkpcktcnt; j++) {
+			unsigned int px = bx + mortx[j] * PIX_PER_PCKT_W;
+			unsigned int py = by + morty[j] * PIX_PER_PCKT_H;
 			make_camray_pckt(
-			  &ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
-			  bx + mortx[j] * PCKT_W, by + morty[j] * PCKT_H,
-			  pcktxofs8, pcktyofs8,
-			  &rd->cam, &rngstate);
+			  &ox8, &oy8, &oz8, &dx8, &dy8, &dz8, px, py,
+			  pcktxofs8, pcktyofs8, &rd->cam, &rngstate);
 			if (iscoh3(dx8, dy8, dz8))
 				trace_pckt(col, ox8, oy8, oz8, dx8, dy8, dz8,
 				  rd, &rays);
 			else
 				trace_rays(col, ox8, oy8, oz8, dx8, dy8, dz8,
 				  rd, &rays);
-			accum_pckt(rd->acc, rd->buf, col, j, bx, by, w,
-			  invsamples);
+			accum_pckt(rd->acc, rd->buf, col, px, py,
+			  (float *)&pcktxofs8, (float *)&pcktyofs8,
+			  w, invsmpls);
 		}
 	}
 
@@ -3741,7 +3778,7 @@ int rend_render(void *d)
 
 	unsigned int rays = 0;
 
-	float invsamples = 1.0f / (rd->spp + rd->samples);
+	float invsmpls = 1.0f / (rd->spp + rd->samples);
 
 	__m256 ox8, oy8, oz8;
 	__m256 dx8, dy8, dz8;
@@ -3760,15 +3797,16 @@ int rend_render(void *d)
 		unsigned int by = (blk / blkcntx) * blkszy;
 
 		for (unsigned int j = 0; j < blkpcktcnt; j++) {
+			unsigned int px = bx + mortx[j] * PIX_PER_PCKT_W;
+			unsigned int py = by + morty[j] * PIX_PER_PCKT_H;
 			make_camray_pckt(
-			  &ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
-			  bx + mortx[j] * PCKT_W, by + morty[j] * PCKT_H,
-			  pcktxofs8, pcktyofs8,
-			  &rd->cam, &rngstate);
+			  &ox8, &oy8, &oz8, &dx8, &dy8, &dz8, px, py,
+			  pcktxofs8, pcktyofs8, &rd->cam, &rngstate);
 			trace_rays(col, ox8, oy8, oz8, dx8, dy8, dz8, rd,
 			  &rays);
-			accum_pckt(rd->acc, rd->buf, col, j, bx, by, w,
-			  invsamples);
+			accum_pckt(rd->acc, rd->buf, col, px, py,
+			  (float *)&pcktxofs8, (float *)&pcktyofs8,
+			  w, invsmpls);
 		}
 	}
 
