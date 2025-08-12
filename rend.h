@@ -140,14 +140,15 @@ struct rdata {
 	int            blknum; // Block number, accessed atomically
 
 	unsigned int   rays;
-	unsigned int   samples;
+	unsigned int   spp;
+	unsigned int   samples; // Total samples taken so far
 };
 
 void  rend_staticinit(unsigned int blkszx, unsigned int blkszy);
 void  rend_staticrelease(void);
 
 void  rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
-                unsigned int maxinsts);
+                unsigned int maxinsts, unsigned int spp);
 void  rend_release(struct rdata *rd);
 
 void  rend_prepstatic(struct rdata *rd);

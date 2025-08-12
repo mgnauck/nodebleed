@@ -2969,8 +2969,8 @@ bool intersect_any_tlas(float tfar, float ox, float oy, float oz, float dx,
 	}
 }
 
-void rend_init(struct rdata *rd, unsigned int maxmtls,
-               unsigned int maxtris, unsigned int maxinsts) 
+void rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
+               unsigned int maxinsts, unsigned int spp)
 {
 	rd->mtls = aligned_alloc(64, maxmtls * sizeof(*rd->mtls));
 
@@ -2987,6 +2987,8 @@ void rend_init(struct rdata *rd, unsigned int maxmtls,
 
 	// Start of tlas nodes
 	rd->tlasofs = 2 * maxtris;
+
+	rd->spp = spp;
 }
 
 void rend_release(struct rdata *rd)
@@ -3263,15 +3265,16 @@ struct vec3 trace3(struct vec3 o, struct vec3 d, struct rdata *rd,
 void make_camray_pckt(__m256 *ox8, __m256 *oy8, __m256 *oz8,
                       __m256 *dx8, __m256 *dy8, __m256 *dz8,
                       unsigned int x, unsigned int y,
+                      __m256 xofs8, __m256 yofs8,
                       struct rcam *c, struct rngstate8 *rngstate)
 {
 	// Create random offset for pixel sample
 	__m256 u0 = randf8(rngstate);
 	__m256 u1 = randf8(rngstate);
 
-	// Init pixel position in packet (assumes 4x2)
-	__m256 sx8 = _mm256_add_ps(_mm256_set1_ps((float)x), pcktxofs8);
-	__m256 sy8 = _mm256_add_ps(_mm256_set1_ps((float)y), pcktyofs8);
+	// Position ofs for pixel in packet (assumes 4x2)
+	__m256 sx8 = _mm256_add_ps(_mm256_set1_ps((float)x), xofs8);
+	__m256 sy8 = _mm256_add_ps(_mm256_set1_ps((float)y), yofs8);
 
 	// Jitter the pixel position, i.e. px = x + u0 - 0.5
 	sx8 = _mm256_add_ps(sx8, _mm256_sub_ps(u0, half8));
@@ -3533,7 +3536,7 @@ void trace_pckts(struct vec3 *col, __m256 *ox8, __m256 *oy8, __m256 *oz8,
 
 void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                 unsigned int pckt, unsigned int bx, unsigned int by,
-                unsigned int w, float invspp)
+                unsigned int w, float invsamples)
 {
 	unsigned int x = bx + mortx[pckt] * PCKT_W;
 	unsigned int y = by + morty[pckt] * PCKT_H;
@@ -3541,7 +3544,7 @@ void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 		for (unsigned int i = 0; i < PCKT_W; i++) {
 			unsigned int ofs = w * (y + j) + (x + i);
 			acc[ofs] = vec3_add(acc[ofs], *col++);
-			struct vec3 c = vec3_scale(acc[ofs], invspp);
+			struct vec3 c = vec3_scale(acc[ofs], invsamples);
 			buf[ofs] = 0xffu << 24 |
 			  ((unsigned int)(255 * c.x) & 0xff) << 16 |
 			  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
@@ -3553,10 +3556,10 @@ void accum_pckt(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
                  unsigned int pstart, unsigned int pcnt,
                  unsigned int bx, unsigned int by, unsigned int w,
-                 float invspp)
+                 float invsamples)
 {
 	for (unsigned int k = pstart; k < pstart + pcnt; k++) {
-		accum_pckt(acc, buf, col, k, bx, by, w, invspp);
+		accum_pckt(acc, buf, col, k, bx, by, w, invsamples);
 		col += PCKT_SZ;
 	}
 }
@@ -3578,7 +3581,7 @@ int rend_render(void *d)
 
 	unsigned int rays = 0;
 
-	float invspp = 1.0f / (1.0f + rd->samples);
+	float invsamples = 1.0f / (rd->spp + rd->samples);
 
 	__m256 ox8[MAX_PCKTS], oy8[MAX_PCKTS], oz8[MAX_PCKTS];
 	__m256 dx8[MAX_PCKTS], dy8[MAX_PCKTS], dz8[MAX_PCKTS];
@@ -3607,6 +3610,7 @@ int rend_render(void *d)
 				  &dx8[j], &dy8[j], &dz8[j],
 				  bx + mortx[k + j] * PCKT_W,
 				  by + morty[k + j] * PCKT_H,
+				  pcktxofs8, pcktyofs8,
 				  &rd->cam, &rngstate);
 				// Check packet coherence
 				unsigned char cmask = 0;
@@ -3621,14 +3625,14 @@ int rend_render(void *d)
 						  j - l, rd, &rays);
 						accum_pckts(rd->acc, rd->buf,
 						  col, k + l, j - l, bx, by, w,
-						  invspp);
+						  invsamples);
 					}
 					// Trace rays of last pckt individually
 					// because it was incoherent
 					trace_rays(col, ox8[j], oy8[j], oz8[j],
 					  dx8[j], dy8[j], dz8[j], rd, &rays);
 					accum_pckt(rd->acc, rd->buf, col,
-					  k + j, bx, by, w, invspp);
+					  k + j, bx, by, w, invsamples);
 
 					l = j + 1; // Account for handled pckts
 					cmask = 0xff; // Reset coherency mask
@@ -3641,7 +3645,7 @@ int rend_render(void *d)
 					  j - l, rd, &rays);
 					accum_pckts(rd->acc, rd->buf,
 					  col, k + l, j - l, bx, by, w,
-					  invspp);
+					  invsamples);
 					l = j;
 				}
 				// Track coherency among packets
@@ -3656,7 +3660,7 @@ int rend_render(void *d)
 				  pcnt - l, rd, &rays);
 				accum_pckts(rd->acc, rd->buf,
 				  col, k + l, pcnt - l, bx, by, w,
-				  invspp);
+				  invsamples);
 			}
 			k += pcnt;
 		}
@@ -3682,7 +3686,7 @@ int rend_render(void *d)
 
 	unsigned int rays = 0;
 
-	float invspp = 1.0f / (1.0f + rd->samples);
+	float invsamples = 1.0f / (rd->spp + rd->samples);
 
 	__m256 ox8, oy8, oz8;
 	__m256 dx8, dy8, dz8;
@@ -3704,6 +3708,7 @@ int rend_render(void *d)
 			make_camray_pckt(
 			  &ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
 			  bx + mortx[j] * PCKT_W, by + morty[j] * PCKT_H,
+			  pcktxofs8, pcktyofs8,
 			  &rd->cam, &rngstate);
 			if (iscoh3(dx8, dy8, dz8))
 				trace_pckt(col, ox8, oy8, oz8, dx8, dy8, dz8,
@@ -3712,7 +3717,7 @@ int rend_render(void *d)
 				trace_rays(col, ox8, oy8, oz8, dx8, dy8, dz8,
 				  rd, &rays);
 			accum_pckt(rd->acc, rd->buf, col, j, bx, by, w,
-			  invspp);
+			  invsamples);
 		}
 	}
 
@@ -3736,7 +3741,7 @@ int rend_render(void *d)
 
 	unsigned int rays = 0;
 
-	float invspp = 1.0f / (1.0f + rd->samples);
+	float invsamples = 1.0f / (rd->spp + rd->samples);
 
 	__m256 ox8, oy8, oz8;
 	__m256 dx8, dy8, dz8;
@@ -3758,11 +3763,12 @@ int rend_render(void *d)
 			make_camray_pckt(
 			  &ox8, &oy8, &oz8, &dx8, &dy8, &dz8,
 			  bx + mortx[j] * PCKT_W, by + morty[j] * PCKT_H,
+			  pcktxofs8, pcktyofs8,
 			  &rd->cam, &rngstate);
 			trace_rays(col, ox8, oy8, oz8, dx8, dy8, dz8, rd,
 			  &rays);
 			accum_pckt(rd->acc, rd->buf, col, j, bx, by, w,
-			  invspp);
+			  invsamples);
 		}
 	}
 

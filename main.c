@@ -20,6 +20,8 @@
 #define WIDTH    1920
 #define HEIGHT   960
 
+#define SPP  1
+
 #define CAMMOV   0.800
 #define CAMLOOK  0.025
 
@@ -233,7 +235,7 @@ void init(struct scene *s, struct rdata *rd)
 	unsigned int instmax = get_max_insts(s->objs, s->nodecnt);
 
 	rend_staticinit(64, 32);
-	rend_init(rd, s->mtlmax, trimax, instmax);
+	rend_init(rd, s->mtlmax, trimax, instmax, SPP);
 	rend_resaccum(rd, WIDTH, HEIGHT);
 
 	cpy_rdata(rd, s);
@@ -414,16 +416,16 @@ int main(void)
 		SDL_UpdateWindowSurface(win);
 
 #ifndef NDEBUG
-		char title[64];
+		char cap[64];
 		long long dur = SDL_GetTicks() - last;
-		snprintf(title, 64, "%llu ms, %6.3f Mrays/s, %d samples",
-		  dur, rd.rays / (float)(dur * 1000), rd.samples);
-		SDL_SetWindowTitle(win, title);
+		snprintf(cap, 64, "%llu ms, %6.3f Mrays/s, spp: %d, %d samples",
+		  dur, rd.rays / (float)(dur * 1000), rd.spp, rd.samples);
+		SDL_SetWindowTitle(win, cap);
 #endif
 
 		rd.blknum = 0;
 		rd.rays = 0;
-		rd.samples++;
+		rd.samples += rd.spp;
 	}
 
 	rend_release(&rd);
