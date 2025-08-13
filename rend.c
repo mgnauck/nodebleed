@@ -24,6 +24,14 @@
 #define INST_ID_BITS  12
 #define INST_ID_MASK  0xfff
 
+// Path flags, sample and pixel id bits (max 8 samples per packet at once)
+// path flags << PIX_ID_BITS + SMPL_ID_BITS | pix id << SMPL_ID_BITS | smpl id
+#define SMPL_ID_BITS    3
+#define SMPL_ID_MASK    7
+#define PIX_ID_BITS     21
+#define PIX_ID_MASK     0x1fffff
+#define PTH_FLAGS_MASK  0xff
+
 #define INTERVAL_CNT  16 // Binning intervals
 
 // Each packet contains 8 rays
@@ -59,24 +67,28 @@ static __m256i compr_lut[256];
 
 static __m256i defchildnum8;
 
-static __m256 pcktxofs8;
-static __m256 pcktyofs8;
-
 static __m256 sgnmsk8;
 static __m256 zero8;
 static __m256 half8;
 static __m256 one8;
 static __m256 twopi8;
+static __m256 fltmax8;
 static __m128 zero4;
 static __m128 one4;
 static __m128 fltmax4;
 
+// This need to be kept per rdata instance if different across scenes
 static unsigned int blkszx;
 static unsigned int blkszy;
 static unsigned int blkpcktcnt;
 
 static unsigned int *mortx; // Morten decode LUT
 static unsigned int *morty;
+
+static __m256 pcktxofs8;
+static __m256 pcktyofs8;
+
+static unsigned int pcktsmplid; // 8x 4 bit packet sample id
 
 struct split { // Result from SAH binning step
 	float          cost;
@@ -131,12 +143,15 @@ void rend_staticinit(unsigned int bszx, unsigned int bszy)
 #if SPP == 1
 	pcktxofs8 = _mm256_set_ps(3, 2, 1, 0, 3, 2, 1, 0);
 	pcktyofs8 = _mm256_set_ps(1, 1, 1, 1, 0, 0, 0, 0);
+	pcktsmplid = 0x0;
 #elif SPP == 2
 	pcktxofs8 = _mm256_set_ps(1, 1, 0, 0, 1, 1, 0, 0);
 	pcktyofs8 = _mm256_set_ps(1, 1, 1, 1, 0, 0, 0, 0);
+	pcktsmplid = 0x10101010;
 #elif SPP == 8
 	pcktxofs8 = _mm256_set1_ps(0);
 	pcktyofs8 = _mm256_set1_ps(0);
+	pcktsmplid = 0x76543210;
 #endif
 
 	// Default values 4 and 8 lanes
@@ -145,6 +160,7 @@ void rend_staticinit(unsigned int bszx, unsigned int bszy)
 	half8 = _mm256_set1_ps(0.5f);
 	one8 = _mm256_set1_ps(1.0f);
 	twopi8 = _mm256_set1_ps(TWO_PI);
+	fltmax8 = _mm256_set1_ps(FLT_MAX);
 	zero4 = _mm_setzero_ps();
 	one4 = _mm_set1_ps(1.0f);
 	fltmax4 = _mm_set1_ps(FLT_MAX);
@@ -3016,12 +3032,17 @@ void rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
 	// Start of tlas nodes
 	rd->tlasofs = 2 * maxtris;
 
+	rd->extrays = aligned_alloc(32, sizeof(*rd->extrays));
+	rd->shdrays = aligned_alloc(32, sizeof(*rd->shdrays));
+
 	rd->spp = spp;
 }
 
 void rend_release(struct rdata *rd)
 {
 	free(rd->acc);
+	free(rd->shdrays);
+	free(rd->extrays);
 	free(rd->bnodes);
 	free(rd->aabbs);
 	free(rd->insts);
@@ -3594,9 +3615,122 @@ void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 	}
 }
 
-#define MULTIPLE_PCKTS
+#define NEW
+//#define MULTIPLE_PCKTS
 //#define SINGLE_PCKT
 //#define NO_PCKTS
+
+#ifdef NEW
+
+void init_extrays(struct exraystrm *rays, unsigned char *cohmask,
+                  struct rcam *cam, unsigned int w, struct rngstate8 *rngstate,
+                  unsigned int streamofs, unsigned int pixofs,
+                  unsigned int bx, unsigned int by, unsigned int pcktcnt,
+                  unsigned int raycnt)
+{
+	__m256 *ox8 = &rays->ox8[streamofs];
+	__m256 *oy8 = &rays->oy8[streamofs];
+	__m256 *oz8 = &rays->oz8[streamofs];
+	__m256 *dx8 = &rays->dx8[streamofs];
+	__m256 *dy8 = &rays->dy8[streamofs];
+	__m256 *dz8 = &rays->dz8[streamofs];
+
+	__m256 *t8 = &rays->t8[streamofs];
+
+	unsigned int *pdata = &rays->pdata[streamofs];
+
+	struct vec3 *tp = &rays->tp[streamofs];
+	struct vec3 *rad = &rays->rad[streamofs];
+
+	unsigned int *rid = rays->rid;
+
+	unsigned char *cmask = &cohmask[streamofs];
+
+	unsigned int *mx = &mortx[pixofs];
+	unsigned int *my = &morty[pixofs];
+
+	for (unsigned int j = 0; j < pcktcnt; j++) {
+		unsigned int x = bx + *mx++ * PIX_PER_PCKT_W;
+		unsigned int y = by + *my++ * PIX_PER_PCKT_H;
+
+		make_camray_pckt(ox8++, oy8++, oz8++, dx8, dy8, dz8, x, y,
+		  pcktxofs8, pcktyofs8, cam, rngstate);
+
+		*t8++ = fltmax8;
+
+		float *px = (float *)&pcktxofs8;
+		float *py = (float *)&pcktyofs8;
+		for (unsigned char i = 0; i < PCKT_SZ; i++) {
+			// Path flags, pixel id, sample id (per packet)
+			assert(w * (y + *py) + x + *px <= PIX_ID_MASK);
+			*pdata++ =
+			  (0x0 << (PIX_ID_BITS + SMPL_ID_BITS)) | // < TODO
+			  (w * (y + (unsigned int)*py++) +
+			  x + (unsigned int)*px++) << SMPL_ID_BITS |
+			  ((pcktsmplid >> (i << 2)) & SMPL_ID_MASK);
+
+			// Througput/radiance
+			*tp++ = (struct vec3){1.0f, 1.0f, 1.0f};
+			*rad++ = (struct vec3){0.0f, 0.0f, 0.0f};
+
+			// Ray id
+			*rid++ = raycnt++;
+		}
+
+		unsigned char m = 0;
+		*cmask++ = iscohval3(&m, *dx8++, *dy8++, *dz8++) ? m : 0xff;
+	}
+}
+
+int rend_render(void *d)
+{
+	struct rdata *rd = d;
+
+	struct rngstate8 rngstate;
+
+	unsigned int rays = 0;
+
+	unsigned int w = rd->width;
+	unsigned int blkcntx = w / blkszx;
+	unsigned int blkcnty = rd->height / blkszy;
+	int          blkcnt = blkcntx * blkcnty;
+
+	//float invsmpls = 1.0f / (rd->spp + rd->samples);
+
+	unsigned char cmask[2 * STREAM_LEN / 8];
+
+	while (true) {
+		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
+		if (blk >= blkcnt)
+			break;
+
+		rand8_init(&rngstate, (blk + 13) * 1571, rd->samples * 23);
+
+		unsigned int bx = (blk % blkcntx) * blkszx;
+		unsigned int by = (blk / blkcntx) * blkszy;
+
+		unsigned int k = 0; // Total packets of block so far
+		unsigned int sofs = 0; // Ext ray stream ofs
+		while (k < blkpcktcnt) {
+			unsigned int pcnt =
+			  min(STREAM_LEN / 8, blkpcktcnt - k);
+
+			init_extrays(rd->extrays, cmask, &rd->cam, w,
+			  &rngstate, sofs, k, bx, by, pcnt, rays);
+
+			// TODO Render ori/dirs for debugging
+
+			k += pcnt;
+			rays += pcnt * PCKT_SZ;
+		}
+	}
+
+	__atomic_fetch_add(&rd->rays, rays, __ATOMIC_SEQ_CST);
+
+	return 0;
+}
+
+#endif
 
 #ifdef MULTIPLE_PCKTS
 
@@ -3639,7 +3773,7 @@ int rend_render(void *d)
 				  bx + mortx[k + j] * PIX_PER_PCKT_W;
 				unsigned int py =
 				  by + morty[k + j] * PIX_PER_PCKT_H;
-				make_camray_pckt( &ox8[j], &oy8[j], &oz8[j],
+				make_camray_pckt(&ox8[j], &oy8[j], &oz8[j],
 				  &dx8[j], &dy8[j], &dz8[j], px, py,
 				  pcktxofs8, pcktyofs8, &rd->cam, &rngstate);
 				// Check packet coherence
