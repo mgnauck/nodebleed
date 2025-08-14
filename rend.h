@@ -4,6 +4,7 @@
 #include <immintrin.h>
 #include "vec3.h"
 
+// SPP taken in one step, currently only 1, 2 or 8 due to pckts
 #define SPP 1
 
 #define BRANCH_MAX     8 // Child nodes
@@ -116,52 +117,6 @@ struct rcam {
 	__m256       focrad8; // tan(0.5 * focangle * PI / 180) * focdist
 };
 
-#define STREAM_LEN 2048
-
-// Extension ray stream, everything * 2 is double buffered
-struct exraystrm {
-	__m256        ox8[2 * STREAM_LEN / 8];
-	__m256        oy8[2 * STREAM_LEN / 8];
-	__m256        oz8[2 * STREAM_LEN / 8];
-
-	__m256        dx8[2 * STREAM_LEN / 8];
-	__m256        dy8[2 * STREAM_LEN / 8];
-	__m256        dz8[2 * STREAM_LEN / 8];
-
-	__m256        t8[2 * STREAM_LEN / 8];
-
-	unsigned int  pdata[2 * STREAM_LEN]; // Path flags, pixel id, sample id
-
-// TODO Store as 3x _mm256 each?
-	struct vec3   tp[2 * STREAM_LEN]; // Throughput
-	struct vec3   rad[2 * STREAM_LEN];
-
-	unsigned int  rid[STREAM_LEN]; // Ray id
-
-	__m256i       pid8[STREAM_LEN / 8]; // Primitive: Tri id + inst id
-	__m256i       mid8[STREAM_LEN / 8]; // Material id
-
-	__m256        u8[2 * STREAM_LEN / 8];
-	__m256        v8[2 * STREAM_LEN / 8];
-
-	float         pdf[STREAM_LEN];
-};
-
-// Shadow ray stream
-struct shraystrm {
-	__m256        ox8[STREAM_LEN / 8];
-	__m256        oy8[STREAM_LEN / 8];
-	__m256        oz8[STREAM_LEN / 8];
-
-	__m256        dx8[STREAM_LEN / 8];
-	__m256        dy8[STREAM_LEN / 8];
-	__m256        dz8[STREAM_LEN / 8];
-
-	__m256        t8[STREAM_LEN / 8];
-
-	struct vec3   rad[STREAM_LEN];
-};
-
 struct rdata {
 	struct rmtl    *mtls;
 
@@ -174,10 +129,6 @@ struct rdata {
 
 	struct bnode8  *bnodes; // All blas + tlas
 	unsigned int   tlasofs;
-
-// TODO Fix alignment
-	struct exraystrm  *extrays;
-	struct shraystrm  *shdrays;
 
 	struct rcam    cam;
 

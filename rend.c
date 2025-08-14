@@ -62,6 +62,52 @@
 #define FPI_MASK   0xf
 #define MAX_OFS    0x1ffffff // Node ofs bits = 32 - CNUM_BITS - FPI_BITS
 
+#define STREAM_LEN 2048
+
+// Extension ray stream, everything * 2 is double buffered
+struct extraystrm {
+	__m256        ox8[2 * STREAM_LEN / 8];
+	__m256        oy8[2 * STREAM_LEN / 8];
+	__m256        oz8[2 * STREAM_LEN / 8];
+
+	__m256        dx8[2 * STREAM_LEN / 8];
+	__m256        dy8[2 * STREAM_LEN / 8];
+	__m256        dz8[2 * STREAM_LEN / 8];
+
+	__m256        t8[2 * STREAM_LEN / 8];
+
+	unsigned int  pdata[2 * STREAM_LEN]; // Path flags, pixel id, sample id
+
+// TODO Store as 3x _mm256 each?
+	struct vec3   tp[2 * STREAM_LEN]; // Throughput
+	struct vec3   rad[2 * STREAM_LEN]; // Radiance
+
+	unsigned int  rid[STREAM_LEN]; // Ray id
+
+	__m256i       pid8[STREAM_LEN / 8]; // Primitive: Tri id + inst id
+	__m256i       mid8[STREAM_LEN / 8]; // Material id
+
+	__m256        u8[2 * STREAM_LEN / 8];
+	__m256        v8[2 * STREAM_LEN / 8];
+
+	float         pdf[STREAM_LEN];
+};
+
+// Shadow ray stream
+struct shdraystrm {
+	__m256        ox8[STREAM_LEN / 8];
+	__m256        oy8[STREAM_LEN / 8];
+	__m256        oz8[STREAM_LEN / 8];
+
+	__m256        dx8[STREAM_LEN / 8];
+	__m256        dy8[STREAM_LEN / 8];
+	__m256        dz8[STREAM_LEN / 8];
+
+	__m256        t8[STREAM_LEN / 8];
+
+	struct vec3   rad[STREAM_LEN]; // Radiance
+};
+
 // Renderer constants and LUTs used by all threads
 static __m256i compr_lut[256];
 
@@ -473,7 +519,7 @@ unsigned int embed_leaf4(unsigned char *ptr, unsigned int ofs,
 // Tracing of Incoherent Rays
 unsigned int build_bvh8(struct bnode8 *nodes, struct aabb *aabbs,
                         unsigned int *imap, struct rtri *tris,
-                        unsigned int pcnt,
+                        unsigned int primitivecnt,
                         struct vec3 rootmin, struct vec3 rootmax)
 {
 	unsigned int stack[64];
@@ -496,7 +542,7 @@ unsigned int build_bvh8(struct bnode8 *nodes, struct aabb *aabbs,
 	n->maxx8[0] = rootmax.x;
 	n->maxy8[0] = rootmax.y;
 	n->maxz8[0] = rootmax.z;
-	((unsigned int *)&n->children8)[0] = pcnt;
+	((unsigned int *)&n->children8)[0] = primitivecnt;
 	// nodes' permutation mask will be used to temporarily store start id
 
 	struct vec3 minext = // Min extent relative to root aabb
@@ -3032,17 +3078,12 @@ void rend_init(struct rdata *rd, unsigned int maxmtls, unsigned int maxtris,
 	// Start of tlas nodes
 	rd->tlasofs = 2 * maxtris;
 
-	rd->extrays = aligned_alloc(32, sizeof(*rd->extrays));
-	rd->shdrays = aligned_alloc(32, sizeof(*rd->shdrays));
-
 	rd->spp = spp;
 }
 
 void rend_release(struct rdata *rd)
 {
 	free(rd->acc);
-	free(rd->shdrays);
-	free(rd->extrays);
 	free(rd->bnodes);
 	free(rd->aabbs);
 	free(rd->insts);
@@ -3607,7 +3648,7 @@ void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 {
 	unsigned int *mx = &mortx[pstart];
 	unsigned int *my = &morty[pstart];
-	for (unsigned int k = pstart; k < pstart + pcnt; k++) {
+	for (unsigned char j = 0; j < pcnt; j++) {
 		unsigned int x = bx + *mx++ * PIX_PER_PCKT_W;
 		unsigned int y = by + *my++ * PIX_PER_PCKT_H;
 		accum_pckt(acc, buf, col, x, y, xofs, yofs, w, invsamples);
@@ -3615,14 +3656,14 @@ void accum_pckts(struct vec3 *acc, unsigned int *buf, struct vec3 *col,
 	}
 }
 
-#define NEW
+#define PT
 //#define MULTIPLE_PCKTS
 //#define SINGLE_PCKT
 //#define NO_PCKTS
 
-#ifdef NEW
+#ifdef PT
 
-void init_extrays(struct exraystrm *rays, unsigned char *cohmask,
+void init_extrays(struct extraystrm *rays, unsigned char *cohmask,
                   struct rcam *cam, unsigned int w, struct rngstate8 *rngstate,
                   unsigned int streamofs, unsigned int pixofs,
                   unsigned int bx, unsigned int by, unsigned int pcktcnt,
@@ -3656,6 +3697,9 @@ void init_extrays(struct exraystrm *rays, unsigned char *cohmask,
 		make_camray_pckt(ox8++, oy8++, oz8++, dx8, dy8, dz8, x, y,
 		  pcktxofs8, pcktyofs8, cam, rngstate);
 
+		unsigned char m = 0;
+		*cmask++ = iscohval3(&m, *dx8++, *dy8++, *dz8++) ? m : 0xff;
+
 		*t8++ = fltmax8;
 
 		float *px = (float *)&pcktxofs8;
@@ -3676,10 +3720,102 @@ void init_extrays(struct exraystrm *rays, unsigned char *cohmask,
 			// Ray id
 			*rid++ = raycnt++;
 		}
-
-		unsigned char m = 0;
-		*cmask++ = iscohval3(&m, *dx8++, *dy8++, *dz8++) ? m : 0xff;
 	}
+}
+
+void intersect_extrays(struct rdata *rd, struct extraystrm *rays,
+                       unsigned char *cohmask, unsigned int streamofs,
+		       unsigned int pcnt)
+{
+	__m256 *ox8 = &rays->ox8[streamofs];
+	__m256 *oy8 = &rays->oy8[streamofs];
+	__m256 *oz8 = &rays->oz8[streamofs];
+	__m256 *dx8 = &rays->dx8[streamofs];
+	__m256 *dy8 = &rays->dy8[streamofs];
+	__m256 *dz8 = &rays->dz8[streamofs];
+
+	__m256 *t8 = &rays->t8[streamofs];
+	__m256 *u8 = &rays->u8[streamofs];
+	__m256 *v8 = &rays->v8[streamofs];
+
+	__m256i *pid8 = &rays->pid8[streamofs];
+	//__m256i *mid8 = &rays->mid8[streamofs];
+
+	unsigned char *cm = cohmask;
+	unsigned int k = 0;
+	while (k < pcnt) {
+		// Identify chain of coherent pckts
+		unsigned int l = 0;
+		unsigned char pcmask = 0xfe;
+		while (l < MAX_PCKTS && (pcmask == *cm || pcmask == 0xfe)) {
+			pcmask = *cm++;
+			l++;
+		}
+
+		unsigned int ll = l;
+		if (pcmask == 0xff) {
+			// Last pckt in itself not coherent
+			// Intersect rays of pckt individually
+			float *ox = (float *)&ox8[l - 1];
+			float *oy = (float *)&oy8[l - 1];
+			float *oz = (float *)&oz8[l - 1];
+			float *dx = (float *)&dx8[l - 1];
+			float *dy = (float *)&dy8[l - 1];
+			float *dz = (float *)&dz8[l - 1];
+			float *t = (float *)&t8[l - 1];
+			float *u = (float *)&u8[l - 1];
+			float *v = (float *)&v8[l - 1];
+			unsigned int *pid = (unsigned int *)&pid8[l - 1];
+			for (unsigned char j = 0; j < PCKT_SZ; j++)
+				intersect_tlas(t++, u++, v++, pid++,
+				  *ox++, *oy++, *oz++, *dx++, *dy++, *dz++,
+				  rd->bnodes, rd->insts, rd->tlasofs);
+			l--; // Account for pckt already intersected
+		}
+
+		if (l > 0) {
+			// Intersect all earlier coherent pckts
+			if (l > 1)
+				// Multiple packets
+				intersect_pckts_tlas(t8, u8, v8, pid8,
+				  ox8, oy8, oz8, dx8, dy8, dz8,
+				  l, rd->bnodes, rd->insts, rd->tlasofs);
+			else
+				// Single packet
+				intersect_pckt_tlas(t8, u8, v8, pid8,
+				  *ox8, *oy8, *oz8, *dx8, *dy8, *dz8,
+				  rd->bnodes, rd->insts, rd->tlasofs);
+		}
+
+		ox8 += ll;
+		oy8 += ll;
+		oz8 += ll;
+		dx8 += ll;
+		dy8 += ll;
+		dz8 += ll;
+		t8 += ll;
+		u8 += ll;
+		v8 += ll;
+		pid8 += ll;
+
+		k += ll;
+	}
+}
+
+void sort(void)
+{
+}
+
+void shade(void)
+{
+}
+
+void intersect_shdrays(void)
+{
+}
+
+void accumulate(void)
+{
 }
 
 int rend_render(void *d)
@@ -3688,16 +3824,20 @@ int rend_render(void *d)
 
 	struct rngstate8 rngstate;
 
-	unsigned int rays = 0;
+	unsigned int rcnt = 0; // Ray cnt
 
 	unsigned int w = rd->width;
 	unsigned int blkcntx = w / blkszx;
 	unsigned int blkcnty = rd->height / blkszy;
 	int          blkcnt = blkcntx * blkcnty;
 
-	//float invsmpls = 1.0f / (rd->spp + rd->samples);
+	float invsmpls = 1.0f / (rd->spp + rd->samples);
 
 	unsigned char cmask[2 * STREAM_LEN / 8];
+
+	struct extraystrm extrays;
+	//struct shdraystrm shdrays;
+	struct vec3 col[MAX_PCKTS * PCKT_SZ];
 
 	while (true) {
 		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
@@ -3712,20 +3852,41 @@ int rend_render(void *d)
 		unsigned int k = 0; // Total packets of block so far
 		unsigned int sofs = 0; // Ext ray stream ofs
 		while (k < blkpcktcnt) {
-			unsigned int pcnt =
-			  min(STREAM_LEN / 8, blkpcktcnt - k);
+			unsigned int pcnt = // Current pckt cnt
+			  min(STREAM_LEN / PCKT_SZ, blkpcktcnt - k);
 
-			init_extrays(rd->extrays, cmask, &rd->cam, w,
-			  &rngstate, sofs, k, bx, by, pcnt, rays);
+			init_extrays(&extrays, cmask, &rd->cam, w,
+			  &rngstate, sofs, k, bx, by, pcnt, rcnt);
 
-			// TODO Render ori/dirs for debugging
+			//intersect_extrays(rd, &extrays, cmask, sofs, pcnt);
+
+		/// TEMP TEMP
+			unsigned int rays2 = 0;
+			unsigned int j = 0;
+			while (j < pcnt) {
+				unsigned int cnt = min(MAX_PCKTS, pcnt - j);
+				trace_pckts(col,
+				  &extrays.ox8[j], &extrays.oy8[j],
+				  &extrays.oz8[j],
+				  &extrays.dx8[j], &extrays.dy8[j],
+				  &extrays.dz8[j],
+				  cnt, rd, &rays2);
+
+				accum_pckts(rd->acc, rd->buf,
+				  col, k + j, cnt, bx, by,
+				  (float *)&pcktxofs8, (float *)&pcktyofs8,
+				  w, invsmpls);
+
+				j += cnt;
+			}
+		///
 
 			k += pcnt;
-			rays += pcnt * PCKT_SZ;
+			rcnt += pcnt * PCKT_SZ;
 		}
 	}
 
-	__atomic_fetch_add(&rd->rays, rays, __ATOMIC_SEQ_CST);
+	__atomic_fetch_add(&rd->rays, rcnt, __ATOMIC_SEQ_CST);
 
 	return 0;
 }
