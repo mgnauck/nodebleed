@@ -3723,9 +3723,9 @@ void init_extrays(struct extraystrm *rays, unsigned char *cohmask,
 	}
 }
 
-void intersect_extrays(struct rdata *rd, struct extraystrm *rays,
+void intersect_extrays(struct extraystrm *rays,
                        unsigned char *cohmask, unsigned int streamofs,
-		       unsigned int pcnt)
+		       unsigned int pcnt, struct rdata *rd)
 {
 	__m256 *ox8 = &rays->ox8[streamofs];
 	__m256 *oy8 = &rays->oy8[streamofs];
@@ -3735,11 +3735,12 @@ void intersect_extrays(struct rdata *rd, struct extraystrm *rays,
 	__m256 *dz8 = &rays->dz8[streamofs];
 
 	__m256 *t8 = &rays->t8[streamofs];
-	__m256 *u8 = &rays->u8[streamofs];
-	__m256 *v8 = &rays->v8[streamofs];
 
-	__m256i *pid8 = &rays->pid8[streamofs];
-	//__m256i *mid8 = &rays->mid8[streamofs];
+	__m256 *u8 = rays->u8;
+	__m256 *v8 = rays->v8;
+
+	__m256i *pid8 = rays->pid8;
+	//__m256i *mid8 = rays->mid8;
 
 	unsigned char *cm = cohmask;
 	unsigned int k = 0;
@@ -3747,6 +3748,7 @@ void intersect_extrays(struct rdata *rd, struct extraystrm *rays,
 		// Identify chain of coherent pckts
 		unsigned int l = 0;
 		unsigned char pcmask = 0xfe;
+	// TODO Handle all cases
 		while (l < MAX_PCKTS && (pcmask == *cm || pcmask == 0xfe)) {
 			pcmask = *cm++;
 			l++;
@@ -3773,19 +3775,17 @@ void intersect_extrays(struct rdata *rd, struct extraystrm *rays,
 			l--; // Account for pckt already intersected
 		}
 
-		if (l > 0) {
-			// Intersect all earlier coherent pckts
-			if (l > 1)
-				// Multiple packets
-				intersect_pckts_tlas(t8, u8, v8, pid8,
-				  ox8, oy8, oz8, dx8, dy8, dz8,
-				  l, rd->bnodes, rd->insts, rd->tlasofs);
-			else
-				// Single packet
-				intersect_pckt_tlas(t8, u8, v8, pid8,
-				  *ox8, *oy8, *oz8, *dx8, *dy8, *dz8,
-				  rd->bnodes, rd->insts, rd->tlasofs);
-		}
+		// Intersect all earlier coherent pckts
+		if (l > 1)
+			// Multiple packets
+			intersect_pckts_tlas(t8, u8, v8, pid8,
+			  ox8, oy8, oz8, dx8, dy8, dz8,
+			  l, rd->bnodes, rd->insts, rd->tlasofs);
+		else if (l > 0)
+			// Single packet
+			intersect_pckt_tlas(t8, u8, v8, pid8,
+			  *ox8, *oy8, *oz8, *dx8, *dy8, *dz8,
+			  rd->bnodes, rd->insts, rd->tlasofs);
 
 		ox8 += ll;
 		oy8 += ll;
@@ -3806,16 +3806,84 @@ void sort(void)
 {
 }
 
-void shade(void)
+// TODO Dummy impl for now
+void shade(struct extraystrm *erays, struct shdraystrm *srays,
+           unsigned int *epcnt, unsigned int *spcnt, // Ext/shd pckt res cnt
+           unsigned int streamofs, unsigned int pcnt, struct rdata *rd)
 {
+	float *t = (float *)&erays->t8[streamofs];
+
+	float *u = (float *)erays->u8;
+	float *v = (float *)erays->v8;
+
+	unsigned int *pid = (unsigned int *)erays->pid8;
+
+	struct vec3 *tp = erays->tp;
+
+	for (unsigned int k = 0; k < PCKT_SZ * pcnt; k++) {
+		if (*t == FLT_MAX) {
+			*tp = vec3_mul(*tp, rd->bgcol);
+			t++;
+			u++;
+			v++;
+			pid++;
+			tp++;
+			continue;
+		}
+
+		unsigned int id = *pid;
+		unsigned int instid = id & INST_ID_MASK;
+		unsigned int triid = id >> INST_ID_BITS;
+
+		struct rinst *ri = &rd->insts[instid];
+		struct rnrm *rn = &rd->nrms[ri->triofs + triid];
+
+		unsigned int mtlid = rn->mtlid;
+
+		// Inverse transpose, dir mul is 3x4
+		float it[16];
+		float *rt = ri->globinv;
+		for (int j = 0; j < 4; j++)
+			for (int i = 0; i < 3; i++)
+				it[4 * j + i] = rt[4 * i + j];
+
+		struct vec3 nrm = calc_nrm(*u, *v, rn, it);
+		nrm = vec3_scale(vec3_add(nrm, (struct vec3){1, 1, 1}), 0.5f);
+
+		*tp = vec3_mul(*tp, vec3_mul(nrm, rd->mtls[mtlid].col));
+
+		t++;
+		u++;
+		v++;
+		pid++;
+		tp++;
+	}
 }
 
 void intersect_shdrays(void)
 {
 }
 
-void accumulate(void)
+// TODO Dummy impl for now
+void accumulate(struct extraystrm *erays, struct shdraystrm *srays,
+                unsigned int streamofs, unsigned int pcnt, float invsmpls,
+                struct rdata *rd)
 {
+	struct vec3 *tp = erays->tp;
+	unsigned int *pd = &erays->pdata[streamofs];
+
+	struct vec3 *acc = rd->acc;
+	unsigned int *buf = rd->buf;
+
+	for (unsigned int k = 0; k < PCKT_SZ * pcnt; k++) {
+		unsigned int ofs = (*pd++ >> SMPL_ID_BITS) & PIX_ID_MASK;
+		acc[ofs] = vec3_add(acc[ofs], *tp++);
+		struct vec3 c = vec3_scale(acc[ofs], invsmpls);
+		buf[ofs] = 0xffu << 24 |
+		  ((unsigned int)(255 * c.x) & 0xff) << 16 |
+		  ((unsigned int)(255 * c.y) & 0xff) <<  8 |
+		  ((unsigned int)(255 * c.z) & 0xff);
+	}
 }
 
 int rend_render(void *d)
@@ -3836,8 +3904,7 @@ int rend_render(void *d)
 	unsigned char cmask[2 * STREAM_LEN / 8];
 
 	struct extraystrm extrays;
-	//struct shdraystrm shdrays;
-	struct vec3 col[MAX_PCKTS * PCKT_SZ];
+	struct shdraystrm shdrays;
 
 	while (true) {
 		int blk = __atomic_fetch_add(&rd->blknum, 1, __ATOMIC_SEQ_CST);
@@ -3858,28 +3925,14 @@ int rend_render(void *d)
 			init_extrays(&extrays, cmask, &rd->cam, w,
 			  &rngstate, sofs, k, bx, by, pcnt, rcnt);
 
-			//intersect_extrays(rd, &extrays, cmask, sofs, pcnt);
+			intersect_extrays(&extrays, cmask, sofs, pcnt, rd);
 
-		/// TEMP TEMP
-			unsigned int rays2 = 0;
-			unsigned int j = 0;
-			while (j < pcnt) {
-				unsigned int cnt = min(MAX_PCKTS, pcnt - j);
-				trace_pckts(col,
-				  &extrays.ox8[j], &extrays.oy8[j],
-				  &extrays.oz8[j],
-				  &extrays.dx8[j], &extrays.dy8[j],
-				  &extrays.dz8[j],
-				  cnt, rd, &rays2);
+			unsigned int epcnt, spcnt;
+			shade(&extrays, &shdrays, &epcnt, &spcnt, sofs,
+			  pcnt, rd);
 
-				accum_pckts(rd->acc, rd->buf,
-				  col, k + j, cnt, bx, by,
-				  (float *)&pcktxofs8, (float *)&pcktyofs8,
-				  w, invsmpls);
-
-				j += cnt;
-			}
-		///
+			accumulate(&extrays, &shdrays, sofs, pcnt, invsmpls,
+			  rd);
 
 			k += pcnt;
 			rcnt += pcnt * PCKT_SZ;
