@@ -3744,28 +3744,44 @@ void intersect_extrays(struct extraystrm *rays,
 	__m256i *pid8 = rays->pid8;
 	//__m256i *mid8 = rays->mid8;
 
+// TODO Improve buffer indexing
 	unsigned char *cm = cohmask;
 	unsigned int k = 0;
 	while (k < pcnt) {
-		unsigned char rem = min(MAX_PCKTS, pcnt - k);
+		unsigned char cnt = min(MAX_PCKTS, pcnt - k);
 		unsigned char l = 0; // Last pckt index
-		unsigned char pcmask = 0xff; // Prev coherency mask
-		for (unsigned char j = 0; j < rem; j++) {
+		unsigned char pcmask = 0xfe; // Prev coherency mask
+		for (unsigned char j = 0; j < cnt; j++) {
 			unsigned char cmask = *cm++;
-			if (cmask == 0xff) {
-				if (j - l > 0) {
-					// Intersect all pckts so far excl
-					// last one which is incoherent
+
+			if (pcmask < 0xfe && pcmask != cmask) {
+				// Intersect all pckts so far excluding last
+				// because coherence mask changed
+				if (j - l > 1)
+					// Multiple packets
 					intersect_pckts_tlas(
 					  &t8[k + l], &u8[k + l], &v8[k + l],
 					  &pid8[k + l], &ox8[k + l],
 					  &oy8[k + l], &oz8[k + l],
 					  &dx8[k + l], &dy8[k + l],
-					  &dz8[k + l], j - l, rd->bnodes,
+					  &dz8[k + l],
+					  j - l, rd->bnodes,
 					  rd->insts, rd->tlasofs);
-				}
-				// Trace rays of last pckt individually
-				// because it was incoherent
+				else
+					// Single packet
+					intersect_pckt_tlas(
+					  &t8[k + l], &u8[k + l], &v8[k + l],
+					  &pid8[k + l],
+					  ox8[k + l], oy8[k + l], oz8[k + l],
+					  dx8[k + l], dy8[k + l], dz8[k + l],
+					  rd->bnodes, rd->insts, rd->tlasofs);
+				// Account for handled packets
+				l = j;
+			}
+
+			if (cmask == 0xff) {
+				// Intersect rays of last pckt individually
+				// because packet was incoherent
 				float *ox = (float *)&ox8[k + j];
 				float *oy = (float *)&oy8[k + j];
 				float *oz = (float *)&oz8[k + j];
@@ -3782,33 +3798,23 @@ void intersect_extrays(struct extraystrm *rays,
 					  *ox++, *oy++, *oz++,
 					  *dx++, *dy++, *dz++,
 					  rd->bnodes, rd->insts, rd->tlasofs);
-
-				l = j + 1; // Account for handled pckts
-				cmask = 0xff; // Reset coherency mask
-			} else if (pcmask != 0xff && pcmask != cmask) {
-				// Trace all pckts so far excl last,
-				// because their coherency mask changed
-				intersect_pckts_tlas(&t8[k + l], &u8[k + l],
-				  &v8[k + l], &pid8[k + l], &ox8[k + l],
-				  &oy8[k + l], &oz8[k + l], &dx8[k + l],
-				  &dy8[k + l], &dz8[k + l],
-				  j - l, rd->bnodes, rd->insts, rd->tlasofs);
-
-				l = j;
+				// Account for handled packet
+				l++;
 			}
+
 			// Track coherency among packets
 			pcmask = cmask;
 		}
 
-		// Handle remaining (pckts that did not need special handling)
-		if (rem - l > 0) {
+		// Handle remaining chain of coherent packets
+		if (cnt - l > 0) {
 			intersect_pckts_tlas(&t8[k + l], &u8[k + l],
 			  &v8[k + l], &pid8[k + l], &ox8[k + l], &oy8[k + l],
 			  &oz8[k + l], &dx8[k + l], &dy8[k + l], &dz8[k + l],
-			  rem - l, rd->bnodes, rd->insts, rd->tlasofs);
+			  cnt - l, rd->bnodes, rd->insts, rd->tlasofs);
 		}
 
-		k += rem;
+		k += cnt;
 	}
 }
 
