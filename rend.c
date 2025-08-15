@@ -3747,7 +3747,6 @@ void intersect_extrays(struct extraystrm *rays,
 	unsigned char *cm = cohmask;
 	unsigned int k = 0;
 	while (k < pcnt) {
-#if 1
 		unsigned char rem = min(MAX_PCKTS, pcnt - k);
 		unsigned char l = 0; // Last pckt index
 		unsigned char pcmask = 0xff; // Prev coherency mask
@@ -3801,7 +3800,7 @@ void intersect_extrays(struct extraystrm *rays,
 			pcmask = cmask;
 		}
 
-		// Handle remaining
+		// Handle remaining (pckts that did not need special handling)
 		if (rem - l > 0) {
 			intersect_pckts_tlas(&t8[k + l], &u8[k + l],
 			  &v8[k + l], &pid8[k + l], &ox8[k + l], &oy8[k + l],
@@ -3810,60 +3809,6 @@ void intersect_extrays(struct extraystrm *rays,
 		}
 
 		k += rem;
-#else ///////
-		unsigned int l = 1;
-		unsigned int remaining = min(MAX_PCKTS, pcnt - k);
-		while (l < remaining && *cm != 0xff && *cm == *(cm + 1)) {
-			cm++;
-			l++;
-		}
-
-		unsigned int ll = l;
-		if (*cm == 0xff) {
-			// Last pckt in itself not coherent
-			// Intersect rays of pckt individually
-			float *ox = (float *)&ox8[l];
-			float *oy = (float *)&oy8[l];
-			float *oz = (float *)&oz8[l];
-			float *dx = (float *)&dx8[l];
-			float *dy = (float *)&dy8[l];
-			float *dz = (float *)&dz8[l];
-			float *t = (float *)&t8[l];
-			float *u = (float *)&u8[l];
-			float *v = (float *)&v8[l];
-			unsigned int *pid = (unsigned int *)&pid8[l];
-			for (unsigned char j = 0; j < PCKT_SZ; j++)
-				intersect_tlas(t++, u++, v++, pid++,
-				  *ox++, *oy++, *oz++, *dx++, *dy++, *dz++,
-				  rd->bnodes, rd->insts, rd->tlasofs);
-			l--; // Account for pckt already intersected
-		}
-
-		// Intersect all earlier coherent pckts
-		if (l > 1)
-			// Multiple packets
-			intersect_pckts_tlas(t8, u8, v8, pid8,
-			  ox8, oy8, oz8, dx8, dy8, dz8,
-			  l, rd->bnodes, rd->insts, rd->tlasofs);
-		else if (l > 0)
-			// Single packet
-			intersect_pckt_tlas(t8, u8, v8, pid8,
-			  *ox8, *oy8, *oz8, *dx8, *dy8, *dz8,
-			  rd->bnodes, rd->insts, rd->tlasofs);
-
-		ox8 += ll;
-		oy8 += ll;
-		oz8 += ll;
-		dx8 += ll;
-		dy8 += ll;
-		dz8 += ll;
-		t8 += ll;
-		u8 += ll;
-		v8 += ll;
-		pid8 += ll;
-
-		k += ll;
-#endif
 	}
 }
 
