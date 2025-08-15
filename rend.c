@@ -3698,10 +3698,12 @@ void init_extrays(struct extraystrm *rays, unsigned char *cohmask,
 		  pcktxofs8, pcktyofs8, cam, rngstate);
 
 		unsigned char m = 0;
-		*cmask++ = iscohval3(&m, *dx8++, *dy8++, *dz8++) ? m : 0xff;
+		*cmask++ = iscohval3(&m, *dx8++, *dy8++, *dz8++)
+		  ? m : /* Flag rays of pckt as incoherent */ 0xff;
 
 		*t8++ = fltmax8;
 
+// TODO Vectorize
 		float *px = (float *)&pcktxofs8;
 		float *py = (float *)&pcktyofs8;
 		for (unsigned char i = 0; i < PCKT_SZ; i++) {
@@ -3745,29 +3747,91 @@ void intersect_extrays(struct extraystrm *rays,
 	unsigned char *cm = cohmask;
 	unsigned int k = 0;
 	while (k < pcnt) {
-		// Identify chain of coherent pckts
-		unsigned int l = 0;
-		unsigned char pcmask = 0xfe;
-	// TODO Handle all cases
-		while (l < MAX_PCKTS && (pcmask == *cm || pcmask == 0xfe)) {
-			pcmask = *cm++;
+#if 1
+		unsigned char rem = min(MAX_PCKTS, pcnt - k);
+		unsigned char l = 0; // Last pckt index
+		unsigned char pcmask = 0xff; // Prev coherency mask
+		for (unsigned char j = 0; j < rem; j++) {
+			unsigned char cmask = *cm++;
+			if (cmask == 0xff) {
+				if (j - l > 0) {
+					// Intersect all pckts so far excl
+					// last one which is incoherent
+					intersect_pckts_tlas(
+					  &t8[k + l], &u8[k + l], &v8[k + l],
+					  &pid8[k + l], &ox8[k + l],
+					  &oy8[k + l], &oz8[k + l],
+					  &dx8[k + l], &dy8[k + l],
+					  &dz8[k + l], j - l, rd->bnodes,
+					  rd->insts, rd->tlasofs);
+				}
+				// Trace rays of last pckt individually
+				// because it was incoherent
+				float *ox = (float *)&ox8[k + j];
+				float *oy = (float *)&oy8[k + j];
+				float *oz = (float *)&oz8[k + j];
+				float *dx = (float *)&dx8[k + j];
+				float *dy = (float *)&dy8[k + j];
+				float *dz = (float *)&dz8[k + j];
+				float *t = (float *)&t8[k + j];
+				float *u = (float *)&u8[k + j];
+				float *v = (float *)&v8[k + j];
+				unsigned int *pid =
+				  (unsigned int *)&pid8[k + j];
+				for (unsigned char i = 0; i < PCKT_SZ; i++)
+					intersect_tlas(t++, u++, v++, pid++,
+					  *ox++, *oy++, *oz++,
+					  *dx++, *dy++, *dz++,
+					  rd->bnodes, rd->insts, rd->tlasofs);
+
+				l = j + 1; // Account for handled pckts
+				cmask = 0xff; // Reset coherency mask
+			} else if (pcmask != 0xff && pcmask != cmask) {
+				// Trace all pckts so far excl last,
+				// because their coherency mask changed
+				intersect_pckts_tlas(&t8[k + l], &u8[k + l],
+				  &v8[k + l], &pid8[k + l], &ox8[k + l],
+				  &oy8[k + l], &oz8[k + l], &dx8[k + l],
+				  &dy8[k + l], &dz8[k + l],
+				  j - l, rd->bnodes, rd->insts, rd->tlasofs);
+
+				l = j;
+			}
+			// Track coherency among packets
+			pcmask = cmask;
+		}
+
+		// Handle remaining
+		if (rem - l > 0) {
+			intersect_pckts_tlas(&t8[k + l], &u8[k + l],
+			  &v8[k + l], &pid8[k + l], &ox8[k + l], &oy8[k + l],
+			  &oz8[k + l], &dx8[k + l], &dy8[k + l], &dz8[k + l],
+			  rem - l, rd->bnodes, rd->insts, rd->tlasofs);
+		}
+
+		k += rem;
+#else ///////
+		unsigned int l = 1;
+		unsigned int remaining = min(MAX_PCKTS, pcnt - k);
+		while (l < remaining && *cm != 0xff && *cm == *(cm + 1)) {
+			cm++;
 			l++;
 		}
 
 		unsigned int ll = l;
-		if (pcmask == 0xff) {
+		if (*cm == 0xff) {
 			// Last pckt in itself not coherent
 			// Intersect rays of pckt individually
-			float *ox = (float *)&ox8[l - 1];
-			float *oy = (float *)&oy8[l - 1];
-			float *oz = (float *)&oz8[l - 1];
-			float *dx = (float *)&dx8[l - 1];
-			float *dy = (float *)&dy8[l - 1];
-			float *dz = (float *)&dz8[l - 1];
-			float *t = (float *)&t8[l - 1];
-			float *u = (float *)&u8[l - 1];
-			float *v = (float *)&v8[l - 1];
-			unsigned int *pid = (unsigned int *)&pid8[l - 1];
+			float *ox = (float *)&ox8[l];
+			float *oy = (float *)&oy8[l];
+			float *oz = (float *)&oz8[l];
+			float *dx = (float *)&dx8[l];
+			float *dy = (float *)&dy8[l];
+			float *dz = (float *)&dz8[l];
+			float *t = (float *)&t8[l];
+			float *u = (float *)&u8[l];
+			float *v = (float *)&v8[l];
+			unsigned int *pid = (unsigned int *)&pid8[l];
 			for (unsigned char j = 0; j < PCKT_SZ; j++)
 				intersect_tlas(t++, u++, v++, pid++,
 				  *ox++, *oy++, *oz++, *dx++, *dy++, *dz++,
@@ -3799,6 +3863,7 @@ void intersect_extrays(struct extraystrm *rays,
 		pid8 += ll;
 
 		k += ll;
+#endif
 	}
 }
 
