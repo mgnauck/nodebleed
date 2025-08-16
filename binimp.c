@@ -108,6 +108,66 @@ static unsigned char *rdstr(char *s, unsigned char *b)
 	return ++p;
 }
 
+unsigned char *rdmesh(struct scene *s, unsigned char *b)
+{
+	printf("- mesh ----\n");
+
+	unsigned int dummy;
+	b = rduint(&dummy, b); // mesh id
+	printf("meshid: %d\n", dummy);
+
+	unsigned int primcnt;
+	b = rduint(&primcnt, b);
+	printf("primcnt: %d\n", primcnt);
+
+	for (unsigned int j = 0; j < primcnt; j++) {
+
+		printf("- prim ----\n");
+
+		unsigned int mtlid;
+		b = rduint(&mtlid, b);
+		printf("mtlid: %d\n", mtlid);
+
+		b = rduint(&dummy, b); // mtlofs
+		printf("mtlofs: %d\n", dummy);
+
+		b = rduint(&dummy, b); // facegid
+		printf("facegid: %d\n", dummy);
+
+		unsigned int facegofs;
+		b = rduint(&facegofs, b);
+		printf("facegofs: %d\n", facegofs);
+
+		printf("- mirp ----\n");
+	}
+
+	b = rduint(&dummy, b); // vertgid
+	printf("vertgid: %d\n", dummy);
+
+	unsigned int vertgofs;
+	b = rduint(&vertgofs, b);
+	printf("vertgofs: %d\n", vertgofs);
+
+	b = rduint(&dummy, b); // nrmgid
+	printf("nrmgid: %d\n", dummy);
+
+	unsigned int nrmgofs;
+	b = rduint(&nrmgofs, b);
+	printf("nrmgofs: %d\n", nrmgofs);
+
+	printf("- mesh ----\n");
+
+	/*
+	int id = scene_initmesh(s, vcnt, icnt, primcnt);
+	if (id < 0)
+		abort("Failed to create mesh\n");
+
+	struct mesh *m = &s->meshes[id];
+	//*/
+
+	return b;
+}
+
 unsigned char *rdnode(struct scene *s, unsigned int *nodeid, unsigned char *b)
 {
 	printf("- node ----\n");
@@ -270,9 +330,11 @@ void imp_bin(struct scene *s, unsigned char *bin)
 	  nodecnt, trackcnt, samplercnt, animbytes);
 
 	unsigned int nodemap[nodecnt];
-	for (unsigned int i = 0; i < nodecnt; i++) {
+	for (unsigned int i = 0; i < nodecnt; i++)
 		b = rdnode(s, &nodemap[i], b);
-	}
+
+	for (unsigned int i = 0; i < meshcnt; i++)
+		b = rdmesh(s, b);
 
 	printf("- nib ----\n");
 }
