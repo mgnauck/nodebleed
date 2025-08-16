@@ -3725,6 +3725,21 @@ void init_extrays(struct extraystrm *rays, unsigned char *cohmask,
 	}
 }
 
+void adv_strm(__m256 **a, __m256 **b, __m256 **c, __m256 **d,
+              __m256 **e, __m256 **f, __m256 **g, __m256 **h,
+              __m256 **i, unsigned int ofs)
+{
+	*a += ofs;
+	*b += ofs;
+	*c += ofs;
+	*d += ofs;
+	*e += ofs;
+	*f += ofs;
+	*g += ofs;
+	*h += ofs;
+	*i += ofs;
+}
+
 void intersect_extrays(struct extraystrm *rays,
                        unsigned char *cohmask, unsigned int streamofs,
 		       unsigned int pcnt, struct rdata *rd)
@@ -3744,7 +3759,6 @@ void intersect_extrays(struct extraystrm *rays,
 	__m256i *pid8 = rays->pid8;
 	//__m256i *mid8 = rays->mid8;
 
-// TODO Improve buffer indexing
 	unsigned char *cm = cohmask;
 	unsigned int k = 0;
 	while (k < pcnt) {
@@ -3759,46 +3773,42 @@ void intersect_extrays(struct extraystrm *rays,
 				// because coherence mask changed
 				if (j - l > 1)
 					// Multiple packets
-					intersect_pckts_tlas(
-					  &t8[k + l], &u8[k + l], &v8[k + l],
-					  &pid8[k + l], &ox8[k + l],
-					  &oy8[k + l], &oz8[k + l],
-					  &dx8[k + l], &dy8[k + l],
-					  &dz8[k + l],
+					intersect_pckts_tlas(t8, u8, v8, pid8,
+					  ox8, oy8, oz8, dx8, dy8, dz8,
 					  j - l, rd->bnodes,
 					  rd->insts, rd->tlasofs);
 				else
 					// Single packet
-					intersect_pckt_tlas(
-					  &t8[k + l], &u8[k + l], &v8[k + l],
-					  &pid8[k + l],
-					  ox8[k + l], oy8[k + l], oz8[k + l],
-					  dx8[k + l], dy8[k + l], dz8[k + l],
+					intersect_pckt_tlas(t8, u8, v8, pid8,
+					  *ox8, *oy8, *oz8, *dx8, *dy8, *dz8,
 					  rd->bnodes, rd->insts, rd->tlasofs);
-				// Account for handled packets
+				adv_strm(&t8, &u8, &v8, &ox8, &oy8, &oz8,
+				  &dx8, &dy8, &dz8, j - l);
+				pid8 += j - l;
 				l = j;
 			}
 
 			if (cmask == 0xff) {
 				// Intersect rays of last pckt individually
 				// because packet was incoherent
-				float *ox = (float *)&ox8[k + j];
-				float *oy = (float *)&oy8[k + j];
-				float *oz = (float *)&oz8[k + j];
-				float *dx = (float *)&dx8[k + j];
-				float *dy = (float *)&dy8[k + j];
-				float *dz = (float *)&dz8[k + j];
-				float *t = (float *)&t8[k + j];
-				float *u = (float *)&u8[k + j];
-				float *v = (float *)&v8[k + j];
-				unsigned int *pid =
-				  (unsigned int *)&pid8[k + j];
+				float *ox = (float *)ox8;
+				float *oy = (float *)oy8;
+				float *oz = (float *)oz8;
+				float *dx = (float *)dx8;
+				float *dy = (float *)dy8;
+				float *dz = (float *)dz8;
+				float *t = (float *)t8;
+				float *u = (float *)u8;
+				float *v = (float *)v8;
+				unsigned int *pid = (unsigned int *)pid8;
 				for (unsigned char i = 0; i < PCKT_SZ; i++)
 					intersect_tlas(t++, u++, v++, pid++,
 					  *ox++, *oy++, *oz++,
 					  *dx++, *dy++, *dz++,
 					  rd->bnodes, rd->insts, rd->tlasofs);
-				// Account for handled packet
+				adv_strm(&t8, &u8, &v8, &ox8, &oy8, &oz8,
+				  &dx8, &dy8, &dz8, 1);
+				pid8++;
 				l++;
 			}
 
@@ -3808,10 +3818,12 @@ void intersect_extrays(struct extraystrm *rays,
 
 		// Handle remaining chain of coherent packets
 		if (cnt - l > 0) {
-			intersect_pckts_tlas(&t8[k + l], &u8[k + l],
-			  &v8[k + l], &pid8[k + l], &ox8[k + l], &oy8[k + l],
-			  &oz8[k + l], &dx8[k + l], &dy8[k + l], &dz8[k + l],
+			intersect_pckts_tlas(t8, u8, v8, pid8,
+			  ox8, oy8, oz8, dx8, dy8, dz8,
 			  cnt - l, rd->bnodes, rd->insts, rd->tlasofs);
+			adv_strm(&t8, &u8, &v8, &ox8, &oy8, &oz8,
+			  &dx8, &dy8, &dz8, cnt - l);
+			pid8 += cnt - l;
 		}
 
 		k += cnt;
