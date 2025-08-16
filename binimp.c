@@ -100,10 +100,8 @@ static unsigned char *rdvec3(struct vec3 *v, unsigned char *b)
 static unsigned char *rdstr(char *s, unsigned char *b)
 {
 	unsigned char *p = b;
-	while (*p && p - b < MAX_STR_LEN - 1) {
-		printf("str: %c\n", *p);
+	while (*p && p - b < MAX_STR_LEN - 1)
 		*s++ = *(char *)p++;
-	}
 	*s = '\0';
 	if (*p)
 		abort("Max string len reached without reading \\0");
@@ -118,15 +116,12 @@ unsigned char *rdnode(struct scene *s, unsigned int *nodeid, unsigned char *b)
 	b = rduint(&dummy, b); // node id
 	printf("nodeid: %d\n", dummy);
 
-	b = rduint(&dummy, b); // node ofs
-	printf("node ofs: %d\n", dummy);
-
 	unsigned int pid;
 	b = rduint(&pid, b);
 	printf("prntid: %d\n", pid);
 
-	b = rduint(&dummy, b); // prnt ofs
-	printf("prnt ofs: %d\n", dummy);
+	b = rduint(&dummy, b);
+	printf("prntofs: %d\n", dummy);
 
 	char name[MAX_STR_LEN];
 	b = rdstr(name, b);
@@ -215,7 +210,8 @@ void imp_bin(struct scene *s, unsigned char *bin)
 	b = rduint(&camcnt, b);
 	printf("camcnt: %d\n", camcnt);
 
-	b = rduint(&dummy, b); // Light cnt
+	b = rduint(&dummy, b);
+	printf("lightcnt: %d\n", dummy);
 
 	unsigned int mtlcnt;
 	b = rduint(&mtlcnt, b);
